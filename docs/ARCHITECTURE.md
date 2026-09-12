@@ -33,7 +33,7 @@ mindmap
       prr.md — before deploy
       postmortem.md — incident → gate or scar
       paradigm.md — functional core, imperative shell
-      cases.md — 144 scars
+      cases.md — 149 scars
     Repo template
       CI: quality · mutation on changed files · release · token-gated AI review
       docs: ARCHITECTURE with parsed boundaries · CRITICAL-PATHS QA matrix · PRIVACY · RUNBOOK · ADR
@@ -124,7 +124,7 @@ flowchart TB
   RC --> GH[guard_health.py — weekly: still wired? still blocking?]
 ```
 
-144 scars today. Examples of gates born from scars: green checks on a stale merge-ref that broke `main` → merge only on
+149 scars today. Examples of gates born from scars: green checks on a stale merge-ref that broke `main` → merge only on
 the current merge-ref + strict branch protection; a hook that consumed stdin twice and never ran for six days → every git
 hook has a test that runs the whole script with stdin; 45 copies of a company identity across 11 files, all of which
 passed lint, types, tests and review → duplicate-literal gate on added lines; a fallback that silently changed the seller

@@ -14,7 +14,9 @@ name: Mutation Testing
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    # labeled/unlabeled: etykieta allow-low-mutation jest udokumentowana sciezka ominiecia tej bramki, wiec jej zalozenie
+    # musi przeliczyc check (bez tego czerwony wynik wisial na PR do nastepnego pusha — demo-site #13, sesja rownolegla).
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -22,7 +24,12 @@ permissions:
 jobs:
   mutation:
     name: Mutation (zmienione pliki)
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'allow-low-mutation') }}
+    # labeled/unlabeled lapia KAZDA etykiete (GitHub nie filtruje triggera po nazwie), wiec bez drugiego warunku dowolna
+    # etykieta odpalalaby pelny run Strykera.
+    if: >-
+      ${{ !contains(github.event.pull_request.labels.*.name, 'allow-low-mutation')
+          && (github.event.action != 'labeled' && github.event.action != 'unlabeled'
+              || github.event.label.name == 'allow-low-mutation') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -62,7 +69,12 @@ jobs:
 
       - name: Install
         if: steps.scope.outputs.files != ''
-        run: npm ci || npm install
+        run: |
+          npm ci || npm install
+          # Stryker i runner musza siedziec w node_modules PROJEKTU: core laduje plugin runnera oraz `typescript`
+          # (ts-config-preprocessor) zwykla rezolucja Node od swojego pliku, wiec odpalony z cache npx (-p) nie widzial ani
+          # jednego, ani drugiego (demo-site #13: "Cannot find plugin", "Cannot find package 'typescript'").
+          npm install --no-save --no-audit --no-fund @stryker-mutator/core@10.0.0 @stryker-mutator/vitest-runner@10.0.0
 
       - name: Stryker na zmienionych plikach (prog 50 %)
         if: steps.scope.outputs.files != ''
@@ -90,7 +102,7 @@ jobs:
           # executed" i job bylby czerwony z powodu konfiguracji, nie jakosci testow (demo-site PR #17, 2026-09-12).
           # To jest SKIP z widocznym powodem — brak testow dla nowej LOGIKI lapie stop-gate/review (T2+ blocker), nie ta bramka.
           set +e
-          npx --yes -p @stryker-mutator/core@10.0.0 -p @stryker-mutator/vitest-runner@10.0.0 stryker run stryker.pr.config.json 2>&1 | tee stryker.log
+          npx stryker run stryker.pr.config.json 2>&1 | tee stryker.log
           rc=${PIPESTATUS[0]}
           set -e
           if grep -q "No tests were executed" stryker.log; then
