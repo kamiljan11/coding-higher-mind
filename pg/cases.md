@@ -229,6 +229,16 @@ punkt 1; punkt 2 wyszedł dopiero z pomiaru po naprawie.
 | STOPGATE-TEST-STATE-KEY-MISMATCH | helper testu liczyl sciezke stanu anty-petli z md5(cwd), a stop-gate od 09-05 z md5(cwd+'|'+session_id) -> test nigdy nie czyscil stanu; przypadek „T3 z review => 0" przechodzil, bo blokada review byla juz ZUZYTA przez poprzedni przypadek (zielony test, ktory nic nie testowal) | 1 | helper z tym samym kluczem; regula: test hooka ze stanem MUSI asertowac, ze plik stanu istnieje/znika (nie zakladac); zmiana klucza stanu = zmiana helpera w tym samym commicie | G (test) |
 | PIPE-GREP-MASKS-TEST-EXIT | `node test.js | grep -E "FAIL|TESTY"` w lancuchu `&&` — exit code to grep (0 gdy sa linie), commit 3798205 przeszedl z 3 FAIL | 1 (ta sesja) | `set -o pipefail` albo wynik do pliku + `rc=$?`; ta sama klasa co PIPEFAIL-GREP-V-EMPTY-EQUALS-FAIL | case |
 
+## TOOLING / HOOKS — 2026-09-12 (publiczny eksport PG „Coding Higher Mind": pierwszy przebieg systemu poza ta maszyna)
+
+| rule_id | Wzorzec | Wystapienia | Bramka / fix | Typ |
+|---|---|---|---|---|
+| PREPUSH-BASHISM-DASH | `done <<< "$VAR"` (here-string) w hooku z `#!/bin/sh`: na Windows sh = bash (dziala), na Ubuntu sh = dash -> `Syntax error: redirection unexpected`, hook pada z rc 2 i BLOKUJE KAZDY push. 6 dni „dzialalo", bo nikt nie odpalil hookow poza Windows | pre-push x2, pre-commit x1 | POSIX here-doc (`<<PG_REFS ... PG_REFS`); CI eksportu = pierwszy test hookow na Linuksie. Regula: hook `#!/bin/sh` testowac pod dash (CI ubuntu), nie tylko pod Git Bash | G (CI) |
+| FAKE-ACTION-PIN-SHA | SHA pinu `actions/checkout@34e114…` napisany „z pamieci" — nie istnial; CI padal na `Set up job`. Halucynacja wersji dokladnie z PG-core 2 (zero zmyslonych wersji) — w workflowie, gdzie pin ma byc DOWODEM | 1 | piny wylacznie skopiowane z dzialajacego szablonu floty (`templates/repo/.github/workflows/quality.yml`) | case |
+| EXPORT-REVERSE-MAP-IN-OUTPUT | raport eksportu (lista regexow = REALNE nazwy klientow, adres, nazwisko) pisany do katalogu wyjsciowego; `.gitignore` chronil git, ale zip/tar katalogu wyniosl by cala odwrotna mape redakcji | 1 | raport pisany POZA katalogiem eksportu; przeglad security ze swiezym kontekstem PRZED upublicznieniem = obowiazkowy krok (znalazl 3 blockery po „0 problemow" z denylisty) | G (proces) |
+| DENYLIST-PASSES-WHAT-REGEX-DIDNT-KNOW | 0 trafien denylisty != czysto: nazwisko klienta w stringu LICENSE fikstury, adres pocztowy, nazwa firmy w rutynie — wszystko poza lista wzorcow. Sanityzacja regexem lapie tylko to, co autor pamietal, ze ma ukryc | 3 blockery | drugi, niezalezny przeglad (agent security, opus, „zaloz, ze przecieka") + repo najpierw PRYWATNE, upublicznienie dopiero po zielonym CI i przegladzie | G (proces) |
+| SANITIZATION-BREAKS-TEST-FIXTURE | fikstura testu uzywala nazwy produktu jako literalu; substytucja skrocila ja ponizej progu `min-len` i test przechodzil bez asercji (0 offenderow zamiast 1) | 2 testy | fikstury z neutralnymi nazwami (`Acme Rentals Ltd.`), E2E instalacji w izolowanym HOME po eksporcie | G (test) |
+
 ## PROCESS / PRODUCT — z memo software-house „Reorganizacja 2027: Inzynier 2027 vs Klepacz Taskow" (prezes, wrzesien 2026; wczytane 2026-09-12)
 
 Zrodlo zewnetrzne (nie blizny floty) — 28 stron o tym, za co rynek 2027 placi inzynierowi, gdy samo pisanie kodu robi model.

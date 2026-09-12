@@ -160,14 +160,15 @@ if [ -n "$wf_files" ] && [ -f "$WF_LINT/lint.mjs" ] && [ -d "$WF_LINT/node_modul
   repo_root=$(pwd)
   # Bug 2026-09-06: unquoted $(...) word-splits any path containing a space
   # (np. "~\...") -> node dostaje "C:\Users\uzytkownik" jako osobny
-  # argument -> ENOENT, a caly commit byl niesluznie blokowany. Tablica + cytowanie.
-  wf_paths=()
+  # argument -> ENOENT, a caly commit byl niesluznie blokowany. Lista argumentow przez `set --` (POSIX; tablice bash
+  # `x=()` wywalaly hook pod dash/busybox: `syntax error: unexpected "("` — blizna PREPUSH-BASHISM-DASH, 2026-09-12).
+  set --
   while IFS= read -r f; do
-    [ -n "$f" ] && wf_paths+=("$repo_root/$f")
+    [ -n "$f" ] && set -- "$@" "$repo_root/$f"
   done <<PG_WF
 $wf_files
 PG_WF
-  if ! (cd "$WF_LINT" && node --import ./hook.mjs lint.mjs "${wf_paths[@]}"); then
+  if ! (cd "$WF_LINT" && node --import ./hook.mjs lint.mjs "$@"); then
     echo "[pre-commit] workflow-lint: plik workflow NIEWAZNY dla GitHuba (patrz wyzej) — commit ZABLOKOWANY. Popraw skladnie/konteksty; to nie jest kwestia YAML." >&2
     exit 1
   fi

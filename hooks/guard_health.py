@@ -178,6 +178,18 @@ check("test_dup_literals: 8 przypadkow", _rc_out(_r)[0] == 0, (_rc_out(_r)[1].st
 # Nieaktualne = ktos dodal/zmienil narzedzie bez `python bin/pg-map.py`; narzedzie bez opisu = obcy senior nie wie, co to robi.
 _r = sh([sys.executable, str(CLAUDE / "bin" / "pg-map.py"), "--check"], timeout=60)
 check("pg-map: README.md + bin/README.md aktualne, kazde narzedzie w bin/ ma samoopis", _rc_out(_r)[0] == 0 and "bez opisu: 0" in _rc_out(_r)[1], (_rc_out(_r)[1].strip().splitlines() or ["brak wyniku"])[-1])
+# 2h. Hooki gita (#!/bin/sh) musza parsowac pod POSIX sh, nie tylko pod Git Bash: na Ubuntu sh = dash, w WSL/busybox tez.
+# Blizna PREPUSH-BASHISM-DASH (2026-09-12): here-string `<<<` i tablice `x=()` wywalaly hook z rc 2 = KAZDY push/commit zablokowany
+# na Linuksie; wykryte dopiero przez CI publicznego eksportu. Bez WSL = info (CI ubuntu eksportu jest druga linia).
+if shutil.which("wsl"):
+    for _hook in ("pre-commit", "pre-push", "commit-msg"):
+        # sciezke tlumaczy wslpath WEWNATRZ dystrybucji (docker-desktop montuje C: pod /tmp/docker-desktop-root/..., Ubuntu pod /mnt/c)
+        _win = str(CLAUDE / "git-hooks" / _hook)
+        _r = sh(["wsl", "-e", "sh", "-c", f"sh -n \"$(wslpath '{_win}')\""], timeout=60)
+        _rc, _out = _rc_out(_r)
+        check(f"git-hooks/{_hook}: skladnia POSIX sh (WSL sh -n)", _rc == 0, (_out.strip().splitlines() or ["brak wyniku"])[-1][:160])
+else:
+    print("info: brak WSL — skladnia POSIX hookow sprawdzana tylko w CI eksportu (ubuntu)")
 for tool in ["sql-migration-lint.js", "fleet-metrics.js"]:
     check(f"bin/{tool} istnieje", (CLAUDE / "bin" / tool).exists(), "narzedzie z audytu 2026-09-05 zniknelo")
 # 2h3. Gap-analiza vs slownik software house (2026-09-12, L1-L15): faza, srodowiska, backup, QA-instancje, PII, dlug.
@@ -185,7 +197,7 @@ for _name in ("phase-gate.js", "env-ref-gate.js", "todo-ledger-gate.js", "pii-in
     check(f"bin/{_name} istnieje", (CLAUDE / "bin" / _name).exists(), "narzedzie z gap-analizy 2026-09-12 zniknelo")
 check("agent qa-reviewer istnieje + schemat + procedure", "<schema>" in read(CLAUDE / "agents" / "qa-reviewer.md") and "<procedure>" in read(CLAUDE / "agents" / "qa-reviewer.md"))
 check("pre-commit ma bramki phase/todo/pii", all(k in read(CLAUDE / "git-hooks" / "pre-commit") for k in ("phase-gate.js", "todo-ledger-gate.js", "pii-inventory-gate.js")))
-check("pre-push: blok main czyta PUSH_REFS (blizna 2026-09-12)", 'done <<< "$PUSH_REFS"' in read(CLAUDE / "git-hooks" / "pre-push") and read(CLAUDE / "git-hooks" / "pre-push").rstrip().endswith("exit 0"))
+check("pre-push: blok main czyta PUSH_REFS (blizna 2026-09-12; POSIX here-doc, nie bashowy <<<)", "done <<PG_REFS" in read(CLAUDE / "git-hooks" / "pre-push") and "<<<" not in read(CLAUDE / "git-hooks" / "pre-push") and read(CLAUDE / "git-hooks" / "pre-push").rstrip().endswith("exit 0"))
 check("qa-matrix runtime: tools/qa-matrix/node_modules/playwright", (CLAUDE / "tools" / "qa-matrix" / "node_modules" / "playwright" / "package.json").exists(), "cd ~/.claude/tools/qa-matrix && npm install && npx playwright install chromium")
 # Pakiet npm bez pobranej przegladarki = falszywa zielen (ops-reviewer 2026-09-12): sprawdz rewizje chromium z browsers.json w %LOCALAPPDATA%/ms-playwright.
 _browsers = CLAUDE / "tools" / "qa-matrix" / "node_modules" / "playwright-core" / "browsers.json"

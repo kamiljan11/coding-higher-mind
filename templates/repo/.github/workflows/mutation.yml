@@ -86,4 +86,15 @@ jobs:
             require("fs").writeFileSync("stryker.pr.config.json", JSON.stringify(cfg, null, 2));
             console.log(JSON.stringify(cfg, null, 2));
           '
-          npx --yes -p @stryker-mutator/core@10.0.0 -p @stryker-mutator/vitest-runner@10.0.0 stryker run stryker.pr.config.json
+          # Zmienione pliki bez ZADNEGO testu (strona z trescia, komponent bez logiki): Stryker rzuca ConfigError „No tests were
+          # executed" i job bylby czerwony z powodu konfiguracji, nie jakosci testow (demo-site PR #17, 2026-09-12).
+          # To jest SKIP z widocznym powodem — brak testow dla nowej LOGIKI lapie stop-gate/review (T2+ blocker), nie ta bramka.
+          set +e
+          npx --yes -p @stryker-mutator/core@10.0.0 -p @stryker-mutator/vitest-runner@10.0.0 stryker run stryker.pr.config.json 2>&1 | tee stryker.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          if grep -q "No tests were executed" stryker.log; then
+            echo "::warning::Mutation testing pominiete — zaden test nie wykonuje zmienionych plikow ($FILES); dopisz test, a bramka zacznie mierzyc"
+            exit 0
+          fi
+          exit "$rc"
