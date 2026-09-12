@@ -19,7 +19,7 @@ The report must include the actual findings, results, and content produced by ea
 - vault organiser: Include specific files created/modified/deleted, duplicates resolved, interlinking added, persistent issues
 - self-evolution-cycle: Include what was fixed, what was flagged, what proposals were evaluated, what was built (if anything)
 - claude-to-obsidian / daily-ai-session-sync: Include highlights of key sessions — what topics dominated, what decisions were made, what was learned
-- Monthly Compass: If generated this period, include the core theme and purposeful moves with their execution status
+- Monthly Review: If generated this period, include the core theme and three priorities with their execution status
 
 The goal: uzytkownik reads this ONE document and knows everything the system produced AND the current state of all his projects. He should never need to go read the individual task outputs or open a project file.
 
@@ -51,7 +51,7 @@ Read the following from `~/.claude/memory\...` (desktop-commander `read_file`; f
 
 9. Check `YouTube Analytics/` for any new snapshots this month.
 
-10. Check `Monthly Compass/` — if a new compass was generated this month, include its core theme, purposeful moves, and their execution status (check Done.md and session activity for evidence).
+10. Check `Monthly Review/` — if a new compass was generated this month, include its core theme, three priorities, and their execution status (check Done.md and session activity for evidence).
 
 11. Read `Log/Done.md` — extract entries from the past 7 days. You'll need these for the journal seeder in Phase 3.
 
@@ -189,11 +189,11 @@ From daily-ai-session-sync / Processed Sessions:
 
 ---
 
-## Monthly Compass Status (if applicable)
+## Monthly Review Status (if applicable)
 
 If a compass exists for this month:
 - Core theme
-- Three Purposeful Moves with execution status (DONE / IN PROGRESS / NO EVIDENCE)
+- three priorities with execution status (DONE / IN PROGRESS / NO EVIDENCE)
 - Evidence for each status assessment
 
 ---
@@ -270,7 +270,7 @@ Use `get_vault_file` to check. If it already exists, skip creation and note it i
 **Step 3c — Pre-populate context.**
 Use the data already gathered in Phase 1:
 - Done.md entries from the past 7 days (already read in step 11 above)
-- Three Purposeful Moves from the most recent Monthly Compass (already read above)
+- three priorities from the most recent Monthly Review (already read above)
 
 **Step 3d — Create the journal file:**
 
@@ -307,7 +307,7 @@ tags:
 ---
 
 ## This month's three moves — progress check
-[Pre-fill the three moves from the most recent Monthly Compass]
+[Pre-fill the three moves from the most recent Monthly Review]
 
 - Move 1: [pre-filled from compass]
 - Move 2: [pre-filled from compass]

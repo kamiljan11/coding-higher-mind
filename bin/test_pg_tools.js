@@ -128,7 +128,7 @@ const r7 = (files) => {
 };
 check('R7: LICENSE PG + pg.ownership mas-saas = 5/5', r7({ LICENSE: 'Copyright (c) 2026 the company. All rights reserved.', 'CLAUDE.md': '- `pg.ownership: mas-saas`' }).points === 5);
 check('R7: LICENSE PG + client-transferred = niespojne (3/5)', (() => { const r = r7({ LICENSE: 'Copyright the company. All rights reserved.', 'CLAUDE.md': '- `pg.ownership: client-transferred`' }); return r.points === 3 && /niespojne/.test(r.why); })());
-check('R7: LICENSE klienta + client-transferred = 5/5', r7({ LICENSE: 'Copyright (c) 2026 Arkadiusz Dworak. All rights reserved.', 'CLAUDE.md': '- `pg.ownership: client-transferred`' }).points === 5);
+check('R7: LICENSE klienta + client-transferred = 5/5', r7({ LICENSE: 'Copyright (c) 2026 Example Client Ltd. All rights reserved.', 'CLAUDE.md': '- `pg.ownership: client-transferred`' }).points === 5);
 check('R7: MIT + oss = 5/5; MIT + mas-saas = niespojne', r7({ LICENSE: 'MIT License\nCopyright (c) 2026 <owner>', 'CLAUDE.md': '- `pg.ownership: oss`' }).points === 5 && r7({ LICENSE: 'MIT License', 'CLAUDE.md': '- `pg.ownership: mas-saas`' }).points === 3);
 check('R7: brak pg.ownership = 3/5 z powodem', (() => { const r = r7({ LICENSE: 'All rights reserved the company' }); return r.points === 3 && /pg\.ownership/.test(r.why); })());
 check('R7: brak LICENSE = 0', r7({ 'CLAUDE.md': '- `pg.ownership: mas-saas`' }).points === 0);

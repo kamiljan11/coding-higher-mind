@@ -240,7 +240,7 @@ check("pre-commit ma bramke workflow-lint + merge-aware (authored_only)",
 #      agentow pada cicho (2026-09-05: backend w stanie D/I-O wait przez >8 min, 12 agentow bez pushu).
 try:
     import urllib.request as _ur
-    with _ur.urlopen(_ur.Request("http://127.0.0.1:8222/api/status", headers={"User-Agent": "mas-guard-health"}), timeout=8) as _resp:
+    with _ur.urlopen(_ur.Request("http://<secret-manager-url>/api/status", headers={"User-Agent": "pg-guard-health"}), timeout=8) as _resp:
         check("Infisical vault odpowiada (<secret-manager-url>)", _resp.status == 200, f"HTTP {_resp.status}")
 except Exception as _err:  # noqa: BLE001 — kazda awaria sieci/kontenera = RED z powodem
     check("Infisical vault odpowiada (<secret-manager-url>)", False, f"{type(_err).__name__}: {str(_err)[:80]} -> cd <secret-manager> && docker compose -f docker-compose.prod.yml -p infisical-vault up -d")
@@ -252,7 +252,7 @@ if PRIVATE_LIST.exists():
     import urllib.error
     import urllib.request
     for name in [ln.strip() for ln in read(PRIVATE_LIST).splitlines() if ln.strip() and not ln.startswith("#")]:
-        req = urllib.request.Request(f"https://api.github.com/repos/<github-owner>/{name}", headers={"User-Agent": "mas-guard-health"})
+        req = urllib.request.Request(f"https://api.github.com/repos/<github-owner>/{name}", headers={"User-Agent": "pg-guard-health"})
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 code = resp.status

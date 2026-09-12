@@ -44,7 +44,7 @@ Miernik: `node ~/.claude/bin/repo-readiness.js --repo <sciezka>` (0 tokenow) PRZ
 7a. LICENSE / podmiot prawny: sprawdz stopke strony, impressum, `package.json:author`, README — nazwa firmy w LICENSE musi
    zgadzac sie z tym, co widzi klient (2026-09-05: „the company ehf." vs stopka „Example Company ehf."). Niezgodnosc lub
    brak zrodla -> uzyj nazwy ze stopki i oznacz w PR `[NIEPEWNE: podmiot]`.
-7b. Przed pushem sprawdz vault: `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8222/api/status` musi dac 200;
+7b. Przed pushem sprawdz vault: `curl -s -o /dev/null -w "%{http_code}" http://<secret-manager-url>/api/status` musi dac 200;
    inaczej push przez most pada TimeoutError. Retry co 90 s, max 4; potem raport „push pending" (commity sa bezpieczne).
 7c. **Most przez lock, gdy pracuje wiecej niz 1 agent:** `python infisical (CLI) ...`
    (mutex w %TEMP%, czeka do 10 min). 2026-09-05: 13 rownoleglych wywolan mostu = wyczerpana pula Postgresa vaulta = padly
@@ -62,7 +62,7 @@ Miernik: `node ~/.claude/bin/repo-readiness.js --repo <sciezka>` (0 tokenow) PRZ
 - Dane klientow w README/screenshotach; realne ceny zakupu; sekrety (bramki i tak zablokuja).
 
 ## Kolejnosc floty (widocznosc x wartosc)
-A. Publiczne produkty/wizytowki: `<github-owner>` (profil README!), rental-site, rental-site, calculator-app, travel-site, agency-site (Lovable), rental-site, garage-site, quickfix-iceland, agency-site-platform, mas-group.
+A. Publiczne produkty/wizytowki: (lista repo floty usunieta z wersji publicznej).
 B. Prywatne produkty (jakosc dla nas + przyszla decyzja o upublicznieniu): workshop-app, marketplace-app, shop-app, demo-site.
 C. Publiczne strony klientow Lovable (iceland-*, demo-site, demo-site, demo-site, demo-site): README (co, stack, live URL, status „delivered <data>") + CI zielone albo usuniete.
 D. Publiczne prototypy (demo-site, demo-site-crm, project-renew-spark, island-collective-shipments, art-stream-sync, marketplace-app-marketplace): 1. linia README = status `prototype (<data>)`, CI usuniete (czerwony badge na prototypie = szkoda); propozycja archiwizacji dla uzytkownika.

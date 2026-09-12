@@ -29,10 +29,8 @@ backup, watchdog, self-improvement. Paths were rewritten to `~/.claude/…`; adj
 | `deferred-task-runner` | every 2 h | the watchdog: finds routines that are overdue or died mid-run, retries, self-heals what it can, pushes a phone notification only when it cannot; resumes work that a rate limit interrupted (reads the checkpoint file `RESUME.md`) |
 | `claude-config-backup` | daily 03:00 | full clone of the agent configuration (`~/.claude`, routines, memory index) to the backup drive and generates a one-click restore script for a new machine — the backup that was never restored is not a backup, so the restore script is part of the backup |
 | `claude-code-to-obsidian` / `claude-to-obsidian` | Mon+Thu / daily | sessions document themselves: transcripts → dated notes in the memory vault (decisions, files touched, next step), so the next session starts from a file instead of from scratch |
-| `weekly-obsidian-vault-organiser` | weekly | memory hygiene: hub-and-spoke links, frontmatter typing, orphan watchdog, curation — a memory that is not maintained stops being loaded |
 | `weekly-system-report` | Sunday evening | one report on the whole system: what ran, what failed, what was skipped, cost, decisions pending — the "how is it going?" answer a sponsor expects |
 | `self-evolution-cycle` | every 3 days (**opt-in, disabled by default**) | reads recent transcripts, detects behavioural patterns (repeated corrections, repeated tool errors, rules that were bypassed) and proposes edits to `CLAUDE.md` and operational files — each with cited evidence and a verification command. Only proposals the human approves become standing rules; the loop never edits the rules on its own |
-| `ai-tools-discovery` | biweekly (**disabled by default**) | capability scout: new connectors, skills and tools, written as structured proposals for the self-evolution cycle to evaluate |
 | `skill-trigger-optimizer` | weekly (cheap model) | audits skill trigger descriptions against what the system actually works on, so the skill router keeps routing |
 
 ### Registering a Cowork routine

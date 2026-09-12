@@ -143,7 +143,7 @@ Lekcja: recenzent security ze swiezym kontekstem + obowiazek REPRO znalazl 10 re
 | rule_id | Wzorzec | Wystapien | Detekcja | Status |
 |---|---|---|---|---|
 | REPO-VISIBILITY-DRIFT | repo z sekretami w historii ustawione na private wraca do public bez sladu (Lovable reconnect?); „private" bylo akcja, nie pilnowanym stanem | 2 (08-09: 4/5 wizytowek klamalo „source private"; 09-05: agency-site publiczne z haslami) | `pg/private-repos.txt` + guard_health (404 bez tokena) | G |
-| SECRET-IN-HISTORY-PUBLIC | gitleaks na working tree (`--no-git`) nie widzi historii; publiczne repo z haslem w starym commicie | 1 (agency-site 3 commity) | skan historii regexem (rollout 09-05); docelowo gitleaks z historia w CI | P |
+| SECRET-IN-HISTORY-PUBLIC | gitleaks na working tree (`--no-git`) nie widzi historii; publiczne repo z haslem w starym commicie | 1 (3 commity w jednym repo) | skan historii regexem (rollout 09-05); docelowo gitleaks z historia w CI | P |
 | VAULT-SPOF-PUSH | menedzer sekretow (np. Infisical CLI) = jedyny kanal tokena; vault w D-state -> 13 agentow bez pushu, brak alertu | 1 (2026-09-05) | guard_health sonda 8222; github-ready 7b (precheck+retry+„push pending"); commit po kazdym kroku | P (brak planu B na token — swiadomie: polityka „sekret nigdy na czacie") |
 | AGENT-KILLED-UNCOMMITTED | proces Claude Code padl -> 9 worktree'ow z 9-29 brudnymi plikami i 0 commitow | 1 (2026-09-05) | github-ready 7: commit po kazdym kroku (punkt kontrolny bez publikacji) | G (zasada) |
 | STALE-LOCAL-BASELINE | baseline scorera liczony na lokalnym klonie (brak README, 3 mies. za originem) -> falszywe 0/15 | 1 (2026-09-05) | baseline ZAWSZE z worktree origin/<default> | G (zasada w github-ready 1) |

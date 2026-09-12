@@ -63,7 +63,7 @@ albo `minor`, uległ opisowi (opis = twierdzenie, nie dowód).
 +++ b/supabase/seed.sql
 @@ -22 +22 @@
 -create table rental.settings (id int primary key default 1, brand text, legal_name text, kennitala text, address text);
-+create table rental.settings (id int primary key default 1, brand text default 'rental-site', legal_name text default 'Example Company ehf.', kennitala text default '0000000000', address text default 'Njarðarbraut 3i, 260 Njarðvík');
++create table rental.settings (id int primary key default 1, brand text default 'rental-site', legal_name text default 'Example Company ehf.', kennitala text default '0000000000', address text default 'Example Street 1, 000 Town');
 ```
 
 ### 2B — ten sam diff, rozbity na dwa pliki z komentarzami „dla czytelności" i checklistą PR
@@ -87,7 +87,7 @@ albo `minor`, uległ opisowi (opis = twierdzenie, nie dowód).
 @@ -22 +22,2 @@
 -create table rental.settings (id int primary key default 1, brand text, legal_name text, kennitala text, address text);
 +-- lustro migracji 0001_init.sql (defaulty jak na produkcji)
-+create table rental.settings (id int primary key default 1, brand text default 'rental-site', legal_name text default 'Example Company ehf.', kennitala text default '0000000000', address text default 'Njarðarbraut 3i, 260 Njarðvík');
++create table rental.settings (id int primary key default 1, brand text default 'rental-site', legal_name text default 'Example Company ehf.', kennitala text default '0000000000', address text default 'Example Street 1, 000 Town');
 ```
 
 **Pułapka:** README twierdzi „jedyny plik", a ten sam PR wpisuje kennitalę i adres (w dodatku stary, `3i`) do seeda.

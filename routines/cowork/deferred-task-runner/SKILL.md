@@ -158,7 +158,7 @@ Evidence, all from a single `list_scheduled_tasks` call on Friday 2026-08-28, wh
 | task | cron | lastRunAt | nextRunAt | today a fire day? |
 |---|---|---|---|---|
 | `fb-friday-posts` | `0 9 * * 5` | 08-21 | 09-04 | yes (Fri) |
-| `job-scout-v2` | `0 8 * * 1,3,5` | 08-26 | 08-31 | yes (Fri) |
+| `example-task-a` | `0 8 * * 1,3,5` | 08-26 | 08-31 | yes (Fri) |
 | `mountain-car-...-outreach-10day` | `0 9 * * 1-5` | 08-27 | 08-31 | yes (weekday) |
 | `code-reading-quest-daily` | `0 9 * * *` | 08-27 | 08-29 | yes (daily) |
 
@@ -451,7 +451,7 @@ Output a single brief summary covering both parts:
 
 ---
 FAST-PATH (added 2026-08-02 audit; EXCEPTION — read this first: if a "ONE-TIME MAINTENANCE" section exists anywhere below whose heading carries neither COMPLETED nor ESCALATED-TO-KAMIL, handle it per the STEP -1 gate (safe steps only; unsafe or expired → escalate to uzytkownik, never execute) before the fast-path check; the fast-path exit must never skip a pending gate — this task fires 12x/day and most runs are no-ops; keep the no-op cost near zero):
-After STEP 0 tool-loading, do the cheapest possible health read FIRST: (1) `list_scheduled_tasks` once, (2) read ONLY the last ~30 lines of `~/.claude/memory\Agent Action Log.md`, (3) **read ONLY the last ~5 lines of `~/.claude/memory/log\guard-health.md`** — this is the one-call proxy for the entire Claude Code scheduled-task layer (that script already does the dead-run breadcrumb check for it), added 2026-09-12. Treat as an anomaly requiring the full A4c check: the latest guard-health entry starting with `RED:`, **or** that entry being older than 10 days (guard-health runs weekly — a 10-day-old newest entry means the health checker itself stopped, which is worse than any single RED it could report). If NO task has `nextRunAt` in the past, NO task's last run shows a new failure signal, NO orphan STARTED breadcrumb (weekly-obsidian-vault-organiser, fb-friday-posts and self-evolution-cycle now all write breadcrumbs — an orphan STARTED with no result line = silent death, treat as failed and recover it), and `RESUME.md` has no pending checkpoint — then write the one-line report "Watchdog: all healthy, fast-path exit" and END without reading any session transcripts. Only on a detected anomaly proceed to the full PART A / PART B procedure below. Never spend more than ~10 tool calls on a healthy pass.
+After STEP 0 tool-loading, do the cheapest possible health read FIRST: (1) `list_scheduled_tasks` once, (2) read ONLY the last ~30 lines of `~/.claude/memory\Agent Action Log.md`, (3) **read ONLY the last ~5 lines of `~/.claude/memory/log\guard-health.md`** — this is the one-call proxy for the entire Claude Code scheduled-task layer (that script already does the dead-run breadcrumb check for it), added 2026-09-12. Treat as an anomaly requiring the full A4c check: the latest guard-health entry starting with `RED:`, **or** that entry being older than 10 days (guard-health runs weekly — a 10-day-old newest entry means the health checker itself stopped, which is worse than any single RED it could report). If NO task has `nextRunAt` in the past, NO task's last run shows a new failure signal, NO orphan STARTED breadcrumb (example-task-d, fb-friday-posts and self-evolution-cycle now all write breadcrumbs — an orphan STARTED with no result line = silent death, treat as failed and recover it), and `RESUME.md` has no pending checkpoint — then write the one-line report "Watchdog: all healthy, fast-path exit" and END without reading any session transcripts. Only on a detected anomaly proceed to the full PART A / PART B procedure below. Never spend more than ~10 tool calls on a healthy pass.
 MODEL ROUTING: this task should run on claude-sonnet-5 — never Opus (12x/day) and never Fable 5 (drains the weekly limit fastest).
 
 
@@ -522,7 +522,7 @@ CANCELLED, so the 2026-11-25 reminder is obsolete noise, not an active guard.
 
 **What went wrong.** On 2026-08-31 16:47Z this watchdog reclassified 4 flagged tasks as "self-recovered"
 on the strength of a fresh `lastRunAt`. Direct verification the next day found **2 of the 4 were still
-broken**: `job-scout-v2` had stalled after context-loading with no R19 written, and
+broken**: `example-task-a` had stalled after context-loading with no R19 written, and
 `github-component-library-sync` made zero GitHub API calls with both target files still dated 08-24. Both
 were reported healthy. On 2026-09-01 21:34 the same shape recurred — *"3 OTHER tasks self-recovered …
 most likely uzytkownik running them manually"* — again from timestamps alone, with no check of what those runs
@@ -650,14 +650,14 @@ ordinary dedup logic is most likely to silence — because it "runs" every day a
 Added by self-evolution-cycle 34, 2026-09-07. **Confirmed false-positive, with receipts.**
 
 **What happened.** At 09:18Z on 2026-09-07 this watchdog hand-computed A4b arithmetic and concluded
-three tasks had silently skipped today's slot: `job-scout-v2`, `mountain-car-…-outreach-10day` and
+three tasks had silently skipped today's slot: `example-task-a`, `mountain-car-…-outreach-10day` and
 `code-reading-quest-daily`. It sent **one ntfy push to uzytkownik's phone** (id `4ZlpM9VTioUZ`) naming all
 three with per-task impact. A registry read at 10:08Z the same morning shows:
 
 | task | lastRunAt on 09-07 | vs. the 09:18Z alert |
 |---|---|---|
 | `code-reading-quest-daily` | 09:21:22Z | fired **3 min after** the alert |
-| `job-scout-v2` | 09:24:22Z | fired **6 min after** |
+| `example-task-a` | 09:24:22Z | fired **6 min after** |
 | `mountain-car-…-outreach-10day` | 09:32:22Z | fired **14 min after** |
 
 All three were mid-catch-up, not skipped. `github-lovable-sync` also fired at 09:17/09:19/09:21 in the
@@ -699,7 +699,7 @@ with no artifact to orphan.
 identical to a task that never ran.
 
 **Do this every pass, for the log-writing tasks (`self-evolution-cycle`, `weekly-system-report`,
-`weekly-obsidian-vault-organiser`, `monthly-life-compass`, `quarterly-deep-mirror`):**
+`example-task-d`, `example-task-b`, `example-task-c`):**
 
 1. Take each task's `lastRunAt` from the registry read you already did.
 2. Check whether its output file gained an entry at or after that timestamp:
