@@ -164,7 +164,9 @@ if [ -n "$wf_files" ] && [ -f "$WF_LINT/lint.mjs" ] && [ -d "$WF_LINT/node_modul
   wf_paths=()
   while IFS= read -r f; do
     [ -n "$f" ] && wf_paths+=("$repo_root/$f")
-  done <<< "$wf_files"
+  done <<PG_WF
+$wf_files
+PG_WF
   if ! (cd "$WF_LINT" && node --import ./hook.mjs lint.mjs "${wf_paths[@]}"); then
     echo "[pre-commit] workflow-lint: plik workflow NIEWAZNY dla GitHuba (patrz wyzej) — commit ZABLOKOWANY. Popraw skladnie/konteksty; to nie jest kwestia YAML." >&2
     exit 1

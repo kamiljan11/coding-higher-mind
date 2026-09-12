@@ -20,7 +20,9 @@ if [ "${ALLOW_FOREIGN_BRANCH:-0}" != "1" ] && [ -n "$PUSH_REFS" ]; then
     if [ -n "$recent" ]; then
       echo "[pre-push] UWAGA: galaz '$branch' ma w ostatnich 24 h commity od: ${recent}- to moze byc praca innej sesji. Push idzie dalej; jesli to nie Twoja galaz, przerwij i skoordynuj. Wylaczenie: ALLOW_FOREIGN_BRANCH=1." >&2
     fi
-  done <<< "$PUSH_REFS"
+  done <<PG_REFS
+$PUSH_REFS
+PG_REFS
 fi
 
 [ "$ALLOW_MAIN" = "1" ] && exit 0
@@ -41,7 +43,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       exit 1
       ;;
   esac
-done <<< "$PUSH_REFS"
+done <<PG_REFS
+$PUSH_REFS
+PG_REFS
 
 # Rozmiar zmiany (ta sama blizna: blok stal POD `exit 0` i nigdy sie nie wykonywal) (research 2026-09-06: duzy PR = slepa recenzja; marketplace-app #2 = 213 plikow, nikt nie zmergowal).
 # Liczy tylko linie zrodlowe (bez lockfile/testow/docs/migracji). Wyjatek: ALLOW_LARGE_DIFF=1.
