@@ -1,0 +1,62 @@
+#!/bin/sh
+# Globalny pre-push (PG): blokuje BEZPOSREDNI push na main/master w projektach
+# STANDARD (nowy flow: branch -> PR -> CI+review -> merge).
+# Przechodza: stare projekty Lovable (lovable-tagger w package.json), tagi,
+# inne branche, oraz awaryjnie: ALLOW_MAIN=1 git push
+
+
+# Cudza galaz (retro 2026-09-06, petla 11): push na galaz, ktora w ciagu 24 h dostala commit z innego adresu niz moj,
+# to wejscie w cudza prace (rownolegle sesje). Tylko OSTRZEZENIE, nie blokuje; wylaczenie: ALLOW_FOREIGN_BRANCH=1.
+# Refy pushowane czytamy ze stdin RAZ do zmiennej, zeby reszta hooka mogla z nich korzystac.
+PUSH_REFS="$(cat)"
+if [ "${ALLOW_FOREIGN_BRANCH:-0}" != "1" ] && [ -n "$PUSH_REFS" ]; then
+  my_email=$(git config user.email 2>/dev/null)
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -z "$remote_ref" ] && continue
+    case "$remote_sha" in 0000000000000000000000000000000000000000) continue;; esac
+    branch="${remote_ref#refs/heads/}"
+    recent=$(git log --since="24 hours ago" --format="%ce" "$remote_sha" -n 20 2>/dev/null | grep -v "^${my_email}$" | sort -u | head -3 | tr '
+' ' ')
+    if [ -n "$recent" ]; then
+      echo "[pre-push] UWAGA: galaz '$branch' ma w ostatnich 24 h commity od: ${recent}- to moze byc praca innej sesji. Push idzie dalej; jesli to nie Twoja galaz, przerwij i skoordynuj. Wylaczenie: ALLOW_FOREIGN_BRANCH=1." >&2
+    fi
+  done <<< "$PUSH_REFS"
+fi
+
+[ "$ALLOW_MAIN" = "1" ] && exit 0
+
+if [ -f package.json ] && grep -q "lovable-tagger" package.json 2>/dev/null; then
+  exit 0   # legacy Lovable: push do main = deploy, przepuszczamy
+fi
+
+# Blizna PREPUSH-STDIN-CONSUMED-DEAD-GATE (2026-09-12): ta petla czytala GOLY stdin, ktory `PUSH_REFS="$(cat)"` wyzej
+# juz zjadl -> 0 iteracji -> push na main przechodzil (empirycznie rc=0) przez 6 dni. Refy ZAWSZE z $PUSH_REFS.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/master)
+      echo "" >&2
+      echo "[pre-push] ZABLOKOWANE: bezposredni push na main (standard flow: branch -> PR -> merge)." >&2
+      echo "[pre-push] Zrob:  git checkout -b feature/nazwa && git push -u origin feature/nazwa" >&2
+      echo "[pre-push] Awaryjny wyjatek (hotfix):  ALLOW_MAIN=1 git push" >&2
+      exit 1
+      ;;
+  esac
+done <<< "$PUSH_REFS"
+
+# Rozmiar zmiany (ta sama blizna: blok stal POD `exit 0` i nigdy sie nie wykonywal) (research 2026-09-06: duzy PR = slepa recenzja; marketplace-app #2 = 213 plikow, nikt nie zmergowal).
+# Liczy tylko linie zrodlowe (bez lockfile/testow/docs/migracji). Wyjatek: ALLOW_LARGE_DIFF=1.
+if [ "${ALLOW_LARGE_DIFF:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/diff-size-gate.js" ]; then
+  if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
+    node "$HOME/.claude/bin/diff-size-gate.js" --base origin/main --max 400 || { echo "[pre-push] diff-size-gate: podziel zmiane na mniejsze PR-y. Wyjatek (migracja/generated): ALLOW_LARGE_DIFF=1." >&2; exit 1; }
+  fi
+fi
+
+# Granice modulow (2026-09-12, pytanie o skale: „spojnosc sie rozjezdza"): NOWY cykl importow albo import wbrew warstwom
+# z bloku json w docs/ARCHITECTURE.md = blok; stare cykle tylko ostrzegaja (dlugu nie sprzatamy z automatu). Wyjatek: ALLOW_BOUNDARIES=1.
+if [ "${ALLOW_BOUNDARIES:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/module-boundaries.js" ]; then
+  if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
+    node "$HOME/.claude/bin/module-boundaries.js" --base origin/main || { echo "[pre-push] module-boundaries: nowy cykl importow albo naruszenie warstw (docs/ARCHITECTURE.md). Wyjatek z powodem w ADR: ALLOW_BOUNDARIES=1." >&2; exit 1; }
+  fi
+fi
+
+exit 0

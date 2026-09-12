@@ -1,0 +1,228 @@
+#!/bin/sh
+# Globalny pre-commit (PG quality gate) — dziala w KAZDYM repo na tej maszynie
+# (git config --global core.hooksPath). Czerwone = commit nie istnieje.
+# Repo z wlasnym .husky/pre-commit: delegujemy najpierw do niego.
+
+# Skrypt .husky/pre-commit POCHODZI Z REPO — commit w sklonowanym repo obcego autora = wykonanie jego kodu
+# (finding security-reviewer 2026-09-05, nadal reprodukowalny po v3.0). Delegacja tylko za jawna zgoda per repo:
+#   git config --local mas.trustHusky true
+if [ -f .husky/pre-commit ]; then
+  if [ "$(git config --local --get mas.trustHusky 2>/dev/null)" = "true" ]; then
+    sh .husky/pre-commit || exit 1
+  else
+    echo "[pre-commit] .husky/pre-commit POMINIETY (kod z repo; wlacz swiadomie: git config --local mas.trustHusky true)" >&2
+  fi
+fi
+
+# CI downgrade (2026-09-05, rollout floty): agent zrobil zielony badge USUWAJAC krok `npm audit` z quality.yml w 7 repo.
+# Regula w prozie nie wystarczyla -> bramka: usuniecie linii z narzedziem security z workflow (takze skasowanie calego
+# pliku workflow), albo dodanie `continue-on-error: true` / `|| true` przy audycie = commit nie istnieje.
+# Stoi PRZED filtrem ACM, bo sam DELETE workflowu nie ma "dodanych" plikow. Swiadoma decyzja uzytkownika: ALLOW_CI_DOWNGRADE=1
+# MERGE: `git diff --cached` liczy wzgledem HEAD, wiec merge-commit "staguje" WSZYSTKIE pliki przychodzace z drugiej
+# galezi (juz zrecenzowane i zielone tam). Bramki maja pilnowac tego, co AUTORSTWA tego commita = pliki rozne od
+# MERGE_HEAD (rozwiazane konflikty), nie calego przychodzacego drzewa. (2026-09-06: merge main do PR #129 zablokowany
+# przez HIGH w migracji z main, ktora juz byla na produkcji.)
+merge_head=$(git rev-parse -q --verify MERGE_HEAD 2>/dev/null)
+authored_only() {
+  if [ -z "$merge_head" ]; then cat; return; fi
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    git diff --quiet --cached "$merge_head" -- "$f" 2>/dev/null || printf '%s\n' "$f"
+  done
+}
+wf_changed=$(git diff --cached --name-only --diff-filter=ACDMR -- '.github/workflows/' 2>/dev/null | authored_only)
+if [ "$ALLOW_CI_DOWNGRADE" != "1" ] && [ -n "$wf_changed" ]; then
+  SEC_TOOLS_RX='(npm|pnpm|yarn|bun) audit|gitleaks|semgrep|trufflehog|codeql|osv-scanner|trivy|snyk'
+  downgraded=""
+  # Per plik: liczymy linie z narzedziem security USUNIETE vs DODANE. Przesuniecie joba (merge z main,
+  # reorder) daje rowne liczby = OK; usuniecie/skasowanie pliku daje usuniete > dodane = blok.
+  # (Bez skladni `HEAD:sciezka` — MSYS zamienia dwukropek na separator sciezek i psuje `git show`.)
+  for wf in $wf_changed; do
+    d=$(git diff --cached -U0 --diff-filter=ACDMR -- "$wf")
+    rem=$(printf '%s\n' "$d" | grep -E '^-' | grep -vE '^---' | grep -ciE "$SEC_TOOLS_RX")
+    add=$(printf '%s\n' "$d" | grep -E '^\+' | grep -vE '^\+\+\+' | grep -ciE "$SEC_TOOLS_RX")
+    if [ "${rem:-0}" -gt "${add:-0}" ]; then downgraded="$downgraded
+$wf: linie z narzedziem security ${rem} usuniete vs ${add} dodane"; fi
+  done
+  wf_added=$(git diff --cached -U0 --diff-filter=ACMR -- '.github/workflows/' | grep -E '^\+' | grep -vE '^\+\+\+')
+  # `continue-on-error: true` samo w sobie NIE jest downgrade'em — szablon ma je przy krokach informacyjnych
+  # (jscpd, knip), ktore z zalozenia nie maja blokowac. Downgrade to `continue-on-error` przy kroku SECURITY.
+  # Dlatego kazde DODANE wystapienie sprawdzamy w kontekscie: okno 6 linii nad nim w wersji STAGOWANEJ pliku.
+  # (2026-09-06: bramka blokowala 4 PR-y z szablonowym jscpd/knip — agent musial uzyc ALLOW_CI_DOWNGRADE=1,
+  # czyli falszywy alarm uczyl obchodzenia bramki. To gorsze niz brak bramki.)
+  neutered=$(printf '%s\n' "$wf_added" | grep -iE 'audit[^#]*\|\|\s*true' || true)
+  if printf '%s\n' "$wf_added" | grep -qiE 'continue-on-error:\s*true'; then
+    for wf in $wf_changed; do
+      staged=$(MSYS_NO_PATHCONV=1 git show ":$wf" 2>/dev/null) || continue
+      # Granica kroku, nie okno linii: krok zaczyna sie od `- ` na swoim wcieciu i trwa do nastepnego `- `.
+      # `continue-on-error` liczy sie tylko wtedy, gdy narzedzie security jest w TYM SAMYM kroku.
+      hit=$(printf '%s\n' "$staged" | awk -v sec="$SEC_TOOLS_RX" '
+        function flush() { if (coe && s) print line; coe = 0; s = 0 }
+        /^[[:space:]]*-[[:space:]]/ { flush(); line = NR }
+        { if (tolower($0) ~ /continue-on-error:[[:space:]]*true/) coe = 1; if (tolower($0) ~ sec) s = 1 }
+        END { flush() }')
+      for n in $hit; do
+        neutered="$neutered
+$wf:$n: continue-on-error w kroku z narzedziem security"
+      done
+    done
+  fi
+  # `uses: owner/action@v4` = mutable tag (supply chain: trivy-action, kics). Agent ODPIAL SHA w release.yml
+  # workshop-app (2026-09-05) — semgrep to zlapal dopiero w CI. Nowe/zmienione `uses:` musza miec 40-hex SHA
+  # (komentarz `# v4.4.0` obok mowi, co to za wersja). Lokalne akcje `./x` i `docker://` bez `@` przechodza.
+  unpinned=$(printf '%s\n' "$wf_added" | grep -E 'uses:\s*[^ #]+@' | grep -vE 'uses:\s*[^ #]+@[0-9a-f]{40}([[:space:]]|$)' || true)
+  if [ -n "$(printf '%s' "$downgraded" | tr -d '\n')$neutered$unpinned" ]; then
+    echo "[pre-commit] CI DOWNGRADE: krok security usunięty/zneutralizowany albo akcja bez pinu SHA w workflow — commit ZABLOKOWANY:" >&2
+    printf '%s\n%s\n%s\n' "$downgraded" "$neutered" "$unpinned" | grep . | head -8 >&2
+    echo "[pre-commit] Zielone CI robi sie NAPRAWA (npm audit fix patch/minor), akcje pinujemy do 40-hex SHA (# vX.Y.Z obok). Wyjatek: ALLOW_CI_DOWNGRADE=1 git commit" >&2
+    exit 1
+  fi
+fi
+
+files=$(git diff --cached --name-only --diff-filter=ACM | authored_only)
+[ -z "$files" ] && exit 0
+
+# Secrets scan (zero-dep, offline): sekret w DODANYCH liniach = commit nie istnieje.
+# Swiadomy wyjatek (np. fixture testowe): ALLOW_SECRET=1 git commit
+if [ "$ALLOW_SECRET" != "1" ]; then
+  # `gitleaks:allow` w TEJ SAMEJ linii = jawnie oznaczona fikstura (ta sama konwencja co gitleaks w CI floty; 2026-09-12:
+  # fikstury testow skanera w bin/test_*.js blokowaly commit systemu bramek — GATE-SELF-BLOCK-BY-OWN-PATTERN).
+  leaks=$(git diff --cached -U0 --diff-filter=ACM | grep -E '^\+' | grep -vE '^\+\+\+' | grep -v 'gitleaks:allow' | \
+    grep -nE 'ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gho_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|sbp_[A-Za-z0-9]{20,}|xox[bpars]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----' || true)
+  if [ -n "$leaks" ]; then
+    echo "[pre-commit] SECRET wykryty w stagowanych zmianach — commit ZABLOKOWANY:" >&2
+    echo "$leaks" | head -5 >&2
+    echo "[pre-commit] Przenies do Infisical/env (nigdy do kodu). Wyjatek: ALLOW_SECRET=1 git commit" >&2
+    exit 1
+  fi
+fi
+# Swiezosc bazy (retro 2026-09-06, petla 1): commit na klonie z INNA historia niz origin = praca na kodzie, ktorego
+# nie ma. base-check blokuje tylko brak wspolnego przodka; "za baza" i "offline" to ostrzezenia. Wyjatek: ALLOW_STALE_BASE=1.
+if [ "${ALLOW_STALE_BASE:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/base-check.js" ]; then
+  node "$HOME/.claude/bin/base-check.js" --quiet || { echo "[pre-commit] base-check: HEAD i origin nie maja wspolnego przodka — to nie jest to repo, na ktorym dziala CI. Zabezpiecz prace (git stash) i przepnij galaz na origin. Wyjatek: ALLOW_STALE_BASE=1." >&2; exit 1; }
+fi
+
+# Powtorzone literaly w NOWYM kodzie (0 tokenow). Blizna 2026-09-06: tozsamosc firmy w 45 miejscach
+# w 11 plikach przeszla lint/typy/testy/review. Skan patrzy tylko na dodane linie indeksu, wiec nie
+# dotyka dlugu historycznego. Swiadomy wyjatek: ALLOW_DUP_LITERALS=1.
+if [ "${ALLOW_DUP_LITERALS:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/dup-literals.js" ]; then
+  node "$HOME/.claude/bin/dup-literals.js" --staged || { echo "[pre-commit] dup-literals: ten sam literal dodany >=3x w >=2 plikach — wyciagnij do jednego zrodla (stala/modul). Wyjatek: ALLOW_DUP_LITERALS=1 w komendzie." >&2; exit 1; }
+fi
+
+# Zakomentowany kod w NOWYM diffie (research 2026-09-06: "comment traps" — martwy kod w komentarzu uczy
+# nastepnego agenta blednego wzorca). Wyjatek: ALLOW_COMMENTED_CODE=1.
+if [ "${ALLOW_COMMENTED_CODE:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/commented-code-gate.js" ]; then
+  node "$HOME/.claude/bin/commented-code-gate.js" --staged || { echo "[pre-commit] commented-code-gate: usun zakomentowany kod (historia jest w gicie). Wyjatek: ALLOW_COMMENTED_CODE=1." >&2; exit 1; }
+fi
+
+# Swiadome obejscie bramki (ALLOW_X=1) zostawia slad w ~/.claude/logs/gates.jsonl — skip niewidoczny = bramka, ktorej nie ma
+# (ops-reviewer 2026-09-12). guard_health.py liczy te wpisy tygodniowo.
+log_bypass() { command -v node >/dev/null 2>&1 && node "$HOME/.claude/hooks/lib/gate-log.js" "pre-commit:$1" skipped "$2=1 (swiadome obejscie)" "$(pwd)" 2>/dev/null; return 0; }
+
+# Faza projektu (gap-analiza vs slownik SH 2026-09-12, L1): `pg.phase` w CLAUDE.md zmienione na `production` bez
+# wypelnionego PRR (`docs/prr/<data>.md`) w tym samym commicie = blok; nieznana wartosc fazy = blok. Wyjatek: ALLOW_PHASE=1.
+if [ "${ALLOW_PHASE:-0}" = "1" ]; then log_bypass phase-gate ALLOW_PHASE
+elif command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/phase-gate.js" ]; then
+  if git diff --cached --name-only | grep -qE '(^|/)CLAUDE\.md$'; then
+    node "$HOME/.claude/bin/phase-gate.js" --staged || { echo "[pre-commit] phase-gate: promocja pg.phase -> production wymaga docs/prr/<RRRR-MM-DD>.md (wypelniony ~/.claude/pg/prr.md) w tym samym commicie. Wyjatek: ALLOW_PHASE=1." >&2; exit 1; }
+  fi
+fi
+
+# Dlug rejestrowany przy zaciagnieciu (L9): nowy TODO/FIXME/HACK/XXX w kodzie bez wiersza w docs/quality/BACKLOG.md
+# w tym samym commicie = blok („dlug = kredyt z odsetkami", slownik SH sekcja 8). Wyjatek: ALLOW_TODO=1.
+if [ "${ALLOW_TODO:-0}" = "1" ]; then log_bypass todo-ledger-gate ALLOW_TODO
+elif command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/todo-ledger-gate.js" ]; then
+  node "$HOME/.claude/bin/todo-ledger-gate.js" --staged || { echo "[pre-commit] todo-ledger-gate: skrot bez wpisu w docs/quality/BACKLOG.md (data, plik:linia, odsetki, splata do). Wyjatek: ALLOW_TODO=1." >&2; exit 1; }
+fi
+
+# Dane osobowe (L5, RODO): stagowana migracja dodaje kolumne o nazwie osobowej bez wiersza `tabela.kolumna`
+# w docs/PRIVACY.md = blok. Wyjatek: ALLOW_PII=1.
+if [ "${ALLOW_PII:-0}" = "1" ]; then log_bypass pii-inventory-gate ALLOW_PII
+elif command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/pii-inventory-gate.js" ]; then
+  if git diff --cached --name-only | grep -qE '(^|/)migrations/.*\.sql$'; then
+    node "$HOME/.claude/bin/pii-inventory-gate.js" --staged || { echo "[pre-commit] pii-inventory-gate: nowa kolumna PII bez wiersza w docs/PRIVACY.md (dana, cel, retencja, procesor, jak usunac). Wyjatek: ALLOW_PII=1." >&2; exit 1; }
+  fi
+fi
+
+# Nowa zaleznosc musi istniec w rejestrze (anty-slopsquatting; research 2026-09-06). Wyjatek: ALLOW_UNKNOWN_DEP=1.
+if [ "${ALLOW_UNKNOWN_DEP:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/dep-exists.js" ]; then
+  if git diff --cached --name-only | grep -qE '(^|/)(package\.json|pyproject\.toml|requirements[^/]*\.txt)$'; then
+    node "$HOME/.claude/bin/dep-exists.js" --staged || { echo "[pre-commit] dep-exists: nowa zaleznosc nie istnieje w rejestrze (halucynacja/typosquat). Wyjatek dla prywatnego rejestru: ALLOW_UNKNOWN_DEP=1." >&2; exit 1; }
+  fi
+fi
+
+# Workflowy GitHub: walidacja TYM SAMYM parserem, ktorego uzywa GitHub (@actions/workflow-parser, ~/.claude/tools/workflow-lint).
+# YAML moze byc poprawny, a plik dla GitHuba niewazny (`secrets` w job-level if, zle klucze) -> run nazwany sciezka,
+# 0 jobow, dla pull_request NIC (shop-app 2026-09-05: agent 1,5 h w petli). Brak narzedzia = skip (fail-open, log).
+wf_files=$(echo "$files" | grep -E '^\.github/workflows/.*\.ya?ml$' || true)
+WF_LINT="$HOME/.claude/tools/workflow-lint"
+if [ -n "$wf_files" ] && [ -f "$WF_LINT/lint.mjs" ] && [ -d "$WF_LINT/node_modules/@actions/workflow-parser" ] && command -v node >/dev/null 2>&1; then
+  repo_root=$(pwd)
+  # Bug 2026-09-06: unquoted $(...) word-splits any path containing a space
+  # (np. "~\...") -> node dostaje "C:\Users\uzytkownik" jako osobny
+  # argument -> ENOENT, a caly commit byl niesluznie blokowany. Tablica + cytowanie.
+  wf_paths=()
+  while IFS= read -r f; do
+    [ -n "$f" ] && wf_paths+=("$repo_root/$f")
+  done <<< "$wf_files"
+  if ! (cd "$WF_LINT" && node --import ./hook.mjs lint.mjs "${wf_paths[@]}"); then
+    echo "[pre-commit] workflow-lint: plik workflow NIEWAZNY dla GitHuba (patrz wyzej) — commit ZABLOKOWANY. Popraw skladnie/konteksty; to nie jest kwestia YAML." >&2
+    exit 1
+  fi
+fi
+
+js=$(echo "$files" | grep -E '\.(ts|tsx|js|jsx)$' || true)
+py=$(echo "$files" | grep -E '\.py$' || true)
+# Fikstury lintera (pg/eval/cases, */fixtures/) to nie migracje — golden set MUSI zawierac naruszenia (2026-09-12: eksport PG blokowal sam siebie).
+sql=$(echo "$files" | grep -E '(^|/)migrations/.*\.sql$' | grep -vE '(^|/)(fixtures?|__fixtures__|eval/cases)/' || true)
+
+# Migracje SQL (T3): RLS/DEFINER/anon — flota ma 189 DEFINER bez higieny i 73 policy bez WITH CHECK (audyt 2026-09-05).
+# Lint liczy caly zestaw (kontekst miedzy plikami), ale BLOKUJE tylko HIGH w plikach STAGOWANYCH (zasada: stary dlug nie blokuje).
+SQL_LINT="$HOME/.claude/bin/sql-migration-lint.js"
+if [ -n "$sql" ] && [ -f "$SQL_LINT" ] && command -v node >/dev/null 2>&1; then
+  report=$(node "$SQL_LINT" --repo . --min-severity high 2>/dev/null | grep '^\[HIGH\]' || true)
+  hits=""
+  for f in $sql; do
+    # lint drukuje sama nazwe pliku (bez katalogu); nazwy migracji sa unikalne (timestamp), wiec basename wystarcza
+    m=$(printf '%s\n' "$report" | grep -F -- "$(basename "$f")" || true)
+    [ -n "$m" ] && hits="$hits
+$m"
+  done
+  if [ -n "$(printf '%s' "$hits" | tr -d '\n')" ]; then
+    echo "[pre-commit] sql-migration-lint: HIGH w stagowanych migracjach — commit ZABLOKOWANY:" >&2
+    printf '%s\n' "$hits" | head -10 >&2
+    echo "[pre-commit] Napraw (WITH CHECK / SET search_path + REVOKE / bez GRANT anon) albo '-- lint-ignore Rn' z powodem w linii wyzej." >&2
+    exit 1
+  fi
+fi
+
+if [ -n "$js" ] && [ -f package.json ] && [ -d node_modules ]; then
+  if [ -f node_modules/.bin/eslint ] || [ -f node_modules/.bin/eslint.cmd ]; then
+    echo "$js" | grep -v "^-" | xargs npx --no-install eslint --max-warnings=0 || {
+      echo "[pre-commit] ESLint: popraw bledy przed commitem." >&2; exit 1; }
+  elif [ -f node_modules/.bin/oxlint ] || [ -f node_modules/.bin/oxlint.cmd ]; then
+    # repo bez eslinta (workshop-app) — bez tego fallbacku commit nie mial ZADNEGO lintu (audyt 2026-09-05)
+    echo "$js" | grep -v "^-" | xargs npx --no-install oxlint --deny-warnings || {
+      echo "[pre-commit] oxlint: popraw bledy przed commitem." >&2; exit 1; }
+  fi
+  if [ -f tsconfig.json ] && { [ -f node_modules/.bin/tsc ] || [ -f node_modules/.bin/tsc.cmd ]; }; then
+    # Project references (vite: "files": [] + "references") => `tsc --noEmit` sprawdza NIC. Wtedy `tsc -b`.
+    if grep -q '"references"' tsconfig.json; then
+      npx --no-install tsc -b || { echo "[pre-commit] TypeScript (tsc -b): popraw bledy typow przed commitem." >&2; exit 1; }
+    else
+      npx --no-install tsc --noEmit --incremental || { echo "[pre-commit] TypeScript: popraw bledy typow przed commitem." >&2; exit 1; }
+    fi
+  fi
+fi
+
+if [ -n "$py" ]; then
+  if command -v ruff >/dev/null 2>&1; then
+    # B006/B008 (mutowalny default / wywolanie w defaulcie) — paradigm.md:43; nie sa w domyslnym zestawie ruffa
+    echo "$py" | grep -v "^-" | xargs ruff check --extend-select B006,B008 || { echo "[pre-commit] Ruff: popraw bledy przed commitem." >&2; exit 1; }
+  fi
+  if command -v pyright >/dev/null 2>&1; then
+    echo "$py" | grep -v "^-" | xargs pyright || { echo "[pre-commit] pyright: popraw bledy typow przed commitem." >&2; exit 1; }
+  fi
+fi
+
+exit 0

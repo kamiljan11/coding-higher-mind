@@ -1,0 +1,84 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{CLAUDE_DIR}}/hooks/session-context.js\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{CLAUDE_DIR}}/hooks/bash-guard.js\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__desktop-commander__write_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{CLAUDE_DIR}}/hooks/memory-guard.js\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{CLAUDE_DIR}}/hooks/prompt-guard.js\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|mcp__desktop-commander__write_file|mcp__desktop-commander__edit_block",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{CLAUDE_DIR}}/hooks/post-edit-check.js\"",
+            "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{CLAUDE_DIR}}/hooks/post-bash-edit-check.js\"",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{CLAUDE_DIR}}/hooks/stop-gate.js\"",
+            "timeout": 170
+          }
+        ]
+      }
+    ]
+  }
+}

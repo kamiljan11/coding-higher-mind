@@ -1,0 +1,21 @@
+name: Release
+# Tag vX.Y.Z -> GitHub Release z auto-generowanymi notes (z tytulow PR-ow).
+# Flow: zaktualizuj CHANGELOG -> git tag v1.2.3 -> git push --tags
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag

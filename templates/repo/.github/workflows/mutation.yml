@@ -1,0 +1,89 @@
+name: Mutation Testing
+# Mutation testing TYLKO na plikach zmienionych w PR (Stryker + vitest). Research 2026-09-06 (research-ai-slop.md,
+# zrodla 21-23): coverage skacze 30->90 % w minuty bez realnej weryfikacji, a mutation survival w kodzie AI jest
+# o 15-25 % wyzszy przy tym samym coverage. Ten job mierzy, czy testy ZABIJAJA mutanty w tym, co PR zmienil.
+#
+# Zasady:
+# - liczy tylko zmienione pliki zrodlowe (src/**, supabase/functions/**; bez testow, typow, konfiguracji),
+# - pomija sie sam (exit 0, informacja), gdy: brak vitest w package.json, brak PRAWDZIWYCH testow (tylko szablonowy
+#   example.test.ts), brak zmienionych plikow zrodlowych — mutation testing bez testow niczego nie mierzy,
+# - prog: mutation score < 50 % na zmienionych plikach = FAIL (thresholds.break); swiadome ominiecie = etykieta PR
+#   "allow-low-mutation" (widoczna decyzja w UI, nie zmienna srodowiskowa),
+# - job-level `if` NIE uzywa secrets/hashFiles (job-level if z nimi = caly plik niewazny — blizna floty),
+# - akcje przypiete SHA (jak w quality.yml).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    name: Mutation (zmienione pliki)
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'allow-low-mutation') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: hashFiles('package.json') != ''
+        with:
+          node-version: 20
+
+      - name: Zakres — zmienione pliki zrodlowe i realne testy
+        id: scope
+        if: hashFiles('package.json') != ''
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if ! grep -q '"vitest"' package.json; then echo "skip=brak vitest w package.json" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # `grep -v` zwraca 1, gdy nic nie przepusci (np. jedyny test to szablonowy example.test.ts) — przy pipefail
+          # cala linia padala z exit 1 zamiast "skip" (rollout 2026-09-06, 6 z 13 repo). Stad `|| true` w grupie.
+          real_tests=$(git ls-files 'src/**/*.test.*' 'src/**/*.spec.*' 'supabase/functions/**/*.test.*' | { grep -v -E '(^|/)example\.test\.' || true; } | wc -l)
+          if [ "$real_tests" -eq 0 ]; then echo "skip=brak prawdziwych testow (tylko szablon) — mutation testing niczego nie zmierzy; napisz testy, a bramka zacznie dzialac" >> "$GITHUB_OUTPUT"; exit 0; fi
+          git fetch -q origin "$BASE_REF"
+          changed=$(git diff --name-only --diff-filter=AM "origin/$BASE_REF...HEAD" -- 'src/**/*.ts' 'src/**/*.tsx' 'supabase/functions/**/*.ts' \
+            | grep -v -E '\.(test|spec)\.|\.d\.ts$|(^|/)(types?|__tests__|test)/|vite-env' || true)
+          if [ -z "$changed" ]; then echo "skip=brak zmienionych plikow zrodlowych" >> "$GITHUB_OUTPUT"; exit 0; fi
+          echo "files=$(echo "$changed" | paste -sd, -)" >> "$GITHUB_OUTPUT"
+          echo "Zmienione pliki zrodlowe:"; echo "$changed"
+
+      - name: Pominiete
+        if: steps.scope.outputs.skip != ''
+        env:
+          WHY: ${{ steps.scope.outputs.skip }}
+        run: echo "::notice::Mutation testing pominiete — $WHY"
+
+      - name: Install
+        if: steps.scope.outputs.files != ''
+        run: npm ci || npm install
+
+      - name: Stryker na zmienionych plikach (prog 50 %)
+        if: steps.scope.outputs.files != ''
+        env:
+          FILES: ${{ steps.scope.outputs.files }}
+        run: |
+          set -euo pipefail
+          node -e '
+            const files = process.env.FILES.split(",").filter(Boolean);
+            const cfg = {
+              $schema: "https://raw.githubusercontent.com/stryker-mutator/stryker-js/master/packages/core/schema/stryker-schema.json",
+              testRunner: "vitest",
+              mutate: files,
+              reporters: ["clear-text", "progress"],
+              thresholds: { high: 80, low: 60, break: 50 },
+              timeoutMS: 20000,
+              concurrency: 2,
+              tempDirName: ".stryker-tmp",
+              ignoreStatic: true
+            };
+            require("fs").writeFileSync("stryker.pr.config.json", JSON.stringify(cfg, null, 2));
+            console.log(JSON.stringify(cfg, null, 2));
+          '
+          npx --yes -p @stryker-mutator/core@10.0.0 -p @stryker-mutator/vitest-runner@10.0.0 stryker run stryker.pr.config.json

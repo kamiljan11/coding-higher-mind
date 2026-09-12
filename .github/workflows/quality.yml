@@ -1,0 +1,53 @@
+# The system tests itself: every gate has a positive test (it MUST block its own case). Green here = the gates are
+# real, not prose. Same rule PG imposes on every repo it installs into.
+name: PG self-test
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  gates:
+    name: Gates self-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11bb9cc4d1f45f4b9a6c8a1b7b8f # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Configure git for fixture repos
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          git config --global init.defaultBranch main
+      - name: Stage PG into ~/.claude (tests resolve paths from there)
+        run: node install.mjs --yes
+      - name: Unit + fixture tests
+        run: |
+          set -o pipefail
+          node bin/test_dup_literals.js
+          node bin/test_module_boundaries.js
+          node bin/test_slop_gates.js
+          node bin/test_prompt_guard.js
+          node bin/test_pg_tools.js
+          node bin/test_sql_migration_lint.js
+          node bin/test_fleet_metrics.js
+          node bin/test_hooks_v3.js
+          node bin/pg-rule-coverage.js
+      - name: Python tools lint (ruff)
+        run: |
+          pip install --quiet ruff
+          ruff check bin hooks
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11bb9cc4d1f45f4b9a6c8a1b7b8f # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

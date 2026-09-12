@@ -1,0 +1,56 @@
+name: Auto-Improve
+# Automatyczne poprawy: upgrade zaležnosci, simplify kod, fix linter warnings.
+# Swieza instancja Claude na subskrypcji (TYLKO OAuth, zero platnych tokenow).
+# Bez sekretu CLAUDE_CODE_OAUTH_TOKEN job sie pomija.
+
+on:
+  schedule:
+    # Poniedzialek 9 rano UTC (nie przeszkadza weekendzie; flow review wymaga czlowieka)
+    - cron: '0 9 * * 1'
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  auto-improve:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - id: token
+        name: Check secret present
+        env:
+          HAS_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: echo "ok=$([ "$HAS_OAUTH" = "true" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.token.outputs.ok == 'true'
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@6b082c41935b4c8a3b8b0ef85ba4ba4d9eeb8975 # v1.0.189
+        if: steps.token.outputs.ok == 'true'
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          track_progress: true
+          use_sticky_comment: false
+          prompt: |
+            Przesukaj repo i zaproponuj 2-3 HIGH-IMPACT poprawy:
+            1. Upgrade zaležnosci (npm audit fix, patch/minor only, zero breaking changes)
+            2. Martwе zmienne/importy (knip + grep, usun)
+            3. Potencjalne uproszczenia (duplikaty, repetycja, if-else chains)
+
+            KAžDY fix = oddzielna gałąź i mały PR (nie mega-PR).
+            Przeczytaj najpierw CLAUDE.md i docs/REVIEW-LEARNINGS.md (jesli istnieją).
+
+            KROK 0 — check git: czy main czystą? Jesli nie, STOP.
+            KROK 1 — znajdź okazje (npm audit, knip, grep patterns, czyt kod).
+            KROK 2 — dla każdej: branch feature -> zmiana -> commit -> push -> create PR z opisem.
+            KROK 3 — czy zmiana potrzebuje testu? Dodaj.
+            KROK 4 — czy zmiana to nowa regula (pattern do zapamiętania)? Zaproponuj wpis do REVIEW-LEARNINGS.md w opisie PR.
+
+            Nie ruszaj kodu jezeli:
+            - Nie masz pewności (ask w komentarzu PR zamiast guessować)
+            - Zmiana wymaga refaktoru logiki biznesowej (to wymaga human review)
+            - Repo ma SKIP_AUTO_IMPROVE w CLAUDE.md

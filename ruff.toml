@@ -1,0 +1,11 @@
+# Ruff dla ~/.claude (system PG). Wersjonowane od 2026-09-06.
+# pg/eval/fixtures = CELOWO zly kod (golden set dla pg-eval/fleet-metrics) - lintowanie go = niszczenie testu.
+# skills/ = vendorowane skille (Anthropic i inne) — nie nasz kod, nie lintujemy (289 bledow historycznych).
+# force-exclude: wykluczenia dzialaja TAKZE dla plikow podanych jawnie (pre-commit/hook przekazuja sciezki) — bez tego 264 bledy ze skills/ wracaly.
+force-exclude = true
+extend-exclude = ["skills", "pg/eval/fixtures", "_backup*", "backups", "security", "projects", "plugins", "cache"]
+
+[lint]
+# B006/B008 (mutowalny default / wywolanie w defaulcie) = error wg pg/paradigm.md:43 — tu jako konfiguracja,
+# zeby dzialalo tez przy recznym `ruff check` bez flag (hook i pre-commit dodaja te flagi rowniez).
+extend-select = ["B006", "B008"]

@@ -1,0 +1,27 @@
+{
+  "$comment": "PG tsconfig.base.json (2026-09-05). Repo: `extends: ./tsconfig.base.json` w tsconfig.app.json/tsconfig.node.json. Zrodla: hono (strict, composite, skipLibCheck, noUnused* w lincie), audyt A6. `tsc -b` zamiast `--noEmit` przy references (hook/pre-commit/CI to wiedza). noUncheckedIndexedAccess = TAK dla kodu aplikacji (rows[0] z Supabase = #1 zrodlo undefined); exactOptionalPropertyTypes = tylko nowe repo (opt-in, zakomentowane).",
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "composite": true,
+    "incremental": true,
+    "noEmit": false,
+    "declaration": false,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "useUnknownInCatchVariables": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "allowJs": false
+  }
+}

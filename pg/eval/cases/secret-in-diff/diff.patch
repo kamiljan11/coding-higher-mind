@@ -1,0 +1,6 @@
+diff --git a/supabase/functions/push/index.ts b/supabase/functions/push/index.ts
+--- a/supabase/functions/push/index.ts
++++ b/supabase/functions/push/index.ts
+@@ -1,2 +1,3 @@
++const SUPABASE_TOKEN = "sbp_" + "0123456789abcdef0123456789abcdef01234567";
+ export const ok = true;

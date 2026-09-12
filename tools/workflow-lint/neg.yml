@@ -1,0 +1,8 @@
+name: t
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.X != '' }}
+    steps:
+      - run: echo hi

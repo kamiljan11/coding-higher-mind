@@ -1,0 +1,102 @@
+name: Quality Gate
+# Twarda sciana L3 — na KAZDY push i PR, niezaleznie kto/co pisalo kod.
+# Kroki npm pomijaja sie same w repo bez package.json (assets/placeholder).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    name: Build + Lint + Typecheck + Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: hashFiles('package.json') != ''
+        with:
+          node-version: 20
+
+      - name: Install
+        if: hashFiles('package.json') != ''
+        run: npm ci || npm install
+
+      - name: Lint
+        if: hashFiles('package.json') != ''
+        run: npm run lint --if-present
+
+      - name: Typecheck
+        if: hashFiles('tsconfig.json') != ''
+        # Project references ("files": [] + "references", vite) => `tsc --noEmit` sprawdza NIC. Wtedy `tsc -b`.
+        run: |
+          if grep -q '"references"' tsconfig.json; then npx tsc -b; else npx tsc --noEmit; fi
+
+      - name: Tests
+        if: hashFiles('package.json') != ''
+        run: npm test --if-present -- --run
+
+      - name: Build
+        if: hashFiles('package.json') != ''
+        run: npm run build --if-present
+
+      - name: Coverage (jesli projekt ma prog)
+        if: hashFiles('package.json') != ''
+        run: npm run test:coverage --if-present -- --run
+
+      - name: Dependency audit (high+)
+        if: hashFiles('package-lock.json') != ''
+        run: npm audit --audit-level=high
+
+      - name: License check (copyleft blokuje sprzedaz)
+        if: hashFiles('package-lock.json') != ''
+        run: npx --yes license-checker-rseidelsohn --production --summary --failOn "GPL;AGPL;SSPL"
+
+      - name: "Code health: duplikacja (jscpd, informacyjnie)"
+        if: hashFiles('package.json') != ''
+        continue-on-error: true
+        run: npx --yes jscpd src --min-lines 10 --threshold 5 --reporters consoleFull || echo "::warning::Duplikacja kodu powyzej 5% — auto-improve/review maja to zmniejszac"
+
+      - name: "Code health: martwy kod (knip, informacyjnie)"
+        if: hashFiles('package.json') != ''
+        continue-on-error: true
+        run: npx --yes knip --no-exit-code --reporter compact || true
+
+  secrets-scan:
+    name: Gitleaks secrets scan
+    runs-on: ubuntu-latest
+    container:
+      image: zricethezav/gitleaks:latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Gitleaks (working tree)
+        run: gitleaks detect --source . --no-git --redact -v
+
+  security:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Semgrep scan
+        run: semgrep scan --config auto --error --exclude node_modules --exclude dist
+
+  e2e:
+    name: E2E smoke (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: hashFiles('playwright.config.ts', 'playwright.config.js') != ''
+        with:
+          node-version: 20
+
+      - name: Install + smoke test
+        if: hashFiles('playwright.config.ts', 'playwright.config.js') != ''
+        run: |
+          npm ci || npm install
+          npx playwright install --with-deps chromium
+          npx playwright test --reporter=line

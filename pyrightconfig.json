@@ -1,0 +1,6 @@
+{
+  "ignore": ["skills", "pg/eval/fixtures", "_backup-username-rename-2026-08-08", "backups", "security", "projects", "plugins", "cache"],
+  "exclude": ["skills", "pg/eval/fixtures", "_backup-username-rename-2026-08-08", "backups", "security", "projects", "plugins", "cache", "**/node_modules", "**/__pycache__"],
+  "typeCheckingMode": "standard",
+  "pythonVersion": "3.14"
+}

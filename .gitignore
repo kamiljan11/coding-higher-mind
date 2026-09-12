@@ -1,0 +1,10 @@
+node_modules/
+__pycache__/
+.ruff_cache/
+*.pyc
+*.log
+*.jsonl
+EXPORT-REPORT.md
+_pg-backup-*/
+*.pg-new
+*.pg-bak

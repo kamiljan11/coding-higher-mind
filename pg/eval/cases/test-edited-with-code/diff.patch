@@ -1,0 +1,12 @@
+diff --git a/src/lib/price.ts b/src/lib/price.ts
+--- a/src/lib/price.ts
++++ b/src/lib/price.ts
+@@ -1,3 +1,3 @@
+-export const vat = (n: number) => n * 0.24;
++export const vat = (n: number) => n * 0.25;
+diff --git a/src/lib/price.test.ts b/src/lib/price.test.ts
+--- a/src/lib/price.test.ts
++++ b/src/lib/price.test.ts
+@@ -1,3 +1,3 @@
+-  expect(vat(100)).toBe(24);
++  expect(vat(100)).toBe(25);

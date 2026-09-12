@@ -1,0 +1,60 @@
+name: Claude Code Review
+# "Druga para oczu" seniora — swieza instancja Claude (zero kontekstu sesji,
+# zero przywiazania do wlasnego kodu) robi review KAZDEGO PR automatycznie.
+# Bez sekretu CLAUDE_CODE_OAUTH_TOKEN job review jest SKIPPED (nie success):
+# zielony check bez recenzji to falszywy dowod (rental-site, 2026-09-06).
+# Sekret sprawdza osobny job w kroku, bo `secrets` nie sa dostepne w job-level `if`
+# (job-level `if` z secrets/hashFiles = caly plik niewazny — blizna floty).
+# TYLKO OAuth/subskrypcja — zero platnych tokenow API w tle (decyzja uzytkownika 2026-08-09).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  token:
+    name: Czy jest CLAUDE_CODE_OAUTH_TOKEN?
+    runs-on: ubuntu-latest
+    outputs:
+      ok: ${{ steps.probe.outputs.ok }}
+    steps:
+      - id: probe
+        env:
+          HAS_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: echo "ok=$([ "$HAS_OAUTH" = "true" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  claude-review:
+    needs: token
+    if: needs.token.outputs.ok == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@6b082c41935b4c8a3b8b0ef85ba4ba4d9eeb8975 # v1.0.189
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          track_progress: true
+          use_sticky_comment: true
+          prompt: |
+            Zrob code review tego PR jak senior 20+ (poziom Google/bank). Po polsku.
+            KROK 0 — PAMIEC: najpierw przeczytaj CLAUDE.md i docs/REVIEW-LEARNINGS.md (jesli istnieja)
+            i stosuj zawarte tam reguly — one maja pierwszenstwo przed ogolnymi zasadami.
+            Sprawdz w kolejnosci:
+            1. Poprawnosc i edge case'y (null/empty, race, timeout, partial failure, uprawnienia)
+            2. Bezpieczenstwo (injection, authz per-rekord, sekrety, walidacja inputu, dane wrazliwe w logach)
+            3. REDUNDANCJA: przeszukaj repo — czy ta logika juz istnieje? Wskaz duplikaty i zazadaj reuse.
+            4. Rozmiar/atomowosc diffa i zgodnosc z konwencjami repo (porownaj z sasiednimi plikami)
+            5. Testy: czy nowa logika ma testy w tym PR? Czego brakuje?
+            Werdykt na gorze: APPROVE albo REQUEST CHANGES.
+            Findings jako komentarze inline do konkretnych linii. Krytyczne oznacz [KRYTYCZNE].
+            Nie czepiaj sie stylu (od tego jest linter). Jesli PR jest czysty — napisz to krotko.
+            Na koncu, jesli w dyskusji PR widac ze uzytkownik skorygowal wczesniejsza ocene recenzenta,
+            zaproponuj sekcje "Proposed learnings" z wpisami do docs/REVIEW-LEARNINGS.md
+            (format: - [RRRR-MM-DD] regula (zrodlo: PR #n)) — petla auto-improve je zapisze.

@@ -1,0 +1,8 @@
+name: t
+on: push
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    if: hashFiles('x') != ''
+    steps:
+      - run: echo hi

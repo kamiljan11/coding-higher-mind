@@ -1,0 +1,4 @@
+# Git hooks are sh scripts: they must stay LF even on Windows checkouts (CRLF breaks `#!/bin/sh`).
+* text=auto eol=lf
+*.png binary
+*.jpg binary

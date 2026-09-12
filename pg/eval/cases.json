@@ -1,0 +1,23 @@
+{
+  "$comment": "Golden suite PG (2026-09-05). Pozytywy = realne blizny floty (pg/cases.md) zamienione w minimalne fixture'y; negatywy = czysty kod, ktory NIE moze byc flagowany (precyzja). gate = bramka 0-tokenowa, ktora ma to zlapac. Uruchom: node ~/.claude/bin/pg-eval.js. Nowy incydent -> nowy case tutaj + fixture w pg/eval/cases/<id>/.",
+  "cases": [
+    { "id": "rls-using-no-check", "rule_id": "RLS-USING-NO-CHECK", "positive": true, "gate": "sql-lint", "expect": { "check": "R2" }, "source": "A2 S06 (7 zrodel), A4 R2 73 znalezisk" },
+    { "id": "rls-definer-hygiene", "rule_id": "RLS-DEFINER-HYGIENE", "positive": true, "gate": "sql-lint", "expect": { "check": "R4" }, "source": "A4 R4 189 znalezisk / 5 repo" },
+    { "id": "tenant-fk-no-org", "rule_id": "TENANT-FK-NO-ORG", "positive": true, "gate": "sql-lint", "expect": { "check": "R9" }, "source": "workshop-app IDOR (multitenant-fk-org-trigger-idor)" },
+    { "id": "rls-anon-write", "rule_id": "RLS-ANON-WRITE", "positive": true, "gate": "sql-lint", "expect": { "check": "R5" }, "source": "A4 R5 48 znalezisk (rental-app GRANT all TO anon)" },
+    { "id": "clean-migration", "rule_id": "CLEAN", "positive": false, "gate": "sql-lint", "expect": { "check": null }, "source": "negatyw: policy z WITH CHECK, RLS on, indeks" },
+    { "id": "silent-catch", "rule_id": "SILENT-CATCH", "positive": true, "gate": "fleet-metrics", "expect": { "path": "catchBlocks.silent", "min": 1 }, "source": "A1: 250/298 w workshop-app; GitClear error-masking +47 %" },
+    { "id": "as-any", "rule_id": "AS-ANY-MASKS-DEAD", "positive": true, "gate": "fleet-metrics", "expect": { "path": "anyUsage", "min": 1 }, "source": "A2 S03 (martwe funkcje pod as any)" },
+    { "id": "god-function", "rule_id": "GOD-FUNCTION", "positive": true, "gate": "fleet-metrics", "expect": { "path": "functions.over60", "min": 1 }, "source": "A1: NewOrderWizard 2174 LOC, 207 fn>60" },
+    { "id": "short-identifiers", "rule_id": "SHORT-IDENTIFIER", "positive": true, "gate": "fleet-metrics", "expect": { "path": "shortIdentifiers.count", "min": 3 }, "source": "A1: 29x const t, 21x r, 20x v" },
+    { "id": "hardcoded-ui-text", "rule_id": "HARDCODED-UI-TEXT", "positive": true, "gate": "fleet-metrics", "expect": { "path": "jsxHardcodedText", "min": 1 }, "source": "A1: 25,7/1k LOC — najczestszy sygnal floty" },
+    { "id": "clean-ts", "rule_id": "CLEAN", "positive": false, "gate": "fleet-metrics", "expect": { "paths": ["catchBlocks.silent", "anyUsage", "functions.over60", "jsxHardcodedText"], "max": 0 }, "source": "negatyw: czysta funkcja domenowa" },
+    { "id": "suppression-as-fix", "rule_id": "SUPPRESSION-AS-FIX", "positive": true, "gate": "diff-grep", "expect": { "pattern": "suppression" }, "source": "A5 F5 (GitClear, EvilGenie)" },
+    { "id": "test-edited-with-code", "rule_id": "TEST-EDITED-WITH-CODE", "positive": true, "gate": "diff-grep", "expect": { "pattern": "test-with-code" }, "source": "A5 F8 (reward hacking)" },
+    { "id": "secret-in-diff", "rule_id": "SECRET-IN-REPO", "positive": true, "gate": "diff-grep", "expect": { "pattern": "secret" }, "source": "A2 S05 (6 zrodel), swb-credential-leak" },
+    { "id": "clean-diff", "rule_id": "CLEAN", "positive": false, "gate": "diff-grep", "expect": { "pattern": null }, "source": "negatyw: refaktor magic number -> const" },
+    { "id": "risk-tier-migration", "rule_id": "TIER-T3", "positive": true, "gate": "risk-tier", "expect": { "files": ["supabase/migrations/20260905_x.sql"], "lines": 12, "tier": "T3", "reviewer": "security-reviewer" }, "source": "audyt hookow: reviewer 2,5 % sesji" },
+    { "id": "risk-tier-docs", "rule_id": "TIER-T0", "positive": false, "gate": "risk-tier", "expect": { "files": ["README.md", "docs/adr/0001.md"], "lines": 40, "tier": "T0" }, "source": "negatyw: proporcjonalnosc — docs bez recenzentow" },
+    { "id": "risk-tier-env-template", "rule_id": "TIER-ENV-TEMPLATE-FP", "positive": true, "gate": "risk-tier", "expect": { "files": [".env.example", ".env.local.example", "README.md"], "lines": 20, "tier": "T1", "reviewer": "code-reviewer" }, "source": "demo-site PR #2 (rollout 2026-09-05): docs/CI-only PR dostal T3 przez .env.example; flota: 24x .env.example + 2x .env.local.example. Oczekiwany T1 = ani T3 (FP), ani T0 (nowe zmienne env = ops)" }
+  ]
+}
