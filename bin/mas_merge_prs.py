@@ -49,6 +49,32 @@ def has_workflows(repo: str, sha: str, token: str) -> bool:
     return status == 200 and any(e["name"].endswith((".yml", ".yaml")) for e in entries)
 
 
+def latest_per_name(runs: list) -> list:
+    """Na jednym HEAD ten sam check moze miec kilka runow (re-run, zdarzenie `labeled`): liczy sie NAJNOWSZY per nazwa —
+    tak jak pokazuje UI GitHuba. 2026-09-13 (demo-site #19): stary run `Mutation` = failure, nowy (po etykiecie
+    allow-low-mutation) = skipped; narzedzie brało oba i odmawialo merge'u zielonego PR-a. Czysta funkcja."""
+    best: dict[str, dict] = {}
+    for run in runs:
+        key = run.get("name", "")
+        stamp = (run.get("started_at") or run.get("completed_at") or "", int(run.get("id") or 0))
+        cur = best.get(key)
+        if cur is None or stamp > (cur.get("started_at") or cur.get("completed_at") or "", int(cur.get("id") or 0)):
+            best[key] = run
+    return list(best.values())
+
+
+def self_test() -> int:
+    runs = [
+        {"id": 1, "name": "Mutation", "status": "completed", "conclusion": "failure", "started_at": "2026-09-13T10:00:00Z"},
+        {"id": 2, "name": "Mutation", "status": "completed", "conclusion": "skipped", "started_at": "2026-09-13T10:05:00Z"},
+        {"id": 3, "name": "Build", "status": "completed", "conclusion": "success", "started_at": "2026-09-13T10:01:00Z"},
+    ]
+    latest = {r["name"]: r["conclusion"] for r in latest_per_name(runs)}
+    ok = latest == {"Mutation": "skipped", "Build": "success"} and latest_per_name([]) == []
+    print(("ok   " if ok else "FAIL ") + "latest_per_name: najnowszy run per nazwa wygrywa (failure -> skipped po etykiecie)")
+    return 0 if ok else 1
+
+
 
 def base_moved_after_checks(repo: str, pr: dict, runs: list, token: str) -> str | None:
     """Zwraca opis, gdy galaz bazowa dostala commit PO starcie checkow na HEAD PR-a.
@@ -113,6 +139,8 @@ def lint_merge_ref_workflows(repo: str, number: int, paths: list[str], token: st
     return errors
 
 def main() -> int:
+    if "--self-test" in sys.argv:
+        return self_test()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--repos", required=True)
     parser.add_argument("--branch", default="chore/pg-v3-github-ready")
@@ -136,7 +164,7 @@ def main() -> int:
         _, pr = request("GET", prs[0]["url"], token)
         number, sha, state = pr["number"], pr["head"]["sha"], pr.get("mergeable_state")
         _, checks = request("GET", f"{API}/repos/{OWNER}/{repo}/commits/{sha}/check-runs?per_page=100", token)
-        runs = checks.get("check_runs", [])
+        runs = latest_per_name(checks.get("check_runs", []))
         bad = [c["name"] for c in runs if c["status"] != "completed" or c.get("conclusion") not in OK_CONCLUSIONS]
         if state == "behind" and args.update_branch and args.confirm:
             # strict protection: galaz za baza -> GitHub sam wciaga baze (merge commit), CI liczy sie na WYNIKU.
@@ -152,7 +180,7 @@ def main() -> int:
                 _, pr = request("GET", f"{API}/repos/{OWNER}/{repo}/pulls/{number}", token)
                 sha, state = pr["head"]["sha"], pr.get("mergeable_state")
                 _, checks = request("GET", f"{API}/repos/{OWNER}/{repo}/commits/{sha}/check-runs?per_page=100", token)
-                runs = checks.get("check_runs", [])
+                runs = latest_per_name(checks.get("check_runs", []))
                 if runs and all(c["status"] == "completed" for c in runs) and state not in (None, "unknown", "behind"):
                     break
             bad = [c["name"] for c in runs if c["status"] != "completed" or c.get("conclusion") not in OK_CONCLUSIONS]
