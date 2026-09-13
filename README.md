@@ -30,7 +30,7 @@ This repository is that system, exported and sanitized so you can install it on 
 | **Fleet tools** | on demand / scheduled | strict branch protection from workflow job names, PR merge only on an up-to-date merge-ref, single-file rollouts as PRs, production proof from the Vercel API (never a hand-typed URL), session and git-history mining, weekly guard health, monthly reviewer calibration (the same defect in two wrappers must get the same verdict) | `bin/mas_*.py`, `scheduled-tasks/` |
 | **Self-tests** | `node bin/pg-selftest.js` | every gate has a **positive** test (it must block) and the rule→gate coverage is checked by script; the README index of tools is generated from the tools' own headers (a tool without a self-description shows up as debt) | `bin/test_*.js`, `bin/pg-rule-coverage.js`, `bin/pg-map.py` |
 
-Counted on export day, not estimated: 166 files, ~12 500 lines, 32 tools, 10 test suites, 7 hooks, 3 git hooks, 9 reviewer agents, 149 scars, 25 template files, 4 scheduled agents.
+Counted on export day, not estimated: 184 files, ~15 700 lines, 32 tools, 10 test suites, 7 hooks, 3 git hooks, 9 reviewer agents, 150 scars, 25 template files, 4 Claude Code routines + 7 desktop routines.
 
 ---
 

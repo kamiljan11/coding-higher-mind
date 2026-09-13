@@ -30,7 +30,7 @@ To repozytorium jest tym systemem, wyeksportowanym i zsanityzowanym, żeby dało
 | **Narzędzia floty** | na żądanie / cyklicznie | ścisła ochrona gałęzi z nazw jobów workflow, merge PR tylko na aktualnym merge-ref, rollout pojedynczego pliku jako PR, dowód z produkcji z API Vercela (nigdy z ręcznie wpisanego URL), kopanie sesji i historii gita, cotygodniowe zdrowie strażników, miesięczna kalibracja recenzentów (ten sam defekt w dwóch opakowaniach musi dostać ten sam werdykt) | `bin/mas_*.py`, `scheduled-tasks/` |
 | **Samotesty** | `node bin/pg-selftest.js` | każda bramka ma test **pozytywny** (musi zablokować), pokrycie reguła→bramka sprawdza skrypt; indeks narzędzi w README jest generowany z nagłówków samych narzędzi (narzędzie bez samoopisu pokazuje się jako dług) | `bin/test_*.js`, `bin/pg-rule-coverage.js`, `bin/pg-map.py` |
 
-Policzone w dniu eksportu, nie szacowane: 171 plików, ~12 500 linii, 33 narzędzia, 10 zestawów testów, 7 hooków, 3 hooki gita, 9 agentów-recenzentów, 149 blizn, 25 plików szablonu, 4 rutyny kodowe + 7 pulpitowych.
+Policzone w dniu eksportu, nie szacowane: 184 pliki, ~15 700 linii, 32 narzędzia, 10 zestawów testów, 7 hooków, 3 hooki gita, 9 agentów-recenzentów, 150 blizn, 25 plików szablonu, 4 rutyny kodowe + 7 pulpitowych.
 
 ---
 
