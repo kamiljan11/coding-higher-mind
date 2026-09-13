@@ -1,3 +1,5 @@
+**Language / Język:** **English** · [Polski](README.pl.md)
+
 # Coding Higher Mind — PG (PROMPT-GUARD) for Claude Code
 
 **Quality gates, reviewer agents, routines and an anti-hallucination protocol for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Claude Desktop — enforced by events, not by willpower.**
@@ -138,16 +140,4 @@ Everything that was specific to the author's machine was removed or made configu
 
 MIT — © 2026 Kamil Jan. Sources of the research behind the rules are cited inline in `prompt-protocol.md`, `pg/*.md` and `hooks/prompt-guard.js`.
 
----
-
-## Po polsku (skrót)
-
-**Coding Higher Mind** — nazwa od drugiego projektu autora, darmowego przewodnika po praktycznej duchowości: praktyka ponad przekonanie. Reguła, której *zamierzasz* przestrzegać, to przekonanie; bramka, która odpala się na zdarzeniu, to praktyka.
-
-PG to system bramek jakości, recenzentów-agentów i protokołu anty-halucynacyjnego dla Claude Code, który powstał z jednego audytu: **każda reguła zapisana prozą była łamana na skalę**. Dlatego reguły przeszły do hooków (prompt, edycja, komenda, koniec sesji), bramek gita (commit, push), CI i działów-recenzentów ze świeżym kontekstem — a każda bramka ma test, który dowodzi, że blokuje swój przypadek.
-
-- **Instalacja:** `node install.mjs` (Node ≥ 20, git). Instalator nie nadpisuje Twoich plików, dokleja hooki do `settings.json` i blok PG do `CLAUDE.md`, a hooki gita włącza tylko z `--yes`. Kończy się samotestem — zielony wynik jest dowodem.
-- **Trzy filary:** bramki zamiast prozy · blizna → bramka (`pg/cases.md`, 149 wpisy) · dowód zamiast prozy (`VERIFIED / UNVERIFIED / FAILED` — patrz [docs/VERIFIED-PROTOCOL.md](docs/VERIFIED-PROTOCOL.md); to jedna rzecz, którą warto wkleić do każdego promptu w Claude Cowork).
-- **Tier ryzyka z diffu** (T0–T3), nie z opisu zadania; T2+ bez recenzentów działowych = sesja się nie zamknie.
-- **Co dostosować u siebie:** [docs/CUSTOMIZE.md](docs/CUSTOMIZE.md).
-- Komunikaty są po polsku, README i instalator po angielsku. Licencja MIT.
+Polska wersja tego README: [README.pl.md](README.pl.md).
