@@ -58,7 +58,8 @@ function block(reason, repo, message) {
   state.reasons.push(blockKey(reason, repo));
   try { fs.writeFileSync(statePath, JSON.stringify(state)); } catch (e) { /* bez stanu i tak konczymy exit 2 */ }
   log({ hook: HOOK, event: 'blocked', reason, target: repo });
-  process.stderr.write(`STOP ZABLOKOWANY [${reason}] w ${repo}:\n${message}\n`);
+  // Pierwsza linia = kontrakt dla testow/telemetrii (`STOP ZABLOKOWANY [reason] w repo:`); angielska linia osobno na koncu.
+  process.stderr.write(`STOP ZABLOKOWANY [${reason}] w ${repo}:\n${message}\n(EN: STOP BLOCKED — the session cannot close until this is fixed; reason ${reason}; procedure: ~/.claude/pg/dod.md)\n`);
   process.exit(2);
 }
 

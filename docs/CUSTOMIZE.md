@@ -8,6 +8,7 @@ page lists every knob, where it lives, and what happens if you leave it alone.
 | Knob | Where | Default | Notes |
 |---|---|---|---|
 | Your own rules | `~/.claude/CLAUDE.md`, **above** the `<!-- PG:BEGIN -->` block | — | the block is replaced on every `node install.mjs`; anything outside it is yours |
+| Language of the protocol | `~/.claude/settings.json` → `env.PG_LANG` (`en` / `pl`) | installer: `pl` for a Polish locale, else `en`; `--lang=en|pl` overrides | `hooks/prompt-guard.js` injects the English or Polish protocol (same numbering, same markers); gate block messages are always bilingual |
 | Hook registration | `~/.claude/settings.json` → `hooks` | merged by the installer | remove a hook by deleting its entry; `node uninstall.mjs` removes all PG entries |
 | Memory injected at session start | env `MAS_MEMORY_DIR` (read by `hooks/session-context.js`) | `~/.claude/memory` | files looked for: `RESUME.md`, `Projects.md`, `Notes for Claude.md`, `Active Systems.md`; missing = skipped with a one-line note; cap 40 000 chars |
 | Where scheduled tasks log | `hooks/guard_health.py` → `LOG_DIR` | `~/.claude/memory/log` | one markdown file per task; a `STARTED` line without a matching end = the task died (audit shows it) |

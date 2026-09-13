@@ -209,8 +209,13 @@ if _browsers.exists():
     except (StopIteration, KeyError, json.JSONDecodeError) as _err:
         check("qa-matrix runtime: browsers.json czytelny", False, f"{type(_err).__name__}")
 # Preflight P16 (backup-drill): bez klienta Postgresa drill nie istnieje — ma byc RED w audycie, nie dopiero przy realnym T3.
-for _tool in ("pg_dump", "pg_restore", "psql"):
-    check(f"backup-drill preflight: `{_tool}` na PATH", shutil.which(_tool) is not None, "winget install PostgreSQL.PostgreSQL (client tools) — inaczej PRR P16 nie do wykonania")
+# 2026-09-13: brak klienta na PATH, ale jest docker -> backup-drill uzywa obrazu postgres:16-alpine (tryb docker) — to jest OK, nie RED.
+_pg_native = all(shutil.which(_t) for _t in ("pg_dump", "pg_restore", "psql"))
+_docker_ok = shutil.which("docker") is not None
+check("backup-drill preflight: pg_dump/pg_restore/psql na PATH ALBO docker (obraz postgres)", _pg_native or _docker_ok,
+      "winget install PostgreSQL.PostgreSQL (client tools) albo Docker Desktop — inaczej PRR P16 nie do wykonania")
+if not _pg_native and _docker_ok:
+    print("info: backup-drill w trybie docker (postgres:16-alpine) — klient Postgresa nie jest zainstalowany natywnie")
 _r = sh(["node", str(CLAUDE / "bin" / "test_pg_gaps.js")], timeout=300)
 check("test_pg_gaps: bramki gap-analizy blokuja swoje przypadki", _rc_out(_r)[0] == 0, (_rc_out(_r)[1].strip().splitlines() or ["brak wyniku"])[-1])
 for _name in ("pg-council.js", "test_pg_council.js"):
