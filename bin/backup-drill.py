@@ -11,8 +11,10 @@ Uzycie (URL zrodla ZAWSZE z env przez menedzer sekretow (np. Infisical CLI), nig
       --log "~/.claude/memory/log/backup-drill.md"
   python ~/.claude/bin/backup-drill.py --self-test        # testy funkcji czystych (bez Postgresa)
 
-Wymaga pg_dump / pg_restore / psql na PATH (brak = glosny blad, nie cichy skip). Zrzut kasowany po drillu
-(--keep-dump zostawia). Cel z hostem zrodla albo `supabase.co` = odmowa (drill NIGDY nie nadpisuje produkcji).
+Narzedzia: pg_dump / pg_restore / psql z PATH; gdy ich brak, a jest `docker` -> te same komendy w kontenerze
+`postgres:16-alpine` (2026-09-13: host bez klienta Postgresa nie moze byc powodem braku drillu; Docker Desktop jest).
+W trybie docker `localhost` celu = `host.docker.internal` (kontener ma wlasny localhost). Brak obu = glosny blad, nie cichy skip.
+Zrzut kasowany po drillu (--keep-dump zostawia). Cel z hostem zrodla albo `supabase.co` = odmowa (drill NIGDY nie nadpisuje produkcji).
 """
 from __future__ import annotations
 
@@ -28,6 +30,9 @@ from dataclasses import asdict, dataclass
 from urllib.parse import parse_qs, unquote, urlparse
 
 REQUIRED_TOOLS = ("pg_dump", "pg_restore", "psql")
+DOCKER_IMAGE = "postgres:16-alpine"
+DOCKER_WORKDIR = "/work"
+PG_ENV_KEYS = ("PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE", "PGSSLMODE")
 # ALLOW-lista celu (security-reviewer 2026-09-12: deny-lista hostow przepuszczala db.firma.pl / IP / port-forward na prod).
 LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 TABLE_NAME_MAX = 63
@@ -43,6 +48,35 @@ class TableResult:
     @property
     def ok(self) -> bool:
         return self.source_rows is not None and self.source_rows == self.target_rows
+
+
+@dataclass(frozen=True)
+class Tools:
+    """Jak uruchamiac narzedzia Postgresa: natywnie (sciezki z PATH) albo przez docker (prefix komendy + katalog roboczy)."""
+
+    mode: str  # "native" | "docker"
+    paths: dict[str, str]
+    work_dir: str  # katalog hosta ze zrzutem; w dockerze montowany jako /work
+
+    def cmd(self, tool: str, args: list[str], env: dict[str, str]) -> list[str]:
+        return docker_cmd(tool, args, self.work_dir) if self.mode == "docker" else [self.paths[tool], *args]
+
+    def dump_path_for_tool(self, host_path: str) -> str:
+        return f"{DOCKER_WORKDIR}/{os.path.basename(host_path)}" if self.mode == "docker" else host_path
+
+
+def docker_cmd(tool: str, args: list[str], work_dir: str) -> list[str]:
+    """`docker run` z narzedziem Postgresa: env PG* przekazywane z procesu (bez wartosci w argv), katalog zrzutu jako /work."""
+    envs = [x for key in PG_ENV_KEYS for x in ("-e", key)]
+    return ["docker", "run", "--rm", "-i", *envs, "-v", f"{work_dir}:{DOCKER_WORKDIR}", DOCKER_IMAGE, tool, *args]
+
+
+def docker_env(env: dict[str, str]) -> dict[str, str]:
+    """W kontenerze `localhost` to kontener: lokalny cel drillu -> host.docker.internal (Docker Desktop / Linux z --add-host)."""
+    out = dict(env)
+    if out.get("PGHOST", "").lower() in LOCAL_HOSTS:
+        out["PGHOST"] = "host.docker.internal"
+    return out
 
 
 def parse_tables(raw: str) -> list[str]:
@@ -99,19 +133,29 @@ def format_log_line(when: dt.datetime, label: str, results: list[TableResult], d
     return f"- {when.date().isoformat()} {label}: restore {status} — dump {dump_bytes // 1024} KB; wiersze zrodlo/cel: {detail}"
 
 
-def which_or_die(tool: str) -> str:
-    found = shutil.which(tool)
-    if not found:
-        raise SystemExit(f"backup-drill: brak narzedzia `{tool}` na PATH — zainstaluj PostgreSQL client tools (winget install PostgreSQL.PostgreSQL). Bez tego drill nie istnieje.")
-    return found
+def resolve_tools(work_dir: str, force_docker: bool = False) -> Tools:
+    """Natywne narzedzia z PATH; brak -> docker (jesli jest); brak obu -> glosny blad z instrukcja."""
+    paths = {t: shutil.which(t) or "" for t in REQUIRED_TOOLS}
+    if all(paths.values()) and not force_docker:
+        return Tools(mode="native", paths=paths, work_dir=work_dir)
+    if shutil.which("docker"):
+        missing = [t for t, p in paths.items() if not p]
+        sys.stderr.write(f"backup-drill: {'wymuszony docker' if force_docker else 'brak na PATH: ' + ', '.join(missing)} -> narzedzia z obrazu {DOCKER_IMAGE}\n")
+        return Tools(mode="docker", paths={}, work_dir=work_dir)
+    raise SystemExit("backup-drill: brak pg_dump/pg_restore/psql na PATH i brak dockera — zainstaluj PostgreSQL client tools "
+                     "(winget install PostgreSQL.PostgreSQL) albo Docker Desktop. Bez tego drill nie istnieje.")
 
 
-def count_rows(psql: str, url: str, tables: list[str]) -> dict[str, int | None]:
+def run_tool(tools: Tools, tool: str, args: list[str], env: dict[str, str], timeout: int) -> subprocess.CompletedProcess[str]:
+    full_env = {**os.environ, **(docker_env(env) if tools.mode == "docker" else env)}
+    return subprocess.run(tools.cmd(tool, args, env), capture_output=True, text=True, timeout=timeout, check=False, env=full_env)
+
+
+def count_rows(tools: Tools, url: str, tables: list[str]) -> dict[str, int | None]:
     counts: dict[str, int | None] = {}
-    env = {**os.environ, **libpq_env(url)}
+    env = libpq_env(url)
     for table in tables:
-        cmd = [psql, "-Atc", f"select count(*) from {table}"]
-        run = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=False, env=env)
+        run = run_tool(tools, "psql", ["-Atc", f"select count(*) from {table}"], env, timeout=120)
         if run.returncode != 0:
             sys.stderr.write(f"backup-drill: count({table}) nieudany: {run.stderr.strip()[:200]}\n")
             counts[table] = None
@@ -130,32 +174,32 @@ def run_drill(args: argparse.Namespace) -> int:
     if args.allow_remote_target:
         sys.stderr.write(f"backup-drill: UWAGA — zdalny cel restore ({urlparse(args.target_url).hostname}) za jawna zgoda; --clean nadpisze obiekty w tej bazie.\n")
     tables = parse_tables(args.tables)
-    pg_dump, pg_restore, psql = (which_or_die(t) for t in REQUIRED_TOOLS)
-    source_env = {**os.environ, **libpq_env(source_url)}
-    target_env = {**os.environ, **libpq_env(args.target_url)}
+    work_dir = tempfile.mkdtemp(prefix="backup-drill-")
+    tools = resolve_tools(work_dir, force_docker=args.docker)
+    source_env = libpq_env(source_url)
+    target_env = libpq_env(args.target_url)
     started = dt.datetime.now(dt.UTC)
-    dump_path = os.path.join(tempfile.mkdtemp(prefix="backup-drill-"), "dump.pgc")
+    dump_path = os.path.join(work_dir, "dump.pgc")
+    tool_dump_path = tools.dump_path_for_tool(dump_path)
     try:
-        # Polaczenie przez env libpq (PG*), nie argv — zadnych hasel w linii komend.
-        dump = subprocess.run([pg_dump, "--format=custom", "--no-owner", "--no-privileges", f"--file={dump_path}"],
-                              capture_output=True, text=True, timeout=args.timeout, check=False, env=source_env)
+        # Polaczenie przez env libpq (PG*), nie argv — zadnych hasel w linii komend (takze w `docker run -e KEY` bez wartosci).
+        dump = run_tool(tools, "pg_dump", ["--format=custom", "--no-owner", "--no-privileges", f"--file={tool_dump_path}"], source_env, args.timeout)
         if dump.returncode != 0:
             raise SystemExit(f"backup-drill: pg_dump nieudany (rc={dump.returncode}): {dump.stderr.strip()[:400]}")
-        dump_bytes = os.path.getsize(dump_path)
+        dump_bytes = os.path.getsize(dump_path) if os.path.exists(dump_path) else 0
         if dump_bytes == 0:
             raise SystemExit("backup-drill: pg_dump wyprodukowal PUSTY plik — to nie jest backup.")
-        restore = subprocess.run([pg_restore, "--clean", "--if-exists", "--no-owner", "--no-privileges", f"--dbname={target_env['PGDATABASE']}", dump_path],
-                                 capture_output=True, text=True, timeout=args.timeout, check=False, env=target_env)
+        restore = run_tool(tools, "pg_restore", ["--clean", "--if-exists", "--no-owner", "--no-privileges", f"--dbname={target_env['PGDATABASE']}", tool_dump_path], target_env, args.timeout)
         if restore.returncode != 0:
             # pg_restore zwraca 1 takze przy ostrzezeniach (np. brak roli); rozstrzyga porownanie wierszy ponizej, ale ostrzezenie ma byc WIDOCZNE.
             sys.stderr.write(f"backup-drill: pg_restore rc={restore.returncode}: {restore.stderr.strip()[-600:]}\n")
-        results = compare_counts(count_rows(psql, source_url, tables), count_rows(psql, args.target_url, tables))
+        results = compare_counts(count_rows(tools, source_url, tables), count_rows(tools, args.target_url, tables))
     finally:
         if not args.keep_dump and os.path.exists(dump_path):
             os.remove(dump_path)
     ok = all(r.ok for r in results)
     report = {"started": started.isoformat(), "source_env": args.source_env, "target_host": urlparse(args.target_url).hostname,
-              "dump_bytes": dump_bytes, "tables": [asdict(r) | {"ok": r.ok} for r in results], "ok": ok}
+              "tools": tools.mode, "dump_bytes": dump_bytes, "tables": [asdict(r) | {"ok": r.ok} for r in results], "ok": ok}
     if args.report:
         with open(args.report, "w", encoding="utf-8") as fh:
             json.dump(report, fh, indent=1)
@@ -207,6 +251,14 @@ def self_test() -> int:
     check("log line: FAILED + szczegoly", line.startswith("- 2026-09-12 X_DB: restore FAILED") and "a=10/10" in line and "c=None/None" in line)
     ok_line = format_log_line(dt.datetime(2026, 9, 12, tzinfo=dt.UTC), "X_DB", res[:1], 4096)
     check("log line: OK gdy wszystko zgodne", "restore OK" in ok_line)
+    # tryb docker: haslo NIGDY w argv (tylko `-e PGPASSWORD` bez wartosci), zrzut pod /work, localhost celu -> host.docker.internal
+    dcmd = docker_cmd("pg_dump", ["--format=custom", "--file=/work/dump.pgc"], "/tmp/x")
+    check("docker_cmd: obraz + narzedzie + argumenty, env bez wartosci, wolumen /work", dcmd[:3] == ["docker", "run", "--rm"] and DOCKER_IMAGE in dcmd and dcmd[-3:] == ["pg_dump", "--format=custom", "--file=/work/dump.pgc"] and "-v" in dcmd and "/tmp/x:/work" in dcmd and all(k in dcmd for k in PG_ENV_KEYS) and not any("=" in x and x.startswith("PG") for x in dcmd))
+    check("docker_env: localhost -> host.docker.internal, zdalny host bez zmian", docker_env({"PGHOST": "localhost"})["PGHOST"] == "host.docker.internal" and docker_env({"PGHOST": "db.example.com"})["PGHOST"] == "db.example.com")
+    t = Tools(mode="docker", paths={}, work_dir="/tmp/x")
+    check("Tools.docker: sciezka zrzutu w kontenerze, komenda przez docker", t.dump_path_for_tool("/tmp/x/dump.pgc") == "/work/dump.pgc" and t.cmd("psql", ["-Atc", "select 1"], {})[0] == "docker")
+    n = Tools(mode="native", paths={"psql": "/usr/bin/psql", "pg_dump": "/usr/bin/pg_dump", "pg_restore": "/usr/bin/pg_restore"}, work_dir="/tmp/x")
+    check("Tools.native: sciezka z PATH, zrzut bez zmian", n.cmd("psql", ["-Atc", "select 1"], {}) == ["/usr/bin/psql", "-Atc", "select 1"] and n.dump_path_for_tool("/tmp/x/dump.pgc") == "/tmp/x/dump.pgc")
     print("TESTY: " + (f"{failures} FAIL" if failures else "wszystkie OK"))
     return 1 if failures else 0
 
@@ -220,6 +272,7 @@ def main() -> int:
     ap.add_argument("--log", help="plik logu (append), np. Obsidian Log/backup-drill.md")
     ap.add_argument("--keep-dump", action="store_true")
     ap.add_argument("--allow-remote-target", action="store_true", help="zdalny cel restore (domyslnie tylko localhost) — swiadoma decyzja, logowana")
+    ap.add_argument("--docker", action="store_true", help=f"wymus narzedzia z obrazu {DOCKER_IMAGE} nawet gdy sa na PATH")
     ap.add_argument("--timeout", type=int, default=1800, help="sekundy na pg_dump / pg_restore (duza baza = podnies)")
     ap.add_argument("--self-test", action="store_true")
     args = ap.parse_args()

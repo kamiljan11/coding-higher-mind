@@ -8,7 +8,7 @@ PG is the working system behind one person's software company: ~40 production re
 
 This repository is that system, exported and sanitized so you can install it on your own machine in five minutes. A long-form description with diagrams lives at **[kamiljan.com/claude](https://kamiljan.com/claude)**.
 
-> **Language note.** PG speaks Polish: hook messages, reviewer rubrics and the doctrine documents are in its author's working language. Everything is plain text; an English pass is the top roadmap item and pull requests are welcome. The installer, this README and `docs/` are in English.
+> **Language note.** PG was written in Polish, its author's working language. What you interact with is bilingual: the prompt protocol injected into every session has a full English version (`PG_LANG=en`, set automatically by the installer from your machine locale, override with `--lang=en|pl`), every git-gate and command-guard block message carries an English `BLOCKED: …` line with the escape hatch, and the installer, this README and `docs/` are English. The doctrine documents and reviewer rubrics are still Polish — the model reads them fine; translate in place if your team needs to, pull requests welcome.
 
 ---
 

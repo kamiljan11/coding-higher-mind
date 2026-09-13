@@ -72,7 +72,7 @@ $wf:$n: continue-on-error w kroku z narzedziem security"
   # (komentarz `# v4.4.0` obok mowi, co to za wersja). Lokalne akcje `./x` i `docker://` bez `@` przechodza.
   unpinned=$(printf '%s\n' "$wf_added" | grep -E 'uses:\s*[^ #]+@' | grep -vE 'uses:\s*[^ #]+@[0-9a-f]{40}([[:space:]]|$)' || true)
   if [ -n "$(printf '%s' "$downgraded" | tr -d '\n')$neutered$unpinned" ]; then
-    echo "[pre-commit] CI DOWNGRADE: krok security usunięty/zneutralizowany albo akcja bez pinu SHA w workflow — commit ZABLOKOWANY:" >&2
+    echo "[pre-commit] CI DOWNGRADE: krok security usunięty/zneutralizowany albo akcja bez pinu SHA w workflow — commit ZABLOKOWANY: | BLOCKED: a security step was removed/neutralized or an action is not pinned to a SHA (escape: ALLOW_CI_DOWNGRADE=1)" >&2
     printf '%s\n%s\n%s\n' "$downgraded" "$neutered" "$unpinned" | grep . | head -8 >&2
     echo "[pre-commit] Zielone CI robi sie NAPRAWA (npm audit fix patch/minor), akcje pinujemy do 40-hex SHA (# vX.Y.Z obok). Wyjatek: ALLOW_CI_DOWNGRADE=1 git commit" >&2
     exit 1
@@ -90,7 +90,7 @@ if [ "$ALLOW_SECRET" != "1" ]; then
   leaks=$(git diff --cached -U0 --diff-filter=ACM | grep -E '^\+' | grep -vE '^\+\+\+' | grep -v 'gitleaks:allow' | \
     grep -nE 'ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gho_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|sbp_[A-Za-z0-9]{20,}|xox[bpars]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----' || true)
   if [ -n "$leaks" ]; then
-    echo "[pre-commit] SECRET wykryty w stagowanych zmianach — commit ZABLOKOWANY:" >&2
+    echo "[pre-commit] SECRET wykryty w stagowanych zmianach — commit ZABLOKOWANY: | BLOCKED: a secret-looking token is in the staged diff (move it to env/vault; fixture: gitleaks:allow on the line; escape: ALLOW_SECRET=1)" >&2
     echo "$leaks" | head -5 >&2
     echo "[pre-commit] Przenies do Infisical/env (nigdy do kodu). Wyjatek: ALLOW_SECRET=1 git commit" >&2
     exit 1
@@ -99,20 +99,20 @@ fi
 # Swiezosc bazy (retro 2026-09-06, petla 1): commit na klonie z INNA historia niz origin = praca na kodzie, ktorego
 # nie ma. base-check blokuje tylko brak wspolnego przodka; "za baza" i "offline" to ostrzezenia. Wyjatek: ALLOW_STALE_BASE=1.
 if [ "${ALLOW_STALE_BASE:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/base-check.js" ]; then
-  node "$HOME/.claude/bin/base-check.js" --quiet || { echo "[pre-commit] base-check: HEAD i origin nie maja wspolnego przodka — to nie jest to repo, na ktorym dziala CI. Zabezpiecz prace (git stash) i przepnij galaz na origin. Wyjatek: ALLOW_STALE_BASE=1." >&2; exit 1; }
+  node "$HOME/.claude/bin/base-check.js" --quiet || { echo "[pre-commit] base-check (BLOCKED: HEAD and origin share no common ancestor, this clone is not the repo CI runs; escape: ALLOW_STALE_BASE=1): HEAD i origin nie maja wspolnego przodka — to nie jest to repo, na ktorym dziala CI. Zabezpiecz prace (git stash) i przepnij galaz na origin. Wyjatek: ALLOW_STALE_BASE=1." >&2; exit 1; }
 fi
 
 # Powtorzone literaly w NOWYM kodzie (0 tokenow). Blizna 2026-09-06: tozsamosc firmy w 45 miejscach
 # w 11 plikach przeszla lint/typy/testy/review. Skan patrzy tylko na dodane linie indeksu, wiec nie
 # dotyka dlugu historycznego. Swiadomy wyjatek: ALLOW_DUP_LITERALS=1.
 if [ "${ALLOW_DUP_LITERALS:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/dup-literals.js" ]; then
-  node "$HOME/.claude/bin/dup-literals.js" --staged || { echo "[pre-commit] dup-literals: ten sam literal dodany >=3x w >=2 plikach — wyciagnij do jednego zrodla (stala/modul). Wyjatek: ALLOW_DUP_LITERALS=1 w komendzie." >&2; exit 1; }
+  node "$HOME/.claude/bin/dup-literals.js" --staged || { echo "[pre-commit] dup-literals (BLOCKED: same literal added >=3x in >=2 files, extract one source of truth; escape: ALLOW_DUP_LITERALS=1): ten sam literal dodany >=3x w >=2 plikach — wyciagnij do jednego zrodla (stala/modul). Wyjatek: ALLOW_DUP_LITERALS=1 w komendzie." >&2; exit 1; }
 fi
 
 # Zakomentowany kod w NOWYM diffie (research 2026-09-06: "comment traps" — martwy kod w komentarzu uczy
 # nastepnego agenta blednego wzorca). Wyjatek: ALLOW_COMMENTED_CODE=1.
 if [ "${ALLOW_COMMENTED_CODE:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/commented-code-gate.js" ]; then
-  node "$HOME/.claude/bin/commented-code-gate.js" --staged || { echo "[pre-commit] commented-code-gate: usun zakomentowany kod (historia jest w gicie). Wyjatek: ALLOW_COMMENTED_CODE=1." >&2; exit 1; }
+  node "$HOME/.claude/bin/commented-code-gate.js" --staged || { echo "[pre-commit] commented-code-gate (BLOCKED: newly added commented-out code, git history keeps it; escape: ALLOW_COMMENTED_CODE=1): usun zakomentowany kod (historia jest w gicie). Wyjatek: ALLOW_COMMENTED_CODE=1." >&2; exit 1; }
 fi
 
 # Swiadome obejscie bramki (ALLOW_X=1) zostawia slad w ~/.claude/logs/gates.jsonl — skip niewidoczny = bramka, ktorej nie ma
@@ -124,7 +124,7 @@ log_bypass() { command -v node >/dev/null 2>&1 && node "$HOME/.claude/hooks/lib/
 if [ "${ALLOW_PHASE:-0}" = "1" ]; then log_bypass phase-gate ALLOW_PHASE
 elif command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/phase-gate.js" ]; then
   if git diff --cached --name-only | grep -qE '(^|/)CLAUDE\.md$'; then
-    node "$HOME/.claude/bin/phase-gate.js" --staged || { echo "[pre-commit] phase-gate: promocja pg.phase -> production wymaga docs/prr/<RRRR-MM-DD>.md (wypelniony ~/.claude/pg/prr.md) w tym samym commicie. Wyjatek: ALLOW_PHASE=1." >&2; exit 1; }
+    node "$HOME/.claude/bin/phase-gate.js" --staged || { echo "[pre-commit] phase-gate (BLOCKED: promoting pg.phase to production needs docs/prr/<date>.md in the same commit; escape: ALLOW_PHASE=1): promocja pg.phase -> production wymaga docs/prr/<RRRR-MM-DD>.md (wypelniony ~/.claude/pg/prr.md) w tym samym commicie. Wyjatek: ALLOW_PHASE=1." >&2; exit 1; }
   fi
 fi
 
@@ -132,7 +132,7 @@ fi
 # w tym samym commicie = blok („dlug = kredyt z odsetkami", slownik SH sekcja 8). Wyjatek: ALLOW_TODO=1.
 if [ "${ALLOW_TODO:-0}" = "1" ]; then log_bypass todo-ledger-gate ALLOW_TODO
 elif command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/todo-ledger-gate.js" ]; then
-  node "$HOME/.claude/bin/todo-ledger-gate.js" --staged || { echo "[pre-commit] todo-ledger-gate: skrot bez wpisu w docs/quality/BACKLOG.md (data, plik:linia, odsetki, splata do). Wyjatek: ALLOW_TODO=1." >&2; exit 1; }
+  node "$HOME/.claude/bin/todo-ledger-gate.js" --staged || { echo "[pre-commit] todo-ledger-gate (BLOCKED: new TODO/FIXME/HACK without a row in docs/quality/BACKLOG.md; escape: ALLOW_TODO=1): skrot bez wpisu w docs/quality/BACKLOG.md (data, plik:linia, odsetki, splata do). Wyjatek: ALLOW_TODO=1." >&2; exit 1; }
 fi
 
 # Dane osobowe (L5, RODO): stagowana migracja dodaje kolumne o nazwie osobowej bez wiersza `tabela.kolumna`
@@ -140,14 +140,14 @@ fi
 if [ "${ALLOW_PII:-0}" = "1" ]; then log_bypass pii-inventory-gate ALLOW_PII
 elif command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/pii-inventory-gate.js" ]; then
   if git diff --cached --name-only | grep -qE '(^|/)migrations/.*\.sql$'; then
-    node "$HOME/.claude/bin/pii-inventory-gate.js" --staged || { echo "[pre-commit] pii-inventory-gate: nowa kolumna PII bez wiersza w docs/PRIVACY.md (dana, cel, retencja, procesor, jak usunac). Wyjatek: ALLOW_PII=1." >&2; exit 1; }
+    node "$HOME/.claude/bin/pii-inventory-gate.js" --staged || { echo "[pre-commit] pii-inventory-gate (BLOCKED: a personal-data column without a row in docs/PRIVACY.md; escape: ALLOW_PII=1): nowa kolumna PII bez wiersza w docs/PRIVACY.md (dana, cel, retencja, procesor, jak usunac). Wyjatek: ALLOW_PII=1." >&2; exit 1; }
   fi
 fi
 
 # Nowa zaleznosc musi istniec w rejestrze (anty-slopsquatting; research 2026-09-06). Wyjatek: ALLOW_UNKNOWN_DEP=1.
 if [ "${ALLOW_UNKNOWN_DEP:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/dep-exists.js" ]; then
   if git diff --cached --name-only | grep -qE '(^|/)(package\.json|pyproject\.toml|requirements[^/]*\.txt)$'; then
-    node "$HOME/.claude/bin/dep-exists.js" --staged || { echo "[pre-commit] dep-exists: nowa zaleznosc nie istnieje w rejestrze (halucynacja/typosquat). Wyjatek dla prywatnego rejestru: ALLOW_UNKNOWN_DEP=1." >&2; exit 1; }
+    node "$HOME/.claude/bin/dep-exists.js" --staged || { echo "[pre-commit] dep-exists (BLOCKED: a new dependency does not exist in the registry or is one typo away from a popular package; escape: ALLOW_UNKNOWN_DEP=1): nowa zaleznosc nie istnieje w rejestrze (halucynacja/typosquat). Wyjatek dla prywatnego rejestru: ALLOW_UNKNOWN_DEP=1." >&2; exit 1; }
   fi
 fi
 
@@ -169,7 +169,7 @@ if [ -n "$wf_files" ] && [ -f "$WF_LINT/lint.mjs" ] && [ -d "$WF_LINT/node_modul
 $wf_files
 PG_WF
   if ! (cd "$WF_LINT" && node --import ./hook.mjs lint.mjs "$@"); then
-    echo "[pre-commit] workflow-lint: plik workflow NIEWAZNY dla GitHuba (patrz wyzej) — commit ZABLOKOWANY. Popraw skladnie/konteksty; to nie jest kwestia YAML." >&2
+    echo "[pre-commit] workflow-lint: plik workflow NIEWAZNY dla GitHuba (patrz wyzej) — commit ZABLOKOWANY. Popraw skladnie/konteksty; to nie jest kwestia YAML. | BLOCKED: GitHub's own parser rejects this workflow file (contexts/keys), valid YAML is not enough." >&2
     exit 1
   fi
 fi
@@ -192,7 +192,7 @@ if [ -n "$sql" ] && [ -f "$SQL_LINT" ] && command -v node >/dev/null 2>&1; then
 $m"
   done
   if [ -n "$(printf '%s' "$hits" | tr -d '\n')" ]; then
-    echo "[pre-commit] sql-migration-lint: HIGH w stagowanych migracjach — commit ZABLOKOWANY:" >&2
+    echo "[pre-commit] sql-migration-lint: HIGH w stagowanych migracjach — commit ZABLOKOWANY: | BLOCKED: HIGH findings in staged migrations (RLS USING+WITH CHECK, DEFINER hygiene, anon grants); fix or '-- lint-ignore Rn' with a reason" >&2
     printf '%s\n' "$hits" | head -10 >&2
     echo "[pre-commit] Napraw (WITH CHECK / SET search_path + REVOKE / bez GRANT anon) albo '-- lint-ignore Rn' z powodem w linii wyzej." >&2
     exit 1
@@ -202,18 +202,18 @@ fi
 if [ -n "$js" ] && [ -f package.json ] && [ -d node_modules ]; then
   if [ -f node_modules/.bin/eslint ] || [ -f node_modules/.bin/eslint.cmd ]; then
     echo "$js" | grep -v "^-" | xargs npx --no-install eslint --max-warnings=0 || {
-      echo "[pre-commit] ESLint: popraw bledy przed commitem." >&2; exit 1; }
+      echo "[pre-commit] ESLint: popraw bledy przed commitem. | BLOCKED: fix lint errors first (never eslint-disable as a fix)." >&2; exit 1; }
   elif [ -f node_modules/.bin/oxlint ] || [ -f node_modules/.bin/oxlint.cmd ]; then
     # repo bez eslinta (workshop-app) — bez tego fallbacku commit nie mial ZADNEGO lintu (audyt 2026-09-05)
     echo "$js" | grep -v "^-" | xargs npx --no-install oxlint --deny-warnings || {
-      echo "[pre-commit] oxlint: popraw bledy przed commitem." >&2; exit 1; }
+      echo "[pre-commit] oxlint: popraw bledy przed commitem. | BLOCKED: fix lint errors first." >&2; exit 1; }
   fi
   if [ -f tsconfig.json ] && { [ -f node_modules/.bin/tsc ] || [ -f node_modules/.bin/tsc.cmd ]; }; then
     # Project references (vite: "files": [] + "references") => `tsc --noEmit` sprawdza NIC. Wtedy `tsc -b`.
     if grep -q '"references"' tsconfig.json; then
-      npx --no-install tsc -b || { echo "[pre-commit] TypeScript (tsc -b): popraw bledy typow przed commitem." >&2; exit 1; }
+      npx --no-install tsc -b || { echo "[pre-commit] TypeScript (tsc -b): popraw bledy typow przed commitem. | BLOCKED: fix type errors first (never @ts-ignore as a fix)." >&2; exit 1; }
     else
-      npx --no-install tsc --noEmit --incremental || { echo "[pre-commit] TypeScript: popraw bledy typow przed commitem." >&2; exit 1; }
+      npx --no-install tsc --noEmit --incremental || { echo "[pre-commit] TypeScript: popraw bledy typow przed commitem. | BLOCKED: fix type errors first." >&2; exit 1; }
     fi
   fi
 fi
@@ -221,10 +221,10 @@ fi
 if [ -n "$py" ]; then
   if command -v ruff >/dev/null 2>&1; then
     # B006/B008 (mutowalny default / wywolanie w defaulcie) — paradigm.md:43; nie sa w domyslnym zestawie ruffa
-    echo "$py" | grep -v "^-" | xargs ruff check --extend-select B006,B008 || { echo "[pre-commit] Ruff: popraw bledy przed commitem." >&2; exit 1; }
+    echo "$py" | grep -v "^-" | xargs ruff check --extend-select B006,B008 || { echo "[pre-commit] Ruff: popraw bledy przed commitem. | BLOCKED: fix ruff findings first (never noqa as a fix)." >&2; exit 1; }
   fi
   if command -v pyright >/dev/null 2>&1; then
-    echo "$py" | grep -v "^-" | xargs pyright || { echo "[pre-commit] pyright: popraw bledy typow przed commitem." >&2; exit 1; }
+    echo "$py" | grep -v "^-" | xargs pyright || { echo "[pre-commit] pyright: popraw bledy typow przed commitem. | BLOCKED: fix type errors first." >&2; exit 1; }
   fi
 fi
 

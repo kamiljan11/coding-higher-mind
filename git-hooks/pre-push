@@ -37,9 +37,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   case "$remote_ref" in
     refs/heads/main|refs/heads/master)
       echo "" >&2
-      echo "[pre-push] ZABLOKOWANE: bezposredni push na main (standard flow: branch -> PR -> merge)." >&2
-      echo "[pre-push] Zrob:  git checkout -b feature/nazwa && git push -u origin feature/nazwa" >&2
-      echo "[pre-push] Awaryjny wyjatek (hotfix):  ALLOW_MAIN=1 git push" >&2
+      echo "[pre-push] ZABLOKOWANE: bezposredni push na main (standard flow: branch -> PR -> merge). | BLOCKED: direct push to main." >&2
+      echo "[pre-push] Zrob / Do:  git checkout -b feature/nazwa && git push -u origin feature/nazwa" >&2
+      echo "[pre-push] Awaryjny wyjatek / emergency escape (hotfix):  ALLOW_MAIN=1 git push" >&2
       exit 1
       ;;
   esac
@@ -51,7 +51,7 @@ PG_REFS
 # Liczy tylko linie zrodlowe (bez lockfile/testow/docs/migracji). Wyjatek: ALLOW_LARGE_DIFF=1.
 if [ "${ALLOW_LARGE_DIFF:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/diff-size-gate.js" ]; then
   if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
-    node "$HOME/.claude/bin/diff-size-gate.js" --base origin/main --max 400 || { echo "[pre-push] diff-size-gate: podziel zmiane na mniejsze PR-y. Wyjatek (migracja/generated): ALLOW_LARGE_DIFF=1." >&2; exit 1; }
+    node "$HOME/.claude/bin/diff-size-gate.js" --base origin/main --max 400 || { echo "[pre-push] diff-size-gate: podziel zmiane na mniejsze PR-y. | BLOCKED: > 400 source lines vs origin/main, split the change. Wyjatek (migracja/generated): ALLOW_LARGE_DIFF=1." >&2; exit 1; }
   fi
 fi
 
@@ -59,7 +59,7 @@ fi
 # z bloku json w docs/ARCHITECTURE.md = blok; stare cykle tylko ostrzegaja (dlugu nie sprzatamy z automatu). Wyjatek: ALLOW_BOUNDARIES=1.
 if [ "${ALLOW_BOUNDARIES:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/module-boundaries.js" ]; then
   if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
-    node "$HOME/.claude/bin/module-boundaries.js" --base origin/main || { echo "[pre-push] module-boundaries: nowy cykl importow albo naruszenie warstw (docs/ARCHITECTURE.md). Wyjatek z powodem w ADR: ALLOW_BOUNDARIES=1." >&2; exit 1; }
+    node "$HOME/.claude/bin/module-boundaries.js" --base origin/main || { echo "[pre-push] module-boundaries: nowy cykl importow albo naruszenie warstw (docs/ARCHITECTURE.md). | BLOCKED: new import cycle or import against declared layers. Wyjatek z powodem w ADR: ALLOW_BOUNDARIES=1." >&2; exit 1; }
   fi
 fi
 

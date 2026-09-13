@@ -29,4 +29,4 @@ printf '%s\n\n%s\n' "$MSG" "Eksport z prywatnego ~/.claude przez bin/pg-export-p
 cd <secret-manager>
 git push  # token z menedzera sekretow (np. `infisical run -- git push`)"$BR:$BR" --repo "$(cygpath -w "$OUT")" --env dev
 infisical run --env=dev -- python "$HOME/.claude/bin/mas_open_pr.py" --repo <github-owner>/coding-higher-mind --head "$BR" --base main --title "$(printf '%s' "$MSG" | head -1)" --body-file "$(cygpath -w "$OUT/../pg-publish-body.md")"
-echo "pg-publish-public: po zielonym CI -> ALLOW_MERGE=1 python ~/.claude/bin/mas_merge_prs.py --repo coding-higher-mind --update-branch --confirm"
+echo "pg-publish-public: po zielonym CI -> cd <secret-manager> && ALLOW_MERGE=1 infisical run --env=dev -- python ~/.claude/bin/mas_merge_prs.py --repos coding-higher-mind --branch $BR --update-branch --confirm"

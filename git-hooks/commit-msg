@@ -6,7 +6,7 @@
 [ "$ALLOW_MSG" = "1" ] && exit 0
 # Sekret w TRESCI commita (nie w diffie) omijal pre-commit — ta sama lista wzorcow co w pre-commit (dogfood 2026-09-05).
 if [ "$ALLOW_SECRET" != "1" ] && grep -qE 'ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gho_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|sbp_[A-Za-z0-9]{20,}|xox[bpars]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----' "$1"; then
-  echo "[commit-msg] ZABLOKOWANE: sekret w tresci commita (trafi do historii i na GitHub). Usun; wyjatek ALLOW_SECRET=1." >&2
+  echo "[commit-msg] ZABLOKOWANE: sekret w tresci commita (trafi do historii i na GitHub). Usun; wyjatek ALLOW_SECRET=1. | BLOCKED: secret in the commit message." >&2
   exit 1
 fi
 msg=$(head -n1 "$1")
@@ -15,8 +15,8 @@ case "$msg" in
 esac
 if ! printf '%s' "$msg" | grep -qE '^(feat|fix|chore|docs|refactor|test|perf|ci|build|style|revert)(\([A-Za-z0-9._/-]+\))?!?: .{3,100}$'; then
   echo "[commit-msg] ZABLOKOWANE: \"$msg\"" >&2
-  echo "[commit-msg] Format: type(scope)?: opis (3-100 znakow). type = feat|fix|chore|docs|refactor|test|perf|ci|build|style|revert" >&2
-  echo "[commit-msg] Przyklad: fix(billing): rabat 100% nie zerowal VAT   |   wyjatek: ALLOW_MSG=1 git commit -m ..." >&2
+  echo "[commit-msg] Format: type(scope)?: opis (3-100 znakow). type = feat|fix|chore|docs|refactor|test|perf|ci|build|style|revert  | BLOCKED: Conventional Commits subject, 3-100 chars" >&2
+  echo "[commit-msg] Przyklad / example: fix(billing): rabat 100% nie zerowal VAT   |   wyjatek / escape: ALLOW_MSG=1 git commit -m ..." >&2
   exit 1
 fi
 exit 0

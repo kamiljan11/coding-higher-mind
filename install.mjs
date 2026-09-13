@@ -110,7 +110,15 @@ function mergeSettings() {
       }
     }
   }
-  log(`\nsettings.json: ${added} hook(s) added${DRY ? ' (dry-run)' : ''}, existing entries untouched`);
+  // Language of the injected protocol and gate messages: --lang en|pl, else the machine locale (Polish locale -> pl, anything else -> en).
+  // Claude Code passes settings.json `env` to hooks; PG_LANG=en switches prompt-guard.js to the English protocol text.
+  const langArg = process.argv.find((a) => a.startsWith('--lang='));
+  const locale = (Intl.DateTimeFormat().resolvedOptions().locale || process.env.LANG || '').toLowerCase();
+  const lang = langArg ? langArg.slice(7) : (locale.startsWith('pl') ? 'pl' : 'en');
+  settings.env = settings.env || {};
+  const langChanged = settings.env.PG_LANG !== lang;
+  settings.env.PG_LANG = lang;
+  log(`\nsettings.json: ${added} hook(s) added${DRY ? ' (dry-run)' : ''}, existing entries untouched; env.PG_LANG=${lang}${langChanged ? '' : ' (unchanged)'} (override: --lang=pl|en)`);
   if (!DRY) { if (fs.existsSync(file)) fs.copyFileSync(file, file + '.pg-bak'); fs.writeFileSync(file, JSON.stringify(settings, null, 2) + '\n'); }
 }
 

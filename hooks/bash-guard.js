@@ -84,7 +84,7 @@ try {
     const subject = /^(no-verify|force-push|reset-hard|git-clean|pr-merge|gh-delete)$/.test(r.id) ? cmdNQ : cmd;
     const hit = r.test ? r.test(subject) : r.rx.test(subject);
     if (hit) {
-      process.stderr.write(`[bash-guard:${r.id}] ZABLOKOWANE. ${r.why}\nJesli to naprawde swiadoma decyzja uzytkownika: dodaj ${r.esc}=1 do komendy.\n`);
+      process.stderr.write(`[bash-guard:${r.id}] ZABLOKOWANE / BLOCKED (rule ${r.id}; conscious escape: ${r.esc}=1 in the command). ${r.why}\nJesli to naprawde swiadoma decyzja uzytkownika: dodaj ${r.esc}=1 do komendy.\n`);
       process.exit(2);
     }
   }
