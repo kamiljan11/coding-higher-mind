@@ -9,6 +9,13 @@
 # to wejscie w cudza prace (rownolegle sesje). Tylko OSTRZEZENIE, nie blokuje; wylaczenie: ALLOW_FOREIGN_BRANCH=1.
 # Refy pushowane czytamy ze stdin RAZ do zmiennej, zeby reszta hooka mogla z nich korzystac.
 PUSH_REFS="$(cat)"
+# Audyt obejsc (landscape #5): kazde ustawione ALLOW_* = wpis `bypass` w ~/.claude/logs/gates.jsonl.
+for pg_var in ALLOW_MAIN ALLOW_LARGE_DIFF ALLOW_BOUNDARIES ALLOW_FOREIGN_BRANCH; do
+  eval "pg_val=\${$pg_var:-}"
+  if [ -n "$pg_val" ] && [ "$pg_val" != "0" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/hooks/lib/gate-log.js" ]; then
+    node "$HOME/.claude/hooks/lib/gate-log.js" pre-push bypass "$pg_var=$pg_val" "$(pwd)" 2>/dev/null || true
+  fi
+done
 if [ "${ALLOW_FOREIGN_BRANCH:-0}" != "1" ] && [ -n "$PUSH_REFS" ]; then
   my_email=$(git config user.email 2>/dev/null)
   while read -r local_ref local_sha remote_ref remote_sha; do
@@ -27,6 +34,16 @@ fi
 
 [ "$ALLOW_MAIN" = "1" ] && exit 0
 
+# Repo samego PG (~/.claude -> <github-owner>/<your-private-pg-repo>): main to kopia PG (bin/pg-sync.js push), bez PR-ow i CI.
+# Wyjatek zdejmuje TYLKO blokade pushu na main — limit rozmiaru i granice modulow nizej dzialaja dalej (recenzja 2026-09-26).
+# Cel sprawdzany po $2 = URL, pod ktory git faktycznie pcha (pushurl), nie po nazwie remote'a. Force-push blokuje bash-guard.
+pg_main_ok=0
+pg_top=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$pg_top" ] && [ -d "$HOME/.claude" ] && [ "$(cd "$pg_top" && pwd -P)" = "$(cd "$HOME/.claude" && pwd -P)" ] &&
+   printf '%s' "$2" | grep -Eq '^(https://|git@)github\.com[:/]<github-owner>/<your-private-pg-repo>(\.git)?$'; then
+  pg_main_ok=1
+fi
+
 if [ -f package.json ] && grep -q "lovable-tagger" package.json 2>/dev/null; then
   exit 0   # legacy Lovable: push do main = deploy, przepuszczamy
 fi
@@ -36,6 +53,12 @@ fi
 while read -r local_ref local_sha remote_ref remote_sha; do
   case "$remote_ref" in
     refs/heads/main|refs/heads/master)
+      if [ "$pg_main_ok" = "1" ]; then
+        # Jak kazde obejscie: wpis w logu bramek (code-review 2026-09-26).
+        command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/hooks/lib/gate-log.js" ] &&
+          node "$HOME/.claude/hooks/lib/gate-log.js" pre-push bypass "main -> <github-owner>/<your-private-pg-repo> (kopia PG, pg-sync)" "$(pwd)" 2>/dev/null
+        continue
+      fi
       echo "" >&2
       echo "[pre-push] ZABLOKOWANE: bezposredni push na main (standard flow: branch -> PR -> merge). | BLOCKED: direct push to main." >&2
       echo "[pre-push] Zrob / Do:  git checkout -b feature/nazwa && git push -u origin feature/nazwa" >&2

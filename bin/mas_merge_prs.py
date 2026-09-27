@@ -22,6 +22,25 @@ API = "https://api.github.com"
 OWNER = os.environ["GITHUB_OWNER"]  # wlasciciel repo floty; w publicznej wersji PG = wymagane env
 OK_STATES = {"clean", "unstable", "has_hooks"}
 OK_CONCLUSIONS = {"success", "skipped", "neutral"}
+# Landscape #16: dla check-runow WYMAGANYCH przez branch protection `skipped`/`neutral` to NIE zielone, a brak runu
+# wymaganego kontekstu = pending (ZER policy.rs: brakujacy required check wymusza Pending). Opcjonalne jak dotad.
+REQUIRED_OK = {"success"}
+
+
+def required_contexts(repo: str, base: str, token: str) -> list[str]:
+    status, data = request("GET", f"{API}/repos/{OWNER}/{repo}/branches/{base}/protection/required_status_checks", token)
+    return list(data.get("contexts") or []) if status == 200 and isinstance(data, dict) else []
+
+
+def bad_checks(runs: list[dict], required: list[str]) -> list[str]:
+    names = {c["name"] for c in runs}
+    bad = []
+    for c in runs:
+        ok_set = REQUIRED_OK if c["name"] in required else OK_CONCLUSIONS
+        if c["status"] != "completed" or c.get("conclusion") not in ok_set:
+            bad.append(c["name"])
+    bad += [f"{r} (brak runu)" for r in required if r not in names]
+    return bad
 
 
 def request(method: str, url: str, token: str, body: dict | None = None):
@@ -72,7 +91,10 @@ def self_test() -> int:
     latest = {r["name"]: r["conclusion"] for r in latest_per_name(runs)}
     ok = latest == {"Mutation": "skipped", "Build": "success"} and latest_per_name([]) == []
     print(("ok   " if ok else "FAIL ") + "latest_per_name: najnowszy run per nazwa wygrywa (failure -> skipped po etykiecie)")
-    return 0 if ok else 1
+    fresh = latest_per_name(runs)
+    req_ok = bad_checks(fresh, []) == [] and bad_checks(fresh, ["Mutation"]) == ["Mutation"] and bad_checks(fresh, ["Build", "E2E"]) == ["E2E (brak runu)"]
+    print(("ok   " if req_ok else "FAIL ") + "bad_checks: skipped na WYMAGANYM = czerwone, brak runu wymaganego = czerwone, opcjonalny skipped = ok (#16)")
+    return 0 if ok and req_ok else 1
 
 
 
@@ -165,7 +187,8 @@ def main() -> int:
         number, sha, state = pr["number"], pr["head"]["sha"], pr.get("mergeable_state")
         _, checks = request("GET", f"{API}/repos/{OWNER}/{repo}/commits/{sha}/check-runs?per_page=100", token)
         runs = latest_per_name(checks.get("check_runs", []))
-        bad = [c["name"] for c in runs if c["status"] != "completed" or c.get("conclusion") not in OK_CONCLUSIONS]
+        required = required_contexts(repo, pr.get("base", {}).get("ref", "main"), token)
+        bad = bad_checks(runs, required)
         if state == "behind" and args.update_branch and args.confirm:
             # strict protection: galaz za baza -> GitHub sam wciaga baze (merge commit), CI liczy sie na WYNIKU.
             # Zweryfikowane w polu przez sesje warsztatu 2026-09-06 (#145/#148/#149: 405 -> update-branch -> merge).
@@ -183,7 +206,7 @@ def main() -> int:
                 runs = latest_per_name(checks.get("check_runs", []))
                 if runs and all(c["status"] == "completed" for c in runs) and state not in (None, "unknown", "behind"):
                     break
-            bad = [c["name"] for c in runs if c["status"] != "completed" or c.get("conclusion") not in OK_CONCLUSIONS]
+            bad = bad_checks(runs, required)
         if state not in OK_STATES:
             print(f"!!   {repo:32s} #{number} mergeable_state={state} — POMIJAM" + (" (behind: uzyj --update-branch)" if state == "behind" else ""))
             failures += 1

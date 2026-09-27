@@ -1,4 +1,6 @@
 {
+  "$comment": "Wpiecia PG z settings.json Zenbooka (bin/pg-wire.js --export). Na innym komputerze: pg-wire.js --apply.",
+  "exported_at": "2026-09-27T08:25:30.978Z",
   "hooks": {
     "SessionStart": [
       {
@@ -6,7 +8,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{CLAUDE_DIR}}/hooks/session-context.js\"",
+            "command": "node \"~/.claude/hooks/session-context.js\"",
             "timeout": 20
           }
         ]
@@ -18,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{CLAUDE_DIR}}/hooks/bash-guard.js\"",
+            "command": "node \"~/.claude/hooks/bash-guard.js\"",
             "timeout": 15
           }
         ]
@@ -28,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{CLAUDE_DIR}}/hooks/memory-guard.js\"",
+            "command": "node \"~/.claude/hooks/memory-guard.js\"",
             "timeout": 15
           }
         ]
@@ -38,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{CLAUDE_DIR}}/hooks/edit-guard.js\"",
+            "command": "node \"~/.claude/hooks/edit-guard.js\"",
             "timeout": 15
           }
         ]
@@ -50,7 +52,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{CLAUDE_DIR}}/hooks/precompact-snapshot.js\"",
+            "command": "node \"~/.claude/hooks/precompact-snapshot.js\"",
             "timeout": 30
           }
         ]
@@ -62,7 +64,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{CLAUDE_DIR}}/hooks/prompt-guard.js\"",
+            "command": "node \"~/.claude/hooks/prompt-guard.js\"",
             "timeout": 20
           }
         ]
@@ -74,7 +76,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{CLAUDE_DIR}}/hooks/post-edit-check.js\"",
+            "command": "node \"~/.claude/hooks/post-edit-check.js\"",
             "timeout": 120
           }
         ]
@@ -84,7 +86,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{CLAUDE_DIR}}/hooks/post-bash-edit-check.js\"",
+            "command": "node \"~/.claude/hooks/post-bash-edit-check.js\"",
             "timeout": 120
           }
         ]
@@ -94,7 +96,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{CLAUDE_DIR}}/hooks/loop-monitor.js\"",
+            "command": "node \"~/.claude/hooks/loop-monitor.js\"",
             "timeout": 120
           }
         ]
@@ -106,11 +108,27 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"{{CLAUDE_DIR}}/hooks/stop-gate.js\"",
+            "command": "node \"~/.claude/hooks/stop-gate.js\"",
             "timeout": 170
           }
         ]
       }
     ]
-  }
+  },
+  "deny": [
+    "Read(~/.ssh/**)",
+    "Read(~/.aws/**)",
+    "Read(~/.git-credentials)",
+    "Read(~/.netrc)",
+    "Read(//d/infisical-vault/.claude-machine-auth)",
+    "Read(~/.claude/pg/deny-canary.txt)",
+    "Edit(~/.bashrc)",
+    "Edit(~/.bash_profile)",
+    "Edit(~/.profile)",
+    "Edit(~/.gitconfig)",
+    "Write(~/.bashrc)",
+    "Write(~/.bash_profile)",
+    "Write(~/.profile)",
+    "Write(~/.gitconfig)"
+  ]
 }

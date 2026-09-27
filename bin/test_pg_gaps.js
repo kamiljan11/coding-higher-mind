@@ -79,29 +79,37 @@ const stage = (dir, files) => { for (const [rel, content] of Object.entries(file
   const diff = (oldP, newP) => `diff --git a/CLAUDE.md b/CLAUDE.md\n--- a/CLAUDE.md\n+++ b/CLAUDE.md\n@@ -1 +1 @@\n${oldP ? `-- \`pg.phase: ${oldP}\`\n` : ''}+- \`pg.phase: ${newP}\`\n`;
   check('phase-gate: parse old/new', JSON.stringify(phaseChanges(diff('mvp', 'production'))) === JSON.stringify([{ file: 'CLAUDE.md', oldPhase: 'mvp', newPhase: 'production' }]));
   check('phase-gate: mvp -> production bez PRR = violation', analyzePhase(phaseChanges(diff('mvp', 'production')), ['CLAUDE.md']).violations.length === 1);
-  check('phase-gate: mvp -> production z docs/prr/x.md = OK', analyzePhase(phaseChanges(diff('mvp', 'production')), ['CLAUDE.md', 'docs/prr/2026-09-12.md']).violations.length === 0);
+  // Landscape #16 (zmiana specyfikacji 2026-09-26): liczy sie TRESC PRR, nie samo istnienie pliku.
+  const filledPrr = (rel) => (rel === 'docs/prr/2026-09-12.md' ? 'P1 zaleznosci i timeouty: sprawdzone. '.repeat(10) : '');
+  check('phase-gate: mvp -> production z WYPELNIONYM docs/prr/x.md = OK', analyzePhase(phaseChanges(diff('mvp', 'production')), ['CLAUDE.md', 'docs/prr/2026-09-12.md'], filledPrr).violations.length === 0);
+  const todoPrr = (rel) => (rel === 'docs/prr/2026-09-12.md' ? 'P1 zaleznosci: TODO\n'.repeat(20) : '');
+  check('phase-gate: PRR z TODO = violation', /niewypelniony/.test(analyzePhase(phaseChanges(diff('mvp', 'production')), ['CLAUDE.md', 'docs/prr/2026-09-12.md'], todoPrr).violations.join(' ')));
   check('phase-gate: pierwsza deklaracja production = info', analyzePhase(phaseChanges(diff(null, 'production')), ['CLAUDE.md']).violations.length === 0);
   check('phase-gate: nieznana faza = violation', /nieznana faza/.test(analyzePhase(phaseChanges(diff('mvp', 'prodcution')), ['CLAUDE.md']).violations[0] || ''));
   check('phase-gate: production -> maintenance = OK', analyzePhase(phaseChanges(diff('production', 'maintenance')), ['CLAUDE.md']).violations.length === 0);
   check('phase-gate: production -> prototype = degradacja = violation (security PHASE-DEMOTION-UNGATED)', /degradacja/.test(analyzePhase(phaseChanges(diff('production', 'prototype')), ['CLAUDE.md']).violations[0] || ''));
   check('phase-gate: pg.phase w prozie diffu nie jest zmiana fazy', phaseChanges('diff --git a/CLAUDE.md b/CLAUDE.md\n--- a/CLAUDE.md\n+++ b/CLAUDE.md\n@@ -1 +1 @@\n+Nie ustawiaj pg.phase: prototype bez zgody.\n').length === 0);
   // podkatalog: apps/web/CLAUDE.md wymaga apps/web/docs/prr/
-  check('phase-gate: podkatalog wymaga PRR obok', analyzePhase([{ file: 'apps/web/CLAUDE.md', oldPhase: 'mvp', newPhase: 'production' }], ['docs/prr/x.md']).violations.length === 1
-    && analyzePhase([{ file: 'apps/web/CLAUDE.md', oldPhase: 'mvp', newPhase: 'production' }], ['apps/web/docs/prr/x.md']).violations.length === 0);
+  const PRR_BODY = 'P1 zaleznosci i timeouty: sprawdzone. '.repeat(10); // wypelniony PRR (#16: tresc, nie samo istnienie)
+  const anyPrr = (rel) => (/docs\/prr\//.test(rel) ? PRR_BODY : '');
+  check('phase-gate: podkatalog wymaga PRR obok', analyzePhase([{ file: 'apps/web/CLAUDE.md', oldPhase: 'mvp', newPhase: 'production' }], ['docs/prr/x.md'], anyPrr).violations.length === 1
+    && analyzePhase([{ file: 'apps/web/CLAUDE.md', oldPhase: 'mvp', newPhase: 'production' }], ['apps/web/docs/prr/x.md'], anyPrr).violations.length === 0);
   // repo klienckie: promocja wymaga odebranego etapu w docs/ACCEPTANCE.md (protokol odbioru)
   const clientChange = [{ file: 'CLAUDE.md', oldPhase: 'mvp', newPhase: 'production' }];
-  const files = { 'CLAUDE.md': '- `pg.phase: production`\n- `pg.ownership: client-transferred`\n', 'docs/ACCEPTANCE.md': '| Etap | Zakres | URL | Data | Odebral | Uwagi |\n|---|---|---|---|---|---|\n| E1 | S1-S3 | https://x | RRRR-MM-DD | [klient] | |\n' };
+  const files = { 'docs/prr/x.md': PRR_BODY, 'CLAUDE.md': '- `pg.phase: production`\n- `pg.ownership: client-transferred`\n', 'docs/ACCEPTANCE.md': '| Etap | Zakres | URL | Data | Odebral | Uwagi |\n|---|---|---|---|---|---|\n| E1 | S1-S3 | https://x | RRRR-MM-DD | [klient] | |\n' };
   check('phase-gate: client-* + ACCEPTANCE.md tylko z szablonem = violation', analyzePhase(clientChange, ['CLAUDE.md', 'docs/prr/x.md'], (f) => files[f] || '').violations.some((v) => /ACCEPTANCE/.test(v)));
   files['docs/ACCEPTANCE.md'] += '| E1 | S1-S3 | https://x | 2026-09-10 | Jan Klient, mail | brak |\n';
   check('phase-gate: client-* + odebrany etap z data = OK', analyzePhase(clientChange, ['CLAUDE.md', 'docs/prr/x.md'], (f) => files[f] || '').violations.length === 0);
-  check('phase-gate: mas-saas nie wymaga ACCEPTANCE', analyzePhase(clientChange, ['CLAUDE.md', 'docs/prr/x.md'], (f) => ({ 'CLAUDE.md': '- `pg.ownership: mas-saas`\n' })[f] || '').violations.length === 0);
+  check('phase-gate: mas-saas nie wymaga ACCEPTANCE', analyzePhase(clientChange, ['CLAUDE.md', 'docs/prr/x.md'], (f) => ({ 'CLAUDE.md': '- `pg.ownership: mas-saas`\n', 'docs/prr/x.md': PRR_BODY })[f] || '').violations.length === 0);
   // CLI na realnym repo
   const repo = makeRepo({ 'CLAUDE.md': '- `pg.phase: prototype`\n' });
   stage(repo, { 'CLAUDE.md': '- `pg.phase: production`\n' });
   const g1 = run('phase-gate.js', ['--staged'], repo);
   check('phase-gate CLI: promocja bez PRR => 1', g1.status === 1 && /BLOK/.test(g1.stdout), g1.stdout + g1.stderr);
   stage(repo, { 'docs/prr/2026-09-12.md': '# PRR\nP1 ok\n' });
-  check('phase-gate CLI: z PRR => 0', run('phase-gate.js', ['--staged'], repo).status === 0);
+  check('phase-gate CLI: PRR-szablon (krotki) => 1 (#16)', run('phase-gate.js', ['--staged'], repo).status === 1);
+  stage(repo, { 'docs/prr/2026-09-12.md': '# PRR\n' + PRR_BODY + '\n' });
+  check('phase-gate CLI: z wypelnionym PRR => 0', run('phase-gate.js', ['--staged'], repo).status === 0);
   fs.rmSync(repo, { recursive: true, force: true });
 }
 

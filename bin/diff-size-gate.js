@@ -4,13 +4,15 @@
 // mial 213 plikow i nikt nie byl w stanie go zmergowac; moj wlasny PR na 21 plikow potrzebowal 4 dogrywek.
 //
 // Liczy NETTO linie (dodane + usuniete) w plikach ZRODLOWYCH: pomija lockfile'y, generated, snapshoty,
-// testy, docs, migracje SQL i dane. Prog domyslny 400. Wyjatek swiadomy: ALLOW_LARGE_DIFF=1.
+// testy (tez pgTAP: supabase/tests/, *.test.sql), docs, migracje SQL i dane. Prog domyslny 400.
+// Wyjatek swiadomy: ALLOW_LARGE_DIFF=1. Blizna 2026-09-13 (workshop-app #166): 109-liniowy test pgTAP
+// liczyl sie jako zrodlo -> falszywy blok 429/400, choc kod zrodlowy mial 320.
 //
 // Uzycie: node diff-size-gate.js [--base origin/main] [--max 400] [--staged] [--json]
 'use strict';
 const { execFileSync } = require('node:child_process');
 
-const SKIP = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lock(b)?|Cargo\.lock|poetry\.lock|uv\.lock)$|\.snap$|\.(min|bundle)\.(js|css)$|(^|\/)(dist|build|coverage|node_modules|\.next)\/|\.(test|spec)\.[cm]?[jt]sx?$|__tests__\/|\.(md|mdx|txt|csv|json|svg|png|jpg|webp|lock)$|(^|\/)supabase\/migrations\/|(^|\/)seed\.sql$|(^|\/)(i18n|locales?|translations?)\//;
+const SKIP = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lock(b)?|Cargo\.lock|poetry\.lock|uv\.lock)$|\.snap$|\.(min|bundle)\.(js|css)$|(^|\/)(dist|build|coverage|node_modules|\.next)\/|\.(test|spec)\.[cm]?[jt]sx?$|__tests__\/|(^|\/)supabase\/tests\/|\.(test|spec)\.sql$|\.(md|mdx|txt|csv|json|svg|png|jpg|webp|lock)$|(^|\/)supabase\/migrations\/|(^|\/)seed\.sql$|(^|\/)(i18n|locales?|translations?)\//;
 
 function parseArgs(argv) {
   const o = { base: 'origin/main', max: 400, staged: false, json: false };

@@ -55,9 +55,12 @@ Wchodzi do agregacji jak kazdy dzial. Drugi dev server (inna organizacja / walut
 
 ## 2. Agregacja (0 tokenow)
 ```bash
-node ~/.claude/bin/pg-aggregate.js "$RUN"        # -> aggregated.json + aggregated.md; exit 1 = REQUEST CHANGES
+node ~/.claude/bin/pg-aggregate.js "<RUN jako SCIEZKA literalna>" --repo "<sciezka repo>" --tier <T>   # exit 0 APPROVE / 1 REQUEST CHANGES / 3 INCOMPLETE
 ```
 Findings bez `evidence`/`repro_cmd` sa odrzucane automatycznie. `needs_verification` = lista dla weryfikatora.
+Stan powloki NIE przetrwa miedzy wywolaniami Bash — `$RUN` z kroku 1 jest pusty; wpisuj sciezke literalnie (stop-gate znajduje
+`aggregated.json` po tej sciezce w transkrypcie). `INCOMPLETE` (brak roli dla tieru, plik nieparsowalny, 0 plikow) = recenzja
+NIE jest zrobiona — dopuszczasz brakujacy dzial, nie „naprawiasz" werdyktu (landscape #1, 2026-09-26).
 
 ## 3. Weryfikator (tylko gdy `needs_verification` niepuste lub tier T3)
 Agent `verifier` (T3: model opus), prompt:
@@ -65,7 +68,12 @@ Agent `verifier` (T3: model opus), prompt:
 Repo: <sciezka>. Tier: <T>. Wejscie: <RUN>/aggregated.json (sprawdzaj TYLKO needs_verification).
 Wykonaj repro_cmd kazdego, verdict reproduced/not_reproduced/cannot_run. Zapisz <RUN>/verdicts.json. Nie edytuj repo.
 ```
-Potem ponownie: `node ~/.claude/bin/pg-aggregate.js "$RUN" --verdicts "$RUN/verdicts.json"`.
+Potem ponownie: `node ~/.claude/bin/pg-aggregate.js "<RUN>" --repo "<repo>" --tier <T> --final --verdicts "<RUN>/verdicts.json"`
+(`--repo`: stop-gate przypisuje agregacje do repo — bez tego przy 2 repo w jednej sesji ostatnia agregacja jednego blokowala drugie)
+(`--final`: finding wymagajacy weryfikacji bez werdyktu = INCOMPLETE; werdykt z nieznanym/zduplikowanym id = INCOMPLETE).
+Bez weryfikatora (pusta `needs_verification`, tier < T3) krok 2 uruchom od razu z `--final`.
+Recenzenci i weryfikator sa READ-ONLY takze mechanicznie (bash-guard, `agent_type`): zapis tylko do `<RUN>/findings.*.json`,
+`verdicts.json` albo %TEMP%; `git stash/checkout/commit`, `npm install` = blokada.
 
 ## 4. Fixer = sesja glowna
 Napraw `blocker` i `must_fix` (nie `note`, chyba ze trywialne). Kazdy fix przechodzi bramki (hooki same to zrobia).

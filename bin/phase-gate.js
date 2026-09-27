@@ -55,6 +55,11 @@ function analyze(changes, stagedFiles, readFile = () => '') {
     if (c.newPhase === PROMOTION_TARGET && c.oldPhase && c.oldPhase !== PROMOTION_TARGET) {
       if (!prrDocs.length) violations.push(`${c.file}: promocja ${c.oldPhase} -> ${PROMOTION_TARGET} bez ${prefix}docs/prr/<RRRR-MM-DD>.md w tym samym commicie (wypelnij ~/.claude/pg/prr.md: P1-P17)`);
       else info.push(`${c.file}: promocja ${c.oldPhase} -> ${PROMOTION_TARGET} z PRR ${prrDocs.join(', ')}`);
+      // Landscape #16: samo ISTNIENIE pliku PRR przepuszczalo szablon z TODO. PRR z TODO/TBD/XXX albo pusty = niewypelniony.
+      for (const doc of prrDocs) {
+        const body = readFile(doc) || '';
+        if (body.trim().length < 200 || /\b(TODO|TBD|XXX)\b|\?\?\?/.test(body)) violations.push(`${doc}: PRR niewypelniony (TODO/TBD/XXX albo < 200 znakow) — promocja na production wymaga wypelnionej checklisty, nie szablonu`);
+      }
       // Repo klienckie: „bez protokolu odbioru nie ma dostawy" (slownik SH sekcja 10; recheck 2026-09-12: ACCEPTANCE.md nic nie gate'owal).
       const ownership = (readFile(c.file) || '').match(OWNERSHIP_RX);
       if (ownership && !ACCEPTANCE_ROW_RX.test(readFile(prefix + ACCEPTANCE_DOC) || '')) {

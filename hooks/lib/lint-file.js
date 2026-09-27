@@ -21,7 +21,11 @@ const MAX_ROOT_SEARCH_DEPTH = 15;
 const PYRIGHT_SOFT_RULES = /^(reportMissingImports|reportMissingModuleSource)$/;
 // "Narzedzie nie istnieje / srodowisko" — sprawdzane na komunikacie procesu i poczatku stderr,
 // nigdy na calym outpucie lintera (komunikat lintu "not found" nie moze udawac braku narzedzia).
-const TOOL_MISSING_RX = /ENOENT|not recognized|command not found|No module named|could not determine executable/i;
+// `: not found` = komunikat dash (sh na Debianie/Ubuntu): „sh: 1: python: not found" (test PG na Linuksie 2026-09-26:
+// bez tego brak ruffa BLOKOWAL stop zamiast byc pominieciem).
+const TOOL_MISSING_RX = /ENOENT|not recognized|command not found|: not found|No module named|could not determine executable/i;
+// Linux ma zwykle tylko `python3`; Windows — `python`.
+const PY = process.platform === 'win32' ? 'python' : 'python3';
 // Realny wynik lintera/typechecka — jesli to widzimy, narzedzie zadzialalo.
 const REAL_FINDING_RX = /error TS\d|:\d+:\d+\s+(error|warning)|:\d+:\d+: [A-Z]\d{3,4}|"generalDiagnostics"|✖|\d+ problems?/i;
 const STDERR_PROBE_CHARS = 400;
@@ -111,6 +115,8 @@ function typecheckRepo(root, hook) {
     const r = run(tscCommand(root), root, TIMEOUT_TSC_MS);
     if (r.missing) skipped(hook, r.why, root);
     else if (r.out && /error TS/.test(r.out)) result = { blocked: true, header: 'TypeScript — bledy typow, popraw je teraz:', out: trimReport(r.out) };
+    // tsc z exit != 0 bez „error TS" (zepsuty tsconfig, crash kompilatora) wczesniej = zielone (landscape #2). Teraz blok z surowym wynikiem.
+    else if (r.out) result = { blocked: true, header: 'TypeScript — tsc zakonczyl sie bledem bez diagnostyk (tsconfig? crash?), sprawdz:', out: trimReport(r.out) };
   }
   typecheckCache.set(root, result);
   return result;
@@ -131,7 +137,7 @@ function lintPyFiles(files, root, hook) {
   // B006 (mutowalny default argumentu) = error wg pg/paradigm.md:43; domyslny zestaw ruffa
   // nie zawiera regul B, wiec bez tej flagi reguła istniała tylko na papierze (2026-09-06).
   let ruff = run('ruff check --extend-select B006,B008 ' + list, root, TIMEOUT_LINT_MS);
-  if (ruff.missing) ruff = run('python -m ruff check ' + list, root, TIMEOUT_LINT_MS); // pip --user bez PATH
+  if (ruff.missing) ruff = run(PY + ' -m ruff check ' + list, root, TIMEOUT_LINT_MS); // pip --user bez PATH
   if (ruff.missing) skipped(hook, ruff.why, root);
   else if (ruff.out) return { blocked: true, header: `Ruff znalazl problemy (${baseNames(files)}) — popraw je teraz:`, out: trimReport(ruff.out) };
 

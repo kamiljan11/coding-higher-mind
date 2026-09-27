@@ -62,6 +62,15 @@ it('diff-size-gate ignoruje testy, lockfile i migracje', () => {
   write('src/big.test.ts', big); write('package-lock.json', '{}'); write('supabase/migrations/1.sql', big); stage('src/big.test.ts', 'package-lock.json', 'supabase/migrations/1.sql');
   assert.equal(run('diff-size-gate.js', '--staged', '--max', '400').status, 0);
 });
+it('diff-size-gate ignoruje testy pgTAP (supabase/tests/, *.test.sql) — falszywy blok z 2026-09-13', () => {
+  reset(); const big = Array.from({ length: 500 }, (_, i) => `select ok(true, 'v${i}');`).join('\n');
+  write('supabase/tests/kolor.test.sql', big); write('db/checks.test.sql', big); stage('supabase/tests/kolor.test.sql', 'db/checks.test.sql');
+  assert.equal(run('diff-size-gate.js', '--staged', '--max', '400').status, 0);
+});
+it('diff-size-gate nadal LICZY zwykly SQL poza migracjami i testami', () => {
+  reset(); write('db/report.sql', Array.from({ length: 500 }, (_, i) => `select ${i};`).join('\n')); stage('db/report.sql');
+  assert.equal(run('diff-size-gate.js', '--staged', '--max', '400').status, 1);
+});
 it('dup-literals BLOKUJE literal x3 w 2 plikach', () => {
   reset(); write('src/a.ts', 'const a = "Acme Rentals Ltd.";\nconst b = "Acme Rentals Ltd.";\n'); write('src/b.ts', 'const c = "Acme Rentals Ltd.";\n'); stage('src/a.ts', 'src/b.ts');
   assert.equal(run('dup-literals.js', '--staged').status, 1);

@@ -18,6 +18,7 @@ import glob
 import json
 import os
 import sys
+import tempfile
 from typing import Any
 
 EDIT_PATH_KEYS = ("file_path", "path", "notebook_path")
@@ -70,6 +71,9 @@ def mine_file(path: str, cache: dict[str, str | None]) -> dict[str, Any]:
     weeks: dict[str, collections.Counter[str]] = collections.defaultdict(collections.Counter)
     edited_roots: collections.Counter[str] = collections.Counter()
     cwd: str | None = None
+    # Jedna odpowiedz modelu = kilka linii transkryptu (po jednej na blok tresci), kazda z TYM SAMYM `usage`.
+    # Sumowanie linii zawyzalo tokeny 2,5-3x (ECC cost-tracker: 704 linie = 286 id; landscape #9) -> licz raz na message.id.
+    seen_usage_ids: set[str] = set()
     with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
             try:
@@ -96,6 +100,12 @@ def mine_file(path: str, cache: dict[str, str | None]) -> dict[str, Any]:
                                 if root:
                                     edited_roots[root] += 1
             usage = msg.get("usage")
+            msg_id = msg.get("id")
+            if isinstance(msg_id, str) and msg_id:
+                if msg_id in seen_usage_ids:
+                    usage = None
+                else:
+                    seen_usage_ids.add(msg_id)
             if rec.get("type") == "assistant" and isinstance(usage, dict):
                 weeks[wk]["responses"] += 1
                 weeks[wk]["output_tokens"] += int(usage.get("output_tokens") or 0)
@@ -150,6 +160,14 @@ def self_test() -> int:
                 {"repo": "a", "weeks": {"2026-W37": {"responses": 1, "output_tokens": 50, "input_tokens": 10, "tool_calls": 0}}}]
     table = aggregate(sessions, "2026-W37")
     check("aggregate: filtr tygodnia + suma sesji", ("2026-W36", "a") not in table and table[("2026-W37", "a")]["sessions"] == 2 and table[("2026-W37", "a")]["output_tokens"] == 100)
+    with tempfile.TemporaryDirectory() as tmp:
+        transcript = os.path.join(tmp, "s.jsonl")
+        usage = {"output_tokens": 10, "input_tokens": 1}
+        lines = [{"type": "assistant", "timestamp": "2026-09-12T10:00:00Z", "message": {"id": mid, "usage": usage, "content": []}} for mid in ("m1", "m1", "m1", "m2")]
+        with open(transcript, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(json.dumps(x) for x in lines))
+        mined = mine_file(transcript, {})["weeks"]["2026-W37"]
+        check("mine_file: usage liczone raz na message.id (3 linie m1 + m2 = 2 odpowiedzi)", mined["responses"] == 2 and mined["output_tokens"] == 20)
     md = render_markdown(table)
     check("markdown: naglowek + wiersz + 100 %", md.startswith("| Tydzien |") and "| 2026-W37 | a | 2 | 2 | 1 | 100 |" in md and "| 100.0 |" in md)
     print("TESTY: " + (f"{failures} FAIL" if failures else "wszystkie OK"))
