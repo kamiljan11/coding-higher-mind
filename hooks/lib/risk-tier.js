@@ -138,13 +138,22 @@ function classify(files, changedLines, root) {
   return { tier, phase, phaseCapped, qaUrl, reasons: reasons.slice(0, 10), reviewers: [...reviewers], optional_reviewers: [...optional] };
 }
 
+// N1 (landscape, tryb OBSERVE w stop-gate): tier z TRESCI dodanych linii. `src/lib/pay.ts` z wywolaniem platnosci nie
+// pasuje do T3_PATH_RX i przy 700 liniach + pg.phase prototype schodzilo do T1 (krytyk R1). Bez `createClient(` —
+// jest w kazdym froncie Supabase i zrobiloby T3 z kazdej zmiany UI. Zwraca pierwsze trafienie albo null.
+const T3_CONTENT_RX = /\bservice_role\b|\bstripe\.(charges|paymentIntents|refunds|checkout|subscriptions)\b|\brapyd\b|\bDROP\s+(TABLE|COLUMN|SCHEMA|POLICY)\b|^\+\s*(GRANT|REVOKE)\s|\bSECURITY\s+DEFINER\b|\bauth\.admin\./im;
+function contentEscalation(addedText) {
+  const m = T3_CONTENT_RX.exec(String(addedText || ''));
+  return m ? m[0].replace(/^\+\s*/, '').slice(0, 40) : null;
+}
+
 // Ktory model dla recenzenta w danym tierze (regula uzytkownika: Sonnet do roboty narzedziowej, Opus do trudnego rozumowania).
 function modelFor(reviewer, tier) {
   if (tier === 'T3' && /security|data/.test(reviewer)) return 'opus';
   return 'sonnet';
 }
 
-module.exports = { classify, modelFor, phaseOf, qaGateReady, stripFences, REVIEWERS_BY_TIER, TIER_ORDER, PHASES, PROTOTYPE_PHASES, T2_LINE_THRESHOLD, T3_LINE_THRESHOLD };
+module.exports = { classify, modelFor, phaseOf, qaGateReady, stripFences, contentEscalation, T3_PATH_RX, REVIEWERS_BY_TIER, TIER_ORDER, PHASES, PROTOTYPE_PHASES, T2_LINE_THRESHOLD, T3_LINE_THRESHOLD };
 
 // CLI: node risk-tier.js <root> <plik>... [--lines N]
 if (require.main === module) {

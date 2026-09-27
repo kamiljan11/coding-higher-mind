@@ -82,20 +82,71 @@ function gateRiskTier(caseDir, expect) {
   return { hit: expect.tier === 'T0' ? verdict.tier !== 'T0' || verdict.reviewers.length > 0 : tierOk && reviewerOk, detail: `${verdict.tier} [${verdict.reviewers.join(',')}]` };
 }
 
-const GATES = { 'sql-lint': gateSqlLint, 'fleet-metrics': gateFleetMetrics, 'diff-grep': gateDiffGrep, 'risk-tier': gateRiskTier };
+// bash-guard (landscape #4): ta sama funkcja evaluate(), ktora blokuje w hooku. `disabled` = mutant z pg-mutate.js.
+// Token ALLOW_* bez zgody uzytkownika to w hooku blokada `override-required` — tu liczony tak samo.
+const { evaluate: evaluateBash, RULES: BASH_RULES } = require(path.join(CLAUDE_DIR, 'hooks', 'lib', 'bash-rules.js'));
+const EVAL_CWD = path.join(os.homedir(), 'Desktop', 'pg-eval-project'); // zwykly katalog projektu: nie %TEMP%, nie ~/.claude
+function gateBashGuard(caseDir, expect, opts) {
+  const r = evaluateBash(expect.command, {
+    dialect: expect.dialect || 'sh', cwd: expect.cwd || EVAL_CWD, agentType: expect.agent_type || null,
+    disabled: (opts && opts.disabled) || new Set(), exists: () => expect.exists !== false,
+  });
+  const blockIds = r.blocks.map((b) => b.id);
+  if (r.tokens.length && !(opts && opts.disabled && opts.disabled.has('override-required'))) blockIds.push('override-required');
+  const observeIds = r.observes.map((o) => o.id);
+  const ids = blockIds.concat(observeIds);
+  const hit = expect.rule ? ids.includes(expect.rule) : ids.length > 0;
+  // Trafienie reguly w trybie observe to wykrycie, NIE blokada (data-review 2026-09-26) — raport liczy je osobno.
+  const observeOnly = hit && !(expect.rule ? blockIds.includes(expect.rule) : blockIds.length > 0);
+  return { hit, observeOnly, detail: (ids.join(',') || 'przepuszczone') + (observeOnly ? ' (observe)' : '') };
+}
+const PSEUDO_RULES = ['override-required', 'unparseable']; // reguly hooka spoza tablicy RULES
 
-function evaluate(casesFile) {
+const GATES = { 'sql-lint': gateSqlLint, 'fleet-metrics': gateFleetMetrics, 'diff-grep': gateDiffGrep, 'risk-tier': gateRiskTier, 'bash-guard': gateBashGuard };
+
+// Kontrakt korpusu (landscape #4: „a check that finds nothing must fail" — OCR check-plugin-contract): pusty korpus,
+// zduplikowane id, bramka bez negatywu, regula bash-guard bez przypadku block ORAZ allow = korpus nie swiadczy o niczym.
+function contractErrors(cases) {
+  const errors = [];
+  if (!cases.length) errors.push('pusty korpus (0 przypadkow)');
+  const ids = cases.map((c) => c.id);
+  const dup = ids.filter((id, i) => ids.indexOf(id) !== i);
+  if (dup.length) errors.push(`zduplikowane id: ${[...new Set(dup)].join(', ')}`);
+  for (const gate of new Set(cases.map((c) => c.gate))) {
+    const g = cases.filter((c) => c.gate === gate);
+    if (!g.some((c) => c.positive)) errors.push(`bramka ${gate}: brak pozytywu`);
+    if (!g.some((c) => !c.positive)) errors.push(`bramka ${gate}: brak negatywu`);
+  }
+  if (cases.some((c) => c.gate === 'bash-guard')) {
+    const ruleIds = BASH_RULES.map((r) => r.id);
+    const dupRules = ruleIds.filter((id, i) => ruleIds.indexOf(id) !== i);
+    if (dupRules.length) errors.push(`bash-rules: zduplikowane id regul ${dupRules.join(', ')}`);
+    for (const id of [...ruleIds, ...PSEUDO_RULES]) {
+      const mine = cases.filter((c) => c.gate === 'bash-guard' && c.expect.rule === id);
+      if (!mine.some((c) => c.positive)) errors.push(`bash-guard regula ${id}: brak przypadku block`);
+      if (!mine.some((c) => !c.positive) && id !== 'unparseable') errors.push(`bash-guard regula ${id}: brak przypadku allow`);
+    }
+  }
+  return errors;
+}
+
+function evaluate(casesFile, opts) {
   const suite = JSON.parse(fs.readFileSync(casesFile, 'utf8'));
   const casesRoot = path.join(path.dirname(casesFile), 'cases');
   const results = [];
-  for (const c of suite.cases) {
+  const cases = Array.isArray(suite.cases) ? suite.cases : [];
+  const contract = contractErrors(cases);
+  for (const c of cases) {
+    // Przypadek przywiazany do systemu (np. nazwy 8.3 i dyski C: tylko na Windowsie) — na innym systemie pomijany.
+    if (c.platform && !['win32', 'linux', 'darwin'].includes(c.platform)) throw new Error(`pg-eval: przypadek ${c.id} ma nieznane platform="${c.platform}" (literowka = cichy skip)`);
+    if (c.platform && c.platform !== process.platform) continue;
     const caseDir = path.join(casesRoot, c.id);
     let outcome;
     try {
       const gate = GATES[c.gate];
       if (!gate) throw new Error(`nieznana bramka ${c.gate}`);
-      const { hit, detail } = gate(caseDir, c.expect);
-      outcome = { pass: c.positive ? hit : !hit, hit, detail };
+      const { hit, detail, observeOnly } = gate(caseDir, c.expect, opts);
+      outcome = { pass: c.positive ? hit : !hit, hit, detail, observeOnly: !!observeOnly };
     } catch (e) {
       outcome = { pass: false, hit: false, detail: `blad: ${String(e.message || e).split('\n')[0].slice(0, 120)}` };
     }
@@ -104,19 +155,21 @@ function evaluate(casesFile) {
   const positives = results.filter((r) => r.positive);
   const negatives = results.filter((r) => !r.positive);
   const recall = positives.length ? positives.filter((r) => r.hit).length / positives.length : 1;
+  const enforceRecall = positives.length ? positives.filter((r) => r.hit && !r.observeOnly).length / positives.length : 1;
   const falsePositiveRate = negatives.length ? negatives.filter((r) => r.hit).length / negatives.length : 0;
-  return { results, recall, falsePositiveRate, zeroTokenCoverage: recall, failed: results.filter((r) => !r.pass).map((r) => r.id) };
+  const failed = results.filter((r) => !r.pass).map((r) => r.id);
+  return { results, recall, enforceRecall, falsePositiveRate, zeroTokenCoverage: recall, failed: failed.concat(contract.map((e) => 'KONTRAKT: ' + e)), contract };
 }
 
 function render(report) {
   const lines = ['pg-eval · golden suite bramek 0-tokenowych', ''];
   for (const r of report.results) lines.push(`${r.pass ? 'ok  ' : 'FAIL'} ${r.id.padEnd(24)} ${r.gate.padEnd(14)} ${(r.positive ? 'pozytyw' : 'negatyw').padEnd(8)} ${r.detail}`);
-  lines.push('', `recall (pozytywy zlapane): ${(report.recall * 100).toFixed(0)} %`, `FP-rate (negatywy flagowane): ${(report.falsePositiveRate * 100).toFixed(0)} %`, `$0-gate coverage: ${(report.zeroTokenCoverage * 100).toFixed(0) } %`);
+  lines.push('', `recall (pozytywy zlapane): ${(report.recall * 100).toFixed(0)} % (w tym blokada: ${(report.enforceRecall * 100).toFixed(0)} %, reszta = tryb observe)`, `FP-rate (negatywy flagowane): ${(report.falsePositiveRate * 100).toFixed(0)} %`, `$0-gate coverage: ${(report.zeroTokenCoverage * 100).toFixed(0) } %`);
   lines.push(report.failed.length ? `REGRESJA: ${report.failed.join(', ')}` : 'GOLDEN SUITE: wszystkie OK');
   return lines.join('\n') + '\n';
 }
 
-module.exports = { evaluate, DIFF_PATTERNS, testEditedWithCode };
+module.exports = { evaluate, contractErrors, DIFF_PATTERNS, testEditedWithCode, PSEUDO_RULES };
 
 if (require.main === module) {
   const args = process.argv.slice(2);

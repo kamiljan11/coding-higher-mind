@@ -1,92 +1,95 @@
 #!/usr/bin/env node
-// PreToolUse hook (matcher: Bash) — twarde bramki na komendy, ktore reguly CLAUDE.md
-// zakazuja "z pamieci": --no-verify, force-push, reset --hard, rm -rf, merge PR,
-// sekrety w linii komend, curl|sh. Exit 2 => komenda NIE wykonuje sie, powod wraca do Claude.
-// Kazda regula ma jawny wyjatek ALLOW_X=1 w tresci komendy (swiadoma decyzja, nie odruch).
-// Fail-open: kazdy wlasny blad hooka => exit 0 (nigdy nie blokuj sesji przez siebie).
+// PreToolUse hook (matcher: Bash|PowerShell|mcp__desktop-commander__start_process|interact_with_process) — twarde bramki
+// na komendy, ktore reguly CLAUDE.md zakazuja "z pamieci". Exit 2 => komenda NIE wykonuje sie, powod wraca do Claude.
+// v4 (2026-09-26, landscape): reguly w lib/bash-rules.js (parser powloki + dawne regexy jako podloga);
+// wyjatek `ALLOW_X=1` w komendzie dziala TYLKO, gdy uzytkownik wydal go w czacie (`pozwol ALLOW_X`, lib/overrides.js) —
+// sam token w komendzie bez zgody = blokada. Kazde uzycie wyjatku = `bypass` w gates.jsonl, regula w trybie observe =
+// `would_block`. Fail-open: WLASNY blad hooka => exit 0 + wpis `skipped` (nigdy nie blokuj sesji przez siebie).
 'use strict';
 const fs = require('fs');
-let input = {};
-try { input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}'); } catch (e) { process.exit(0); }
-if (!/^(Bash|PowerShell)$/.test(String(input.tool_name || 'Bash'))) process.exit(0);
-const cmd = String((input.tool_input || {}).command || '');
-if (!cmd.trim()) process.exit(0);
 
-const allow = (k) => new RegExp('\\b' + k + '=1\\b').test(cmd);
-// Dla regul git/gh testujemy komende BEZ tresci w cudzyslowach (message commita z "--no-verify" != flaga)
-const cmdNQ = cmd.replace(/"[^"]*"|'[^']*'/g, '""');
-const RULES = [
-  { id: 'no-verify', esc: 'ALLOW_NOVERIFY',
-    rx: /\bgit\s+(commit|push|merge)\b[^\n;&|]*\s(--no-verify|-n)(\s|$)/,
-    why: 'git --no-verify omija pre-commit/pre-push (regula CLAUDE.md: NIGDY). Napraw lint/typy zamiast omijac bramke.' },
-  { id: 'force-push', esc: 'ALLOW_FORCE',
-    rx: /\bgit\s+push\b[^\n;&|]*(\s(--force|-f|--force-with-lease)(\s|$)|\s\+\w)/,
-    why: 'force-push zakazany (CLAUDE.md: no force-push, no amending pushed commits). Zrob nowy commit albo nowy branch.' },
-  { id: 'reset-hard', esc: 'ALLOW_RESET',
-    rx: /\bgit\s+reset\b[^\n;&|]*\s--hard\b/,
-    why: 'git reset --hard kasuje niezacommitowana prace (CLAUDE.md: no reset --hard). Najpierw commit/stash, albo ALLOW_RESET=1 gdy to swiadoma decyzja.' },
-  { id: 'git-clean', esc: 'ALLOW_CLEAN',
-    rx: /\bgit\s+clean\b[^\n;&|]*\s-[a-zA-Z]*f/,
-    why: 'git clean -f kasuje nieśledzone pliki bezpowrotnie. Najpierw zobacz `git clean -n`; wyjatek ALLOW_CLEAN=1.' },
-  { id: 'hooks-bypass', esc: 'ALLOW_HOOKS',
-    rx: /core\.hooksPath\s*=?\s*(\/dev\/null|nul\b|""|'')|\bgit\s+-c\s+core\.hooksPath/,
-    why: 'Wylaczanie core.hooksPath = omijanie globalnych git-hookow (secret-scan, lint, tsc). Zakazane.' },
-  { id: 'rm-rf', esc: 'ALLOW_RM',
-    test: (c) => {
-      // Cele = tokeny do konca TEJ komendy (`;` `&` `|` lub koniec linii), KAZDE `rm -r` w lancuchu osobno.
-      // Blizna 2026-09-12: `(.*)$` brala cala reszte linii (`rm -rf /tmp/x; set -u; T=$(mktemp -d)...`) za cele
-      // -> falszywy alarm na bezpiecznym /tmp, agent uczy sie ALLOW_RM=1 (GATE-FALSE-POSITIVE-TEACHES-BYPASS).
-      const matches = [...c.matchAll(/(^|[;&|]\s*|\s)rm\s+(-[a-zA-Z]*r[a-zA-Z]*|--recursive)\b([^;&|\n]*)/gm)];
-      if (!matches.length) return false;
-      // Tokenizacja z poszanowaniem cudzyslowow ("~/x/node_modules" = 1 cel)
-      const targets = matches.flatMap((m) => (m[3].match(/"[^"]*"|'[^']*'|\S+/g) || [])).filter(t => !/^-/.test(t));
-      if (!targets.length) return true;
-      // Bezpieczne: katalogi build/cache (dowolna sciezka, liczy sie OSTATNI segment), tempy, *.tsbuildinfo
-      const SAFE_DIRS = /^(node_modules|dist|build|out|coverage|\.next|\.turbo|\.vite|\.cache|__pycache__|\.pytest_cache|\.ruff_cache|\.tmp|tmp)$/;
-      const isSafe = (raw) => {
-        const t = raw.replace(/^["']|["']$/g, '').replace(/[\/\\]+$/, '');
-        if (/^(\/tmp\/|\$TMPDIR|\$TEMP|\$TMP|%TEMP%|%TMP%)/.test(t) || /[\/\\]AppData[\/\\]Local[\/\\]Temp[\/\\]/i.test(t) || /\.tsbuildinfo$/.test(t)) return true;
-        const segs = t.split(/[\/\\]/).filter(Boolean);
-        if (!segs.length) return false;
-        const last = segs[segs.length - 1];
-        if (last === '*' && segs.length > 1) return SAFE_DIRS.test(segs[segs.length - 2]);
-        return SAFE_DIRS.test(last);
-      };
-      return !targets.every(isSafe);
-    },
-    why: 'rm -r poza katalogami build/cache (node_modules, dist, /tmp...) = nieodwracalne. Reguła: przenies do _to_delete/ albo trash; wyjatek ALLOW_RM=1 tylko dla plikow utworzonych w tej sesji.' },
-  { id: 'rm-rf-win', esc: 'ALLOW_RM',
-    rx: /\b(Remove-Item|rm|del|rmdir|rd)\b[^\n;&|]*(-Recurse|\/s\b)[^\n;&|]*(-Force|\/q\b)?/i,
-    test: (c) => /\b(Remove-Item|rmdir|rd)\b[^\n;&|]*(-Recurse|\/s\b)/i.test(c) && !/(node_modules|dist|\\?build|\.next|coverage|%TEMP%|\$env:TEMP|\.cache)/i.test(c),
-    why: 'Rekurencyjne kasowanie (Remove-Item -Recurse / rmdir /s) poza build/cache — nieodwracalne. Przenies do _to_delete/; wyjatek ALLOW_RM=1.' },
-  { id: 'pr-merge', esc: 'ALLOW_MERGE',
-    rx: /\bgh\s+pr\s+merge\b/,
-    why: 'Merge PR to decyzja uzytkownika (AUTO-LOOP: petla nigdy sama nie merguje na main).' },
-  { id: 'gh-delete', esc: 'ALLOW_DELETE',
-    rx: /\bgh\s+(repo\s+delete|api\b[^\n;&|]*-X\s*DELETE)|\bgit\s+push\b[^\n;&|]*(\s--delete\b|\s:[\w\/-]+(\s|$))/,
-    why: 'Kasowanie repo/galezi zdalnej/zasobu przez API — nieodwracalne, wymaga jawnej zgody (ALLOW_DELETE=1).' },
-  { id: 'secret-in-cmd', esc: 'ALLOW_SECRET',
-    rx: /(ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gho_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,}|sbp_[A-Za-z0-9]{20,}|xox[bpars]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,})/,
-    why: 'Sekret w tresci komendy = trafia do transkryptu i logow. Uzyj menedzer sekretow (np. Infisical CLI): infisical run --env=dev -- <komenda>.' },
-  { id: 'cred-bypass', esc: 'ALLOW_CRED',
-    rx: /\bgit\s+credential(-manager)?\s+(fill|get)\b|\bgh\s+auth\s+(token|status\s+--show-token)\b|\bgit\s+config\b[^\n;&|]*credential\.helper\b[^\n;&|]*\bstore\b|cat\s+[^\n;&|]*\.git-credentials\b/,
-    why: 'Jedyne zrodlo tokena GitHub = menedzer sekretow (np. Infisical CLI) (infisical run --env=dev -- ...). Czytanie GCM/gh auth/.git-credentials = obejscie bramki (2026-09-05: agent wypchnal PR przez GCM, gdy vault lezal). Gdy most nie dziala -> "push pending".' },
-  { id: 'pipe-to-shell', esc: 'ALLOW_PIPE_SH',
-    rx: /\b(curl|wget|iwr|Invoke-WebRequest)\b[^\n]*\|\s*(sudo\s+)?(sh|bash|zsh|iex|Invoke-Expression|powershell|pwsh)\b/i,
-    why: 'curl|sh / iwr|iex = wykonanie nieprzejrzanego kodu z sieci (regula wetowania skilli/instalatorow). Pobierz do pliku, przeczytaj, potem uruchom.' },
+// Awaryjny zestaw regul, gdy biblioteka sie nie laduje (security-review 2026-09-26: uszkodzony bash-rules.js = blad `require`
+// poza try = fail-open CALEGO bash-guarda). Minimum: obejscia bramek, destrukcja historii, zapis warstwy kontrolnej.
+// Nie blokujemy wszystkiego (to zamknelo by tez naprawe), tylko najgrozniejsze klasy.
+const FALLBACK = [
+  /\bgit\b[^\n;&|]*\s--no-verify\b/i, /\bgit\b[^\n;&|]*\bpush\b[^\n;&|]*(\s--force\b|\s-f\b|\s\+\w)/i, /\bgit\b[^\n;&|]*\breset\b[^\n;&|]*--hard/i,
+  /core\.hookspath/i, /\brm\s+-[a-z]*r[a-z]*\s+(\/|~|\$HOME|[a-z]:[\\/])\s*($|[;&|])/i,
+  /\.claude[\\/]+(hooks|git-hooks|bin|settings)/i, /\bALLOW_[A-Z][A-Z_]*\s*=/,
 ];
-
+let lib = null;
 try {
-  for (const r of RULES) {
-    if (allow(r.esc)) continue;
-    // hooks-bypass czyta SUROWA komende: po zdjeciu cudzyslowow `git config core.hooksPath "C:/x"` wygladalo
-    // jak `core.hooksPath ""` i blokowalo instalacje wlasnych bramek (false positive, dogfood 2026-09-05).
-    const subject = /^(no-verify|force-push|reset-hard|git-clean|pr-merge|gh-delete)$/.test(r.id) ? cmdNQ : cmd;
-    const hit = r.test ? r.test(subject) : r.rx.test(subject);
-    if (hit) {
-      process.stderr.write(`[bash-guard:${r.id}] ZABLOKOWANE / BLOCKED (rule ${r.id}; conscious escape: ${r.esc}=1 in the command). ${r.why}\nJesli to naprawde swiadoma decyzja uzytkownika: dodaj ${r.esc}=1 do komendy.\n`);
-      process.exit(2);
+  lib = { evaluate: require('./lib/bash-rules').evaluate, overrides: require('./lib/overrides'), gateLog: require('./lib/gate-log') };
+} catch (e) {
+  lib = { error: String(e && e.message || e).slice(0, 160) };
+}
+const log = (entry) => { try { (lib.gateLog || require('./lib/gate-log')).log(entry); } catch (e) { /* bez telemetrii */ } };
+
+const HOOK = 'bash-guard';
+// desktop-commander uruchamia powloke z pominieciem matchera Bash (design review 2026-09-26) — mapujemy jego pola.
+const TOOL_FIELDS = {
+  Bash: 'command', PowerShell: 'command',
+  'mcp__desktop-commander__start_process': 'command',
+  'mcp__desktop-commander__interact_with_process': 'input',
+};
+
+function main() {
+  let input = {};
+  try { input = JSON.parse(fs.readFileSync(0, 'utf8').replace(/^﻿/, '') || '{}'); } catch (e) { return 0; }
+  const tool = String(input.tool_name || 'Bash');
+  const field = TOOL_FIELDS[tool];
+  if (!field) return 0;
+  const cmd = String((input.tool_input || {})[field] || '');
+  if (!cmd.trim()) return 0;
+  if (lib.error) {
+    log({ hook: HOOK, event: 'skipped', reason: 'lib load failed -> fallback: ' + lib.error, target: input.cwd || '' });
+    if (FALLBACK.some((rx) => rx.test(cmd))) {
+      process.stderr.write(`[bash-guard:fallback] ZABLOKOWANE: biblioteka regul bash-guard nie laduje sie (${lib.error}); dziala zestaw awaryjny, a ta komenda do niego pasuje. uzytkownik: napraw ~/.claude/hooks/lib (git -C ~/.claude diff) poza sesja agenta.\n`);
+      return 2;
     }
+    return 0;
   }
-} catch (e) { process.exit(0); }
-process.exit(0);
+  const { evaluate, overrides } = lib;
+  lib.gateLog.noteInputKeys(HOOK, input);
+  const sid = input.session_id || '';
+  const agentType = input.agent_type || input.agentType || null;
+  const result = evaluate(cmd, { dialect: tool === 'PowerShell' ? 'ps' : 'sh', cwd: input.cwd || process.cwd(), agentType });
+
+  for (const o of result.observes) log({ hook: HOOK, event: 'would_block', reason: `rule:${o.id}`, target: input.cwd || '' });
+
+  const granted = result.tokens.filter((t) => overrides.has(sid, t));
+  const missing = result.tokens.filter((t) => !granted.includes(t));
+  if (missing.length) {
+    log({ hook: HOOK, event: 'blocked', reason: `override-required:${missing.join(',')}`, target: input.cwd || '' });
+    process.stderr.write(`[bash-guard:override-required] ZABLOKOWANE / BLOCKED: ${missing.join(', ')} w komendzie bez zgody uzytkownika. ` +
+      `Wyjatek wydaje czlowiek, nie agent: popros uzytkownika, zeby napisal w czacie dokladnie „pozwol ${missing.join(' ')}" (sama fraza, bez innego tekstu), potem powtorz komende. ` +
+      'Jesli to nie jest swiadoma decyzja uzytkownika — napraw przyczyne zamiast omijac bramke.\n');
+    return 2;
+  }
+  const blocks = result.blocks.filter((b) => !(b.esc && granted.includes(b.esc)));
+  if (blocks.length) {
+    const b = blocks[0];
+    log({ hook: HOOK, event: 'blocked', reason: `rule:${blocks.map((x) => x.id).join(',')}`, target: input.cwd || '' });
+    const escape = b.esc ? ` Wyjatek tylko za zgoda uzytkownika: uzytkownik pisze w czacie „pozwol ${b.esc}", potem komenda z ${b.esc}=1.` : ' Brak wyjatku dla tej reguly.';
+    const more = blocks.length > 1 ? ` (tez: ${blocks.slice(1).map((x) => x.id).join(', ')})` : '';
+    process.stderr.write(`[bash-guard:${b.id}] ZABLOKOWANE / BLOCKED (rule ${b.id}${more}). ${b.why}${escape}\n`);
+    return 2;
+  }
+  // Zuzycie PRZED przepuszczeniem, pod blokada pliku (data-review 2026-09-26: has()+consume() = wyscig rownoleglych komend).
+  // Nie udalo sie zuzyc (limit wyczerpany miedzy sprawdzeniem a zuzyciem) = blokada, nie ciche przejscie bez sladu.
+  for (const t of granted) {
+    if (!overrides.consume(sid, t)) {
+      log({ hook: HOOK, event: 'blocked', reason: `override-exhausted:${t}`, target: input.cwd || '' });
+      process.stderr.write(`[bash-guard:override-exhausted] ZABLOKOWANE: wyjatek ${t} wlasnie sie wyczerpal/wygasl. Popros uzytkownika o ponowne „pozwol ${t}".\n`);
+      return 2;
+    }
+    log({ hook: HOOK, event: 'bypass', reason: `${t} (zgoda uzytkownika w czacie)`, target: input.cwd || '' });
+  }
+  return 0;
+}
+
+let code = 0;
+try { code = main(); } catch (e) {
+  log({ hook: HOOK, event: 'skipped', reason: 'internal error: ' + String(e && e.message || e).slice(0, 120), target: process.cwd() });
+  code = 0;
+}
+process.exit(code);

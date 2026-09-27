@@ -79,12 +79,29 @@ const r2 = aggregate(dir, path.join(dir, 'verdicts.json'));
 check('verdicts: not_reproduced => dropped', r2.findings.find((g) => g.rule_id === 'TOCTOU').decision === 'dropped');
 check('verdicts: reproduced samotny => must_fix', r2.findings.find((g) => g.rule_id === 'GOD-FUNCTION').decision === 'must_fix');
 check('verdicts: weryfikator nie podnosi severity', r2.findings.find((g) => g.rule_id === 'GOD-FUNCTION').severity === 'minor');
-// pusty katalog / brak plikow
+// Fail-closed (landscape #1, ZMIANA SPECYFIKACJI 2026-09-26): do tej daty pusty katalog dawal APPROVE — to byla luka
+// (recenzent, ktory nic nie zapisal, „zatwierdzal"). Teraz brak danych do werdyktu = INCOMPLETE, nigdy APPROVE.
 const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-agg-empty-'));
 const r3 = aggregate(empty, null);
-check('aggregate: brak findings => APPROVE', r3.verdict === 'APPROVE' && r3.findings.length === 0);
+check('aggregate: brak plikow findings => INCOMPLETE (nie APPROVE)', r3.verdict === 'INCOMPLETE' && r3.incomplete.length > 0);
+fs.writeFileSync(path.join(empty, 'findings.security.json'), 'not json');
+check('aggregate: nieparsowalny plik => INCOMPLETE', aggregate(empty, null).verdict === 'INCOMPLETE');
+const clean = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-agg-clean-'));
+for (const role of ['code', 'ops']) fs.writeFileSync(path.join(clean, `findings.${role}.json`), JSON.stringify({ role, findings: [] }));
+check('aggregate: komplet rol T2, 0 findings => APPROVE', aggregate(clean, null, { requiredRoles: ['code', 'ops'] }).verdict === 'APPROVE');
+const { requiredRolesFromArgs } = require(path.join(HOME, '.claude', 'bin', 'pg-aggregate.js'));
+const rolesT3 = requiredRolesFromArgs(['--tier', 'T3']);
+check('aggregate: --tier T3 => role code,security,data,ops (nazwy agentow -> nazwy plikow)', ['code', 'security', 'data', 'ops'].every((r) => rolesT3.includes(r)), rolesT3.join(','));
+check('aggregate: brak roli wymaganej dla T3 => INCOMPLETE', aggregate(clean, null, { requiredRoles: rolesT3 }).verdict === 'INCOMPLETE');
+fs.writeFileSync(path.join(clean, 'findings.ops.json'), JSON.stringify({ role: 'security', findings: [] }));
+check('aggregate: rola z NAZWY pliku, nie z pola role (plik ops udajacy security nie zalicza security)', aggregate(clean, null, { requiredRoles: ['security'] }).verdict === 'INCOMPLETE');
+check('aggregate: --final + samotny blocker bez werdyktu => INCOMPLETE', aggregate(dir, null, { final: true }).verdict === 'INCOMPLETE');
+fs.writeFileSync(path.join(dir, 'verdicts-bad.json'), JSON.stringify({ verdicts: [{ finding_id: 'ghost-9', verdict: 'reproduced' }, { finding_id: 'security-2', verdict: 'not_reproduced' }, { finding_id: 'security-2', verdict: 'reproduced' }] }));
+const r4 = aggregate(dir, path.join(dir, 'verdicts-bad.json'));
+check('verdicts: nieznane i zduplikowane finding_id => INCOMPLETE', r4.verdict === 'INCOMPLETE' && r4.incomplete.some((x) => /ghost-9/.test(x)) && r4.incomplete.some((x) => /zduplikowany/.test(x)));
 fs.rmSync(dir, { recursive: true, force: true });
 fs.rmSync(empty, { recursive: true, force: true });
+fs.rmSync(clean, { recursive: true, force: true });
 
 
 // ---------- repo-readiness R8 (.env.example) ----------

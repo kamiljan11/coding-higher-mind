@@ -15,6 +15,20 @@ try { input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}'); } catch (e) { proc
 const p = String(input.prompt || '').trim();
 const LANG = /^en/i.test(String(process.env.PG_LANG || '')) ? 'en' : 'pl';
 
+// Wyjatek od bramki wydaje CZLOWIEK (landscape #12): caly prompt = `pozwol ALLOW_X [ALLOW_Y]`. MUSI stac przed wyjsciem
+// dla krotkich promptow (fraza ma ~15 znakow — design review 2026-09-26). Koperty (<task-notification>, wklejone logi)
+// nigdy nie pasuja w calosci, wiec agent nie wybije sobie wyjatku przez echo komunikatu blokady.
+try {
+  const overrides = require('./lib/overrides');
+  const names = overrides.namesFromPrompt(p);
+  if (names.length) {
+    const minted = overrides.mint(input.session_id || '', names);
+    require('./lib/gate-log').log({ hook: 'prompt-guard', event: 'bypass', reason: `minted ${names.join(',')} (fraza uzytkownika)`, target: input.cwd || '' });
+    process.stdout.write(`[PG] Wyjatek od bramki wydany przez uzytkownika: ${minted.map((g) => `${g.name} (${g.uses_left} uzycia, do ${new Date(g.expires).toISOString().slice(11, 16)} UTC)`).join(', ')}. ` +
+      `Uzyj go TYLKO do akcji, o ktora chodzilo (komenda z ${names[0]}=1). Kazde uzycie trafia do logu bramek.\n`);
+  }
+} catch (e) { /* wyjatek to wygoda, nie bramka — blad tu nie moze blokowac promptu */ }
+
 const TEXT = {
   pl: {
     // CAVEMAN leci ZAWSZE (uzytkownik 2026-08-09) — takze przy krotkich komendach ("rob", "merguj").
@@ -71,20 +85,34 @@ const TEXT = {
 const T = TEXT[LANG];
 
 if (!p) process.exit(0);
+// Klasyfikujemy TYLKO tekst uzytkownika (landscape #8): bez blokow kodu, cytatow, kopert (<task-notification> — kazdy
+// koniec subagenta to tura uzytkownika, ktora dostawala pelny protokol), wklejonych echo hookow; bez diakrytykow
+// (regexy ASCII: „płatności" nie trafialo w platnosc, a `\bci\b` trafialo w „płatno-ści").
+function forClassify(text) {
+  return String(text)
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/<(task-notification|agent-message|system-reminder|pasted_content|command-output|local-command-stdout)\b[\s\S]*?<\/\1>/gi, ' ')
+    .split('\n')
+    .filter((line) => !/^\s*>/.test(line) && !/Stop hook feedback|hookSpecificOutput|STOP ZABLOKOWANY|PreToolUse|PostToolUse|\[bash-guard:/.test(line))
+    .join('\n')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l').replace(/Ł/g, 'L')
+    .trim();
+}
+const q = forClassify(p);
 const trivial = /^(tak|nie|ok|okej|dalej|kontynuuj|dzieki|dziekuje|super|git|spoko|yes|no|continue|go|done|gotowe|jedziemy)\b/i;
-if (p.startsWith('/') || p.length < 25 || (trivial.test(p) && p.length < 45)) {
+if (q.startsWith('/') || q.length < 25 || (trivial.test(q) && q.length < 45)) {
   console.log(T.cave);
   process.exit(0);
 }
 
-const isCode = /\b(kod\w*|code|bug|fix|napraw\w*|zbuduj|funkcj\w*|komponent\w*|api|endpoint|deploy\w*|repo|commit\w*|test\w*|refactor\w*|skrypt\w*|script|typescript|python|error|blad|build|hook\w*|workflow|sql|migracj\w*|supabase|vercel|frontend|backend|apk\w*|aplikacj\w*|stron\w*|pg|prompt.?guard)\b/i.test(p);
-const isFact = /\b(ile|kiedy|kto|gdzie|jaka|jaki|ktory|cena|cen\w*|koszt\w*|wersja|version|najnowsz\w*|aktualn\w*|dzisiaj|news|how much|when|who|where|which|price|cost|latest|current|today)\b/i.test(p);
-const isBig = /\b(nowy modul|now[ay] funkcjonalnosc|nowa? feature|migracj\w*|migration|integracj\w*|integration|architektur\w*|architecture|przebud\w*|rewrite|schemat danych|baz[aey] danych|database|wdroz\w*|rollout|multi.?tenant|platnosc\w*|payment|auth|billing|rabat\w*|kody?\b|new (module|feature))\b/i.test(p);
-const isNew = /\b(nowy projekt|now[ae] apk\w*|nowe repo|nowa aplikacj\w*|od zera|greenfield|init projektu|zaczynamy (projekt|budow)|nowy klient|mvp|new (project|app|repo)|from scratch)\b/i.test(p);
-const isDeliver = /\b(zbuduj|napraw|fix|dodaj|dokoncz|dokancz\w*|zrob|zaimplementuj|implement\w*|refactor\w*|zmien|popraw|usun|wdroz\w*|deploy\w*|stworz|przerob|przepisz|update|upgrade|dopisz|podepnij|zintegruj|ulepsz\w*|build|add|finish|make|change|remove|create|rewrite|improve)\b/i.test(p);
-const isFinish = /\b(dokoncz (apk|aplikacj|projekt|stron)|skoncz (apk|aplikacj|projekt|stron|to)|do konca|caly projekt|production.?ready|komercyjn\w*|do perfekcji|dojedz|finish the (app|project|site)|whole project|to perfection)\b/i.test(p);
-const isDeploy = /\b(deploy\w*|wdroz\w*|publish|release|wydanie|na prod\w*|produkcj\w*|production|go.?live)\b/i.test(p);
-const isIncident = /\b(incydent|incident|awaria|outage|padl\w*|nie dziala na prod|postmortem|wyciek|leak|down in prod)\b/i.test(p);
+const isCode = /\b(kod\w*|code|bug|fix|napraw\w*|zbuduj|funkcj\w*|komponent\w*|api|endpoint|deploy\w*|repo|commit\w*|test\w*|refactor\w*|skrypt\w*|script|typescript|python|error|blad|build|hook\w*|workflow|sql|migracj\w*|supabase|vercel|frontend|backend|apk\w*|aplikacj\w*|stron\w*|pg|prompt.?guard)\b/i.test(q);
+const isFact = /\b(ile|kiedy|kto|gdzie|jaka|jaki|ktory|cena|cen\w*|koszt\w*|wersja|version|najnowsz\w*|aktualn\w*|dzisiaj|news|how much|when|who|where|which|price|cost|latest|current|today)\b/i.test(q);
+const isBig = /\b(nowy modul|now[ay] funkcjonalnosc|nowa? feature|migracj\w*|migration|integracj\w*|integration|architektur\w*|architecture|przebud\w*|rewrite|schemat danych|baz[aey] danych|database|wdroz\w*|rollout|multi.?tenant|platnosc\w*|payment|auth|billing|rabat\w*|kody?\b|new (module|feature))\b/i.test(q);
+const isNew = /\b(nowy projekt|now[ae] apk\w*|nowe repo|nowa aplikacj\w*|od zera|greenfield|init projektu|zaczynamy (projekt|budow)|nowy klient|mvp|new (project|app|repo)|from scratch)\b/i.test(q);
+const isDeliver = /\b(zbuduj|napraw|fix|dodaj|dokoncz|dokancz\w*|zrob|zaimplementuj|implement\w*|refactor\w*|zmien|popraw|usun|wdroz\w*|deploy\w*|stworz|przerob|przepisz|update|upgrade|dopisz|podepnij|zintegruj|ulepsz\w*|build|add|finish|make|change|remove|create|rewrite|improve)\b/i.test(q);
+const isFinish = /\b(dokoncz (apk|aplikacj|projekt|stron)|skoncz (apk|aplikacj|projekt|stron|to)|do konca|caly projekt|production.?ready|komercyjn\w*|do perfekcji|dojedz|finish the (app|project|site)|whole project|to perfection)\b/i.test(q);
+const isDeploy = /\b(deploy\w*|wdroz\w*|publish|release|wydanie|na prod\w*|produkcj\w*|production|go.?live)\b/i.test(q);
+const isIncident = /\b(incydent|incident|awaria|outage|padl\w*|nie dziala na prod|postmortem|wyciek|leak|down in prod)\b/i.test(q);
 
 const L = [];
 L.push(T.head);
@@ -121,7 +149,7 @@ const ROUTES = [
   [/\b(ultra loop|dojedz do konca|zrob to ultra|autonomiczna petla|samo-?looping|do perfekcji|to perfection)/i, 'ultra-loop'],
   [/\b(metryki kodu|jakosc kodu|code quality|clean code|dlug techniczny|tech debt)/i, 'bin/fleet-metrics.js --repo <sciezka> (0 tokenow) -> dopiero potem osad / metrics first, judgement second'],
 ];
-const hits = ROUTES.filter(([rx]) => rx.test(p)).map(([, s]) => s);
+const hits = ROUTES.filter(([rx]) => rx.test(q)).map(([, s]) => s);
 if (hits.length) L.push(T.router + hits.join(' | '));
 L.push(T.routerIdx);
 L.push(T.token);

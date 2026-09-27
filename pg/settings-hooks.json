@@ -1,0 +1,134 @@
+{
+  "$comment": "Wpiecia PG z settings.json Zenbooka (bin/pg-wire.js --export). Na innym komputerze: pg-wire.js --apply.",
+  "exported_at": "2026-09-27T08:25:30.978Z",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"~/.claude/hooks/session-context.js\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell|mcp__desktop-commander__start_process|mcp__desktop-commander__interact_with_process",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"~/.claude/hooks/bash-guard.js\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__desktop-commander__write_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"~/.claude/hooks/memory-guard.js\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|mcp__desktop-commander__write_file|mcp__desktop-commander__edit_block|mcp__desktop-commander__move_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"~/.claude/hooks/edit-guard.js\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"~/.claude/hooks/precompact-snapshot.js\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"~/.claude/hooks/prompt-guard.js\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit|mcp__desktop-commander__write_file|mcp__desktop-commander__edit_block",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"~/.claude/hooks/post-edit-check.js\"",
+            "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"~/.claude/hooks/post-bash-edit-check.js\"",
+            "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"~/.claude/hooks/loop-monitor.js\"",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"~/.claude/hooks/stop-gate.js\"",
+            "timeout": 170
+          }
+        ]
+      }
+    ]
+  },
+  "deny": [
+    "Read(~/.ssh/**)",
+    "Read(~/.aws/**)",
+    "Read(~/.git-credentials)",
+    "Read(~/.netrc)",
+    "Read(//d/infisical-vault/.claude-machine-auth)",
+    "Read(~/.claude/pg/deny-canary.txt)",
+    "Edit(~/.bashrc)",
+    "Edit(~/.bash_profile)",
+    "Edit(~/.profile)",
+    "Edit(~/.gitconfig)",
+    "Write(~/.bashrc)",
+    "Write(~/.bash_profile)",
+    "Write(~/.profile)",
+    "Write(~/.gitconfig)"
+  ]
+}

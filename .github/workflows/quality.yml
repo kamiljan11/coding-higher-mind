@@ -23,6 +23,8 @@ jobs:
           git config --global user.email ci@example.com
           git config --global user.name ci
           git config --global init.defaultBranch main
+      - name: Python tools for the lint/pytest gates (tests expect them to block)
+        run: pip install --quiet ruff pytest
       - name: Stage PG into ~/.claude (tests resolve paths from there)
         run: node install.mjs --yes
       - name: Unit + fixture tests

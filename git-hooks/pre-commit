@@ -3,6 +3,24 @@
 # (git config --global core.hooksPath). Czerwone = commit nie istnieje.
 # Repo z wlasnym .husky/pre-commit: delegujemy najpierw do niego.
 
+# Audyt obejsc (landscape #5, 2026-09-26): KAZDE ustawione ALLOW_* trafia do ~/.claude/logs/gates.jsonl jako `bypass`
+# (wczesniej tylko PHASE/TODO/PII). Agent ustawia je tylko przez komende, a te bash-guard przepuszcza wylacznie za zgoda
+# uzytkownika w czacie — ten log to drugi, niezalezny slad. guard_health liczy obejscia tygodniowo.
+PG_GATE_LOG_JS="$HOME/.claude/hooks/lib/gate-log.js"
+for pg_var in ALLOW_CI_DOWNGRADE ALLOW_SECRET ALLOW_STALE_BASE ALLOW_DUP_LITERALS ALLOW_COMMENTED_CODE ALLOW_PHASE ALLOW_TODO ALLOW_PII ALLOW_UNKNOWN_DEP; do
+  eval "pg_val=\${$pg_var:-}"
+  if [ -n "$pg_val" ] && [ "$pg_val" != "0" ] && command -v node >/dev/null 2>&1 && [ -f "$PG_GATE_LOG_JS" ]; then
+    node "$PG_GATE_LOG_JS" pre-commit bypass "$pg_var=$pg_val" "$(pwd)" 2>/dev/null || true
+  fi
+done
+# Narzedzie bramki nie istnieje = bramka CICHO wylaczona (design review 2026-09-26: skasowanie bin/*.js omijalo pre-commit).
+# Brak = wpis `skipped` z nazwa narzedzia (guard_health + pieczec pg-seal pokazuja to uzytkownikowi), commit idzie dalej.
+need_tool() {
+  [ -f "$1" ] && return 0
+  command -v node >/dev/null 2>&1 && [ -f "$PG_GATE_LOG_JS" ] && node "$PG_GATE_LOG_JS" pre-commit skipped "brak narzedzia bramki: $(basename "$1")" "$(pwd)" 2>/dev/null
+  return 1
+}
+
 # Skrypt .husky/pre-commit POCHODZI Z REPO — commit w sklonowanym repo obcego autora = wykonanie jego kodu
 # (finding security-reviewer 2026-09-05, nadal reprodukowalny po v3.0). Delegacja tylko za jawna zgoda per repo:
 #   git config --local mas.trustHusky true
@@ -98,31 +116,32 @@ if [ "$ALLOW_SECRET" != "1" ]; then
 fi
 # Swiezosc bazy (retro 2026-09-06, petla 1): commit na klonie z INNA historia niz origin = praca na kodzie, ktorego
 # nie ma. base-check blokuje tylko brak wspolnego przodka; "za baza" i "offline" to ostrzezenia. Wyjatek: ALLOW_STALE_BASE=1.
-if [ "${ALLOW_STALE_BASE:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/base-check.js" ]; then
+if [ "${ALLOW_STALE_BASE:-0}" != "1" ] && command -v node >/dev/null 2>&1 && need_tool "$HOME/.claude/bin/base-check.js"; then
   node "$HOME/.claude/bin/base-check.js" --quiet || { echo "[pre-commit] base-check (BLOCKED: HEAD and origin share no common ancestor, this clone is not the repo CI runs; escape: ALLOW_STALE_BASE=1): HEAD i origin nie maja wspolnego przodka — to nie jest to repo, na ktorym dziala CI. Zabezpiecz prace (git stash) i przepnij galaz na origin. Wyjatek: ALLOW_STALE_BASE=1." >&2; exit 1; }
 fi
 
 # Powtorzone literaly w NOWYM kodzie (0 tokenow). Blizna 2026-09-06: tozsamosc firmy w 45 miejscach
 # w 11 plikach przeszla lint/typy/testy/review. Skan patrzy tylko na dodane linie indeksu, wiec nie
 # dotyka dlugu historycznego. Swiadomy wyjatek: ALLOW_DUP_LITERALS=1.
-if [ "${ALLOW_DUP_LITERALS:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/dup-literals.js" ]; then
+if [ "${ALLOW_DUP_LITERALS:-0}" != "1" ] && command -v node >/dev/null 2>&1 && need_tool "$HOME/.claude/bin/dup-literals.js"; then
   node "$HOME/.claude/bin/dup-literals.js" --staged || { echo "[pre-commit] dup-literals (BLOCKED: same literal added >=3x in >=2 files, extract one source of truth; escape: ALLOW_DUP_LITERALS=1): ten sam literal dodany >=3x w >=2 plikach — wyciagnij do jednego zrodla (stala/modul). Wyjatek: ALLOW_DUP_LITERALS=1 w komendzie." >&2; exit 1; }
 fi
 
 # Zakomentowany kod w NOWYM diffie (research 2026-09-06: "comment traps" — martwy kod w komentarzu uczy
 # nastepnego agenta blednego wzorca). Wyjatek: ALLOW_COMMENTED_CODE=1.
-if [ "${ALLOW_COMMENTED_CODE:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/commented-code-gate.js" ]; then
+if [ "${ALLOW_COMMENTED_CODE:-0}" != "1" ] && command -v node >/dev/null 2>&1 && need_tool "$HOME/.claude/bin/commented-code-gate.js"; then
   node "$HOME/.claude/bin/commented-code-gate.js" --staged || { echo "[pre-commit] commented-code-gate (BLOCKED: newly added commented-out code, git history keeps it; escape: ALLOW_COMMENTED_CODE=1): usun zakomentowany kod (historia jest w gicie). Wyjatek: ALLOW_COMMENTED_CODE=1." >&2; exit 1; }
 fi
 
 # Swiadome obejscie bramki (ALLOW_X=1) zostawia slad w ~/.claude/logs/gates.jsonl — skip niewidoczny = bramka, ktorej nie ma
 # (ops-reviewer 2026-09-12). guard_health.py liczy te wpisy tygodniowo.
-log_bypass() { command -v node >/dev/null 2>&1 && node "$HOME/.claude/hooks/lib/gate-log.js" "pre-commit:$1" skipped "$2=1 (swiadome obejscie)" "$(pwd)" 2>/dev/null; return 0; }
+# Od 2026-09-26 obejscia loguje petla audytu na poczatku hooka (event `bypass`, kazde ALLOW_*); tu tylko znacznik galezi.
+log_bypass() { return 0; }
 
 # Faza projektu (gap-analiza vs slownik SH 2026-09-12, L1): `pg.phase` w CLAUDE.md zmienione na `production` bez
 # wypelnionego PRR (`docs/prr/<data>.md`) w tym samym commicie = blok; nieznana wartosc fazy = blok. Wyjatek: ALLOW_PHASE=1.
 if [ "${ALLOW_PHASE:-0}" = "1" ]; then log_bypass phase-gate ALLOW_PHASE
-elif command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/phase-gate.js" ]; then
+elif command -v node >/dev/null 2>&1 && need_tool "$HOME/.claude/bin/phase-gate.js"; then
   if git diff --cached --name-only | grep -qE '(^|/)CLAUDE\.md$'; then
     node "$HOME/.claude/bin/phase-gate.js" --staged || { echo "[pre-commit] phase-gate (BLOCKED: promoting pg.phase to production needs docs/prr/<date>.md in the same commit; escape: ALLOW_PHASE=1): promocja pg.phase -> production wymaga docs/prr/<RRRR-MM-DD>.md (wypelniony ~/.claude/pg/prr.md) w tym samym commicie. Wyjatek: ALLOW_PHASE=1." >&2; exit 1; }
   fi
@@ -131,21 +150,21 @@ fi
 # Dlug rejestrowany przy zaciagnieciu (L9): nowy TODO/FIXME/HACK/XXX w kodzie bez wiersza w docs/quality/BACKLOG.md
 # w tym samym commicie = blok („dlug = kredyt z odsetkami", slownik SH sekcja 8). Wyjatek: ALLOW_TODO=1.
 if [ "${ALLOW_TODO:-0}" = "1" ]; then log_bypass todo-ledger-gate ALLOW_TODO
-elif command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/todo-ledger-gate.js" ]; then
+elif command -v node >/dev/null 2>&1 && need_tool "$HOME/.claude/bin/todo-ledger-gate.js"; then
   node "$HOME/.claude/bin/todo-ledger-gate.js" --staged || { echo "[pre-commit] todo-ledger-gate (BLOCKED: new TODO/FIXME/HACK without a row in docs/quality/BACKLOG.md; escape: ALLOW_TODO=1): skrot bez wpisu w docs/quality/BACKLOG.md (data, plik:linia, odsetki, splata do). Wyjatek: ALLOW_TODO=1." >&2; exit 1; }
 fi
 
 # Dane osobowe (L5, RODO): stagowana migracja dodaje kolumne o nazwie osobowej bez wiersza `tabela.kolumna`
 # w docs/PRIVACY.md = blok. Wyjatek: ALLOW_PII=1.
 if [ "${ALLOW_PII:-0}" = "1" ]; then log_bypass pii-inventory-gate ALLOW_PII
-elif command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/pii-inventory-gate.js" ]; then
+elif command -v node >/dev/null 2>&1 && need_tool "$HOME/.claude/bin/pii-inventory-gate.js"; then
   if git diff --cached --name-only | grep -qE '(^|/)migrations/.*\.sql$'; then
     node "$HOME/.claude/bin/pii-inventory-gate.js" --staged || { echo "[pre-commit] pii-inventory-gate (BLOCKED: a personal-data column without a row in docs/PRIVACY.md; escape: ALLOW_PII=1): nowa kolumna PII bez wiersza w docs/PRIVACY.md (dana, cel, retencja, procesor, jak usunac). Wyjatek: ALLOW_PII=1." >&2; exit 1; }
   fi
 fi
 
 # Nowa zaleznosc musi istniec w rejestrze (anty-slopsquatting; research 2026-09-06). Wyjatek: ALLOW_UNKNOWN_DEP=1.
-if [ "${ALLOW_UNKNOWN_DEP:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/dep-exists.js" ]; then
+if [ "${ALLOW_UNKNOWN_DEP:-0}" != "1" ] && command -v node >/dev/null 2>&1 && need_tool "$HOME/.claude/bin/dep-exists.js"; then
   if git diff --cached --name-only | grep -qE '(^|/)(package\.json|pyproject\.toml|requirements[^/]*\.txt)$'; then
     node "$HOME/.claude/bin/dep-exists.js" --staged || { echo "[pre-commit] dep-exists (BLOCKED: a new dependency does not exist in the registry or is one typo away from a popular package; escape: ALLOW_UNKNOWN_DEP=1): nowa zaleznosc nie istnieje w rejestrze (halucynacja/typosquat). Wyjatek dla prywatnego rejestru: ALLOW_UNKNOWN_DEP=1." >&2; exit 1; }
   fi
@@ -182,7 +201,7 @@ sql=$(echo "$files" | grep -E '(^|/)migrations/.*\.sql$' | grep -vE '(^|/)(fixtu
 # Migracje SQL (T3): RLS/DEFINER/anon — flota ma 189 DEFINER bez higieny i 73 policy bez WITH CHECK (audyt 2026-09-05).
 # Lint liczy caly zestaw (kontekst miedzy plikami), ale BLOKUJE tylko HIGH w plikach STAGOWANYCH (zasada: stary dlug nie blokuje).
 SQL_LINT="$HOME/.claude/bin/sql-migration-lint.js"
-if [ -n "$sql" ] && [ -f "$SQL_LINT" ] && command -v node >/dev/null 2>&1; then
+if [ -n "$sql" ] && need_tool "$SQL_LINT" && command -v node >/dev/null 2>&1; then
   report=$(node "$SQL_LINT" --repo . --min-severity high 2>/dev/null | grep '^\[HIGH\]' || true)
   hits=""
   for f in $sql; do
@@ -226,6 +245,13 @@ if [ -n "$py" ]; then
   if command -v pyright >/dev/null 2>&1; then
     echo "$py" | grep -v "^-" | xargs pyright || { echo "[pre-commit] pyright: popraw bledy typow przed commitem. | BLOCKED: fix type errors first." >&2; exit 1; }
   fi
+fi
+
+# Repo PG: zmiana wpiec hookow w settings.json bez `pg-wire.js --export` = laptop dostalby stare wpiecia (ops-review 2026-09-26).
+pg_top=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$pg_top" ] && [ -d "$HOME/.claude" ] && [ "$(cd "$pg_top" && pwd -P)" = "$(cd "$HOME/.claude" && pwd -P)" ] &&
+   git diff --cached --name-only | grep -Eqx 'settings\.json|pg/settings-hooks\.json' && command -v node >/dev/null 2>&1; then
+  node "$HOME/.claude/bin/pg-wire.js" --check >/dev/null 2>&1 || { echo "[pre-commit] settings.json ma inne wpiecia hookow niz pg/settings-hooks.json — uruchom: node ~/.claude/bin/pg-wire.js --export i dodaj migawke do commita. | BLOCKED: hook wiring snapshot out of date." >&2; exit 1; }
 fi
 
 exit 0

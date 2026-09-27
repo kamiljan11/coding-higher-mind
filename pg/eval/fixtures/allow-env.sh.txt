@@ -1,0 +1,2 @@
+# Fikstura pg-eval (source-env): plik ustawiajacy wyjatek bramki. Rozszerzenie .txt, zeby nie byl prawdziwym skryptem.
+export ALLOW_SECRET=1

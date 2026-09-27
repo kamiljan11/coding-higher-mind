@@ -20,7 +20,8 @@ This repository is that system, exported and sanitized so you can install it on 
 |---|---|---|---|
 | **Prompt hardening** | every non-trivial prompt (`UserPromptSubmit`) | injects PG-core: ambiguity → questions not execution; read-before-assert; "done" only with proof (exit code / diff / HTTP); status `VERIFIED / UNVERIFIED / FAILED`; report format for a sponsor, not "fine" | `hooks/prompt-guard.js` |
 | **Edit gate** | every file edit, also edits made through Bash (`PostToolUse`) | eslint / oxlint / `tsc -b` / ruff / pyright on the changed file; errors go straight back to the agent | `hooks/post-edit-check.js`, `hooks/post-bash-edit-check.js` |
-| **Command guard** | every shell command (`PreToolUse`) | blocks `--no-verify`, force-push, `reset --hard`, `rm -rf` outside build dirs, `gh pr merge`, secrets in the command line, `curl \| sh`; escape hatches are explicit (`ALLOW_*=1`) and logged | `hooks/bash-guard.js` |
+| **Command guard** | every shell command (`PreToolUse`) | blocks `--no-verify`, force-push, `reset --hard`, `rm -rf` outside build dirs, `gh pr merge`, secrets in the command line, `curl \| sh`; escape hatches are granted by the human, not the agent: you type `allow ALLOW_X` in chat, then a command with `ALLOW_X=1` passes (30 min / 3 uses; `ALLOW_CONTROL_PLANE` 60 min); every use is logged | `hooks/bash-guard.js` |
+| **Edit guard, loop monitor, compaction snapshot** | file edits (`PreToolUse`), every tool call (`PostToolUse`), before compaction (`PreCompact`) | the same control-plane rule for Edit/Write; 4 identical calls in a row = stop signal; a snapshot of the last requests and edited files survives `/compact` (secrets and personal data masked) | `hooks/edit-guard.js`, `hooks/loop-monitor.js`, `hooks/precompact-snapshot.js` |
 | **Stop gate** | end of session (`Stop`) | computes a **risk tier T0–T3 from the diff** (paths + size), runs lint/types/tests on everything changed, and refuses to close a T2+ session without the required reviewer departments | `hooks/stop-gate.js`, `hooks/lib/risk-tier.js` |
 | **Git gates** | commit / push (global `core.hooksPath`) | conventional commit message; secret scan; base freshness (`merge-base` — a clone on an unrelated history is blocked); duplicate literals in new code; new dependency must exist on npm/PyPI and not be a typosquat; commented-out code; new `TODO` without a ledger entry; PII column without a privacy inventory row; SQL migration lint (RLS `USING` + `WITH CHECK`, `SECURITY DEFINER` hygiene, tenant FK); GitHub's own workflow parser on workflow files; diff size > 400 source lines; **new import cycle or import against declared layers** | `git-hooks/pre-commit`, `git-hooks/pre-push`, `git-hooks/commit-msg`, `bin/*` |
 | **Reviewer departments** | T1+ (recommended) / T2+ (required) | 9 read-only agents with **fresh context** and a JSON schema: code, security, data, ops, ux, product, qa, verifier, catfish (devil's advocate). A finding without an executed command in `evidence` does not exist. Aggregation is code (`bin/pg-aggregate.js`, k-of-n), not a model; a verifier tries to *refute* findings; no chat between agents | `agents/`, `skills/pg-review` |
@@ -30,7 +31,7 @@ This repository is that system, exported and sanitized so you can install it on 
 | **Fleet tools** | on demand / scheduled | strict branch protection from workflow job names, PR merge only on an up-to-date merge-ref, single-file rollouts as PRs, production proof from the Vercel API (never a hand-typed URL), session and git-history mining, weekly guard health, monthly reviewer calibration (the same defect in two wrappers must get the same verdict) | `bin/mas_*.py`, `scheduled-tasks/` |
 | **Self-tests** | `node bin/pg-selftest.js` | every gate has a **positive** test (it must block) and the rule→gate coverage is checked by script; the README index of tools is generated from the tools' own headers (a tool without a self-description shows up as debt) | `bin/test_*.js`, `bin/pg-rule-coverage.js`, `bin/pg-map.py` |
 
-Counted on export day, not estimated: 184 files, ~15 700 lines, 32 tools, 10 test suites, 7 hooks, 3 git hooks, 9 reviewer agents, 150 scars, 25 template files, 4 Claude Code routines + 7 desktop routines.
+Counted on export day, not estimated: 212 files, ~23 400 lines, 39 tools, 11 test suites, 10 hooks, 3 git hooks, 9 reviewer agents, 160 scars, 25 template files, 7 Claude Code routines + 7 desktop routines.
 
 ---
 
@@ -71,14 +72,14 @@ prompt ──▶ prompt-guard.js (protocol) ──▶ edit ──▶ post-edit-c
 session end ──▶ stop-gate.js: tier from the diff; T2+ = reviewer departments (skill pg-review) or the session does not close
 ```
 
-Any red result stops the change right there. Every escape hatch is a named env var (`ALLOW_MAIN=1`, `ALLOW_LARGE_DIFF=1`, `ALLOW_BOUNDARIES=1`, …) — a conscious decision that is logged to `~/.claude/logs/gates.jsonl` and surfaces in the weekly guard-health audit.
+Any red result stops the change right there. Every escape hatch is a named env var (`ALLOW_MAIN=1`, `ALLOW_LARGE_DIFF=1`, `ALLOW_BOUNDARIES=1`, …). Since 1.2.0 the agent cannot set it on its own: the command guard lets it through only after you typed `allow ALLOW_X` as the whole chat message. The decision is logged to `~/.claude/logs/gates.jsonl` and surfaces in the weekly guard-health audit.
 
 ---
 
 ## Three ideas the whole thing rests on
 
 1. **Gates, not prose.** A rule the agent can forget is not a rule. Everything that matters fires on an event (prompt, edit, command, stop, commit, push, CI) and has a test proving it blocks its own case. Rules that only exist in a document are checked by `bin/pg-rule-coverage.js` — a rule without a gate fails the audit.
-2. **Scar → gate.** `pg/cases.md` holds 149 real failures from the fleet (RLS gate on the wrong state, a fallback that silently changed the seller on an invoice, green CI on a stale merge-ref that broke `main`, a hook that read stdin twice and never ran, …). Every checklist item and every gate cites the scar it came from — the Google SRE rule. Postmortems end with a new gate or a new scar, never with "be more careful".
+2. **Scar → gate.** `pg/cases.md` holds 160 real failures from the fleet (RLS gate on the wrong state, a fallback that silently changed the seller on an invoice, green CI on a stale merge-ref that broke `main`, a hook that read stdin twice and never ran, …). Every checklist item and every gate cites the scar it came from — the Google SRE rule. Postmortems end with a new gate or a new scar, never with "be more careful".
 3. **Proof, not prose.** "Done" means a command, an exit code and an observed state. Reports end with `VERIFIED` (evidence cited) / `UNVERIFIED` (what is missing) / `FAILED` (what happened). This matters most where agents are known to overstate success (75.8 % of agent "successes" in one benchmark were claims without evidence) and to fold under pushback. See [docs/VERIFIED-PROTOCOL.md](docs/VERIFIED-PROTOCOL.md) — it is the single most useful thing to paste into any Claude Cowork or scheduled-task prompt.
 
 ---
@@ -102,7 +103,7 @@ Per-repo overrides live in the repo's `CLAUDE.md`: `pg.tier_floor: T2`, `pg.phas
 |---|---|
 | `hooks/` | Claude Code hooks (7) + `lib/` (risk tier, lint runner, gate telemetry, trusted roots) + `guard_health.py` (audit of the system itself) |
 | `git-hooks/` | `commit-msg`, `pre-commit`, `pre-push` — installed once via `core.hooksPath`, active in every repo |
-| `bin/` | 32 zero-token tools + 10 test suites; [bin/README.md](bin/README.md) is generated from each tool's own header |
+| `bin/` | 39 zero-token tools + 11 test suites; [bin/README.md](bin/README.md) is generated from each tool's own header |
 | `agents/` | reviewer departments (read-only, fresh context, JSON schema, `how_to_check` per rubric line) |
 | `pg/` | doctrine: `paradigm`, `design`, `dod`, `prr`, `postmortem`, `cases`, `council`, `models`, `github-ready`, retro; `adr/`; `eval/` (golden set for the gates + reviewer calibration pairs) |
 | `skills/` | `pg-review`, `pg-council`, `anti-sycophancy`, `verify-audit`, `ultra-loop`, `gauntlet-build` |

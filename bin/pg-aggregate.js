@@ -8,12 +8,21 @@
 //  3. blocker = agreement >= MIN_AGREEMENT_FOR_BLOCKER LUB (agreement == 1 i weryfikator `reproduced`),
 //  4. agreement == 1 bez potwierdzenia -> `note` (trafia do raportu, nigdy nie blokuje),
 //  5. severity = MAX z zgadzajacych sie finderow (nigdy srednia); weryfikator moze tylko obnizyc.
-// Uzycie: node pg-aggregate.js <dir> [--verdicts <dir>/verdicts.json] [--json]
+//  6. (landscape #1, fail-closed) werdykt INCOMPLETE (exit 3) — nie APPROVE — gdy: 0 plikow findings, plik nieparsowalny
+//     / bez tablicy, brakuje roli wymaganej dla tieru, werdykt weryfikatora z nieznanym/zduplikowanym finding_id,
+//     a z --final: finding wymagajacy weryfikacji bez werdyktu. Rola = z NAZWY pliku (pole `role` moglo zawyzyc k-of-n).
+// Uzycie: node pg-aggregate.js <dir> --repo <sciezka repo> [--tier T2|T3 | --required code,ops] [--final] [--verdicts <plik>] [--json]
 const fs = require('fs');
 const path = require('path');
+const { REVIEWERS_BY_TIER } = require(path.join(__dirname, '..', 'hooks', 'lib', 'risk-tier.js'));
+
+// Agent `code-reviewer` pisze findings.code.json -> rola `code`. Jedno mapowanie dla tieru i dla stop-gate.
+const roleOfAgent = (agent) => String(agent).replace(/-reviewer$/, '');
 
 const LINE_TOLERANCE = 3;
 const MIN_AGREEMENT_FOR_BLOCKER = 2;
+// Werdykty agregacji — jedno zrodlo prawdy, czyta je tez stop-gate (dup-literals 2026-09-27).
+const VERDICT = Object.freeze({ APPROVE: 'APPROVE', REQUEST_CHANGES: 'REQUEST CHANGES', INCOMPLETE: 'INCOMPLETE' });
 const SEVERITY_RANK = { blocker: 3, major: 2, minor: 1 };
 const REQUIRED_FIELDS = ['file', 'rule_id', 'severity', 'claim', 'evidence', 'repro_cmd'];
 
@@ -24,10 +33,10 @@ function readJson(file) {
 // Zwraca { valid: [...], rejected: [{finding, why}] } dla jednego pliku roli.
 function validateRoleFile(file) {
   const data = readJson(file);
-  const role = (data && data.role) || path.basename(file).replace(/^findings\.|\.json$/g, '');
+  const role = path.basename(file).replace(/^findings\.|\.json$/g, '');
   const valid = [];
   const rejected = [];
-  if (!data || !Array.isArray(data.findings)) return { role, valid, rejected: [{ finding: null, why: `plik ${path.basename(file)} nie ma tablicy findings` }] };
+  if (!data || !Array.isArray(data.findings)) return { role, valid, broken: true, rejected: [{ finding: null, why: `plik ${path.basename(file)} nieparsowalny albo bez tablicy findings` }] };
   data.findings.forEach((f, idx) => {
     const missing = REQUIRED_FIELDS.filter((k) => !f || !String(f[k] || '').trim());
     if (missing.length) { rejected.push({ finding: f, why: `brak pol: ${missing.join(', ')}` }); return; }
@@ -56,9 +65,16 @@ function dedupe(findings) {
   return groups.map((g) => Object.assign(g, { agreement: g.roles.length }));
 }
 
+// Zwraca liste problemow z werdyktami (nieznane / zduplikowane id) — kazdy = INCOMPLETE, bo nie wiemy, co zweryfikowano.
 function applyVerdicts(groups, verdicts) {
+  const problems = [];
+  const known = new Set(groups.flatMap((g) => g.member_ids));
   const byId = new Map();
-  for (const v of (verdicts && verdicts.verdicts) || []) byId.set(v.finding_id, v);
+  for (const v of (verdicts && verdicts.verdicts) || []) {
+    if (!known.has(v.finding_id)) { problems.push(`werdykt dla nieznanego finding_id ${v.finding_id}`); continue; }
+    if (byId.has(v.finding_id)) { problems.push(`zduplikowany werdykt dla ${v.finding_id}`); continue; }
+    byId.set(v.finding_id, v);
+  }
   for (const g of groups) {
     const verdict = g.member_ids.map((id) => byId.get(id)).find(Boolean);
     if (!verdict) continue;
@@ -66,6 +82,7 @@ function applyVerdicts(groups, verdicts) {
     if (verdict.severity_after && SEVERITY_RANK[verdict.severity_after] && SEVERITY_RANK[verdict.severity_after] < SEVERITY_RANK[g.severity]) g.severity = verdict.severity_after;
     g.verifier_reason = verdict.reason;
   }
+  return problems;
 }
 
 function decide(groups) {
@@ -82,7 +99,8 @@ function decide(groups) {
 }
 
 function renderMarkdown(result) {
-  const lines = [`# pg-review · agregacja (${result.roles.join(', ')})`, ''];
+  const lines = [`# pg-review · agregacja (${result.roles.join(', ') || 'brak rol'}) — ${result.verdict}`, ''];
+  if (result.incomplete.length) lines.push('**INCOMPLETE — recenzja nie jest kompletna, werdykt nie moze byc APPROVE:**', ...result.incomplete.map((x) => `- ${x}`), '');
   lines.push(`Findings: ${result.stats.total} zgloszonych, ${result.stats.rejected} odrzuconych (brak dowodu/pol), ${result.stats.groups} po dedupe.`);
   lines.push(`Decyzje: ${result.stats.blocker} blocker, ${result.stats.must_fix} must_fix, ${result.stats.note} note, ${result.stats.dropped} dropped (weryfikator).`, '');
   for (const g of result.findings) {
@@ -99,43 +117,69 @@ function renderMarkdown(result) {
   return lines.join('\n') + '\n';
 }
 
-function aggregate(dir, verdictsPath) {
+// opts: { requiredRoles: ['code','ops'], final: bool }
+function aggregate(dir, verdictsPath, opts) {
+  const o = opts || {};
   const files = fs.readdirSync(dir).filter((f) => /^findings\.[\w-]+\.json$/.test(f)).map((f) => path.join(dir, f));
   const all = [];
   const rejected = [];
   const roles = [];
   const questions = [];
+  const incomplete = [];
+  if (!files.length) incomplete.push('0 plikow findings.<rola>.json w katalogu przebiegu');
   for (const file of files) {
-    const { role, valid, rejected: rej } = validateRoleFile(file);
-    roles.push(role);
+    const { role, valid, rejected: rej, broken } = validateRoleFile(file);
+    if (broken) incomplete.push(`findings.${role}.json nieparsowalny/bez tablicy findings`);
+    else roles.push(role);
     all.push(...valid);
     rejected.push(...rej);
     const data = readJson(file);
     if (data && Array.isArray(data.questions)) questions.push(...data.questions.map((q) => `[${role}] ${q}`));
   }
+  const missingRoles = (o.requiredRoles || []).filter((r) => !roles.includes(r));
+  if (missingRoles.length) incomplete.push(`brak wymaganych rol: ${missingRoles.join(', ')}`);
   const groups = dedupe(all);
-  if (verdictsPath && fs.existsSync(verdictsPath)) applyVerdicts(groups, readJson(verdictsPath));
+  if (verdictsPath && fs.existsSync(verdictsPath)) {
+    const v = readJson(verdictsPath);
+    if (!v || !Array.isArray(v.verdicts)) incomplete.push('verdicts.json nieparsowalny/bez tablicy verdicts');
+    else incomplete.push(...applyVerdicts(groups, v));
+  }
   const findings = decide(groups);
+  const needsVerification = findings.filter((g) => g.needs_verification).map((g) => g.id);
+  if (o.final && needsVerification.length) incomplete.push(`${needsVerification.length} finding(ow) wymaga weryfikacji, brak werdyktu`);
   const count = (d) => findings.filter((g) => g.decision === d).length;
-  const result = {
-    roles, findings, rejected, questions,
+  const verdict = incomplete.length ? VERDICT.INCOMPLETE : count('blocker') || count('must_fix') ? VERDICT.REQUEST_CHANGES : VERDICT.APPROVE;
+  return {
+    roles, findings, rejected, questions, incomplete, required_roles: o.requiredRoles || [],
     stats: { total: all.length + rejected.length, rejected: rejected.length, groups: groups.length, blocker: count('blocker'), must_fix: count('must_fix'), note: count('note'), dropped: count('dropped') },
-    needs_verification: findings.filter((g) => g.needs_verification).map((g) => g.id),
-    verdict: count('blocker') ? 'REQUEST CHANGES' : count('must_fix') ? 'REQUEST CHANGES' : 'APPROVE',
+    needs_verification: needsVerification,
+    verdict,
+    generated_at: new Date().toISOString(),
   };
-  return result;
 }
 
-module.exports = { aggregate, dedupe, validateRoleFile, decide, MIN_AGREEMENT_FOR_BLOCKER };
+function requiredRolesFromArgs(args) {
+  const ti = args.indexOf('--tier');
+  const ri = args.indexOf('--required');
+  if (ri >= 0) return String(args[ri + 1] || '').split(',').map((s) => roleOfAgent(s.trim())).filter(Boolean);
+  if (ti >= 0) return (REVIEWERS_BY_TIER[String(args[ti + 1] || '').toUpperCase()] || []).map(roleOfAgent);
+  return [];
+}
+
+module.exports = { aggregate, dedupe, validateRoleFile, decide, roleOfAgent, requiredRolesFromArgs, MIN_AGREEMENT_FOR_BLOCKER, VERDICT };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
   const dir = args.find((a) => !a.startsWith('--'));
   if (!dir || !fs.existsSync(dir)) { console.error('uzycie: pg-aggregate.js <dir z findings.*.json> [--verdicts <plik>] [--json]'); process.exit(2); }
   const verdictsIdx = args.indexOf('--verdicts');
-  const result = aggregate(dir, verdictsIdx >= 0 ? args[verdictsIdx + 1] : path.join(dir, 'verdicts.json'));
+  const result = aggregate(dir, verdictsIdx >= 0 ? args[verdictsIdx + 1] : path.join(dir, 'verdicts.json'), { requiredRoles: requiredRolesFromArgs(args), final: args.includes('--final') });
+  // --repo: ktorego repo dotyczy przebieg. stop-gate dopasowuje agregacje do repo (sesja 2026-09-26: przy 2 repo w jednej
+  // sesji ostatnia agregacja jednego repo blokowala drugie — „ping-pong").
+  const repoIdx = args.indexOf('--repo');
+  if (repoIdx >= 0 && args[repoIdx + 1]) result.repo = path.resolve(args[repoIdx + 1]);
   fs.writeFileSync(path.join(dir, 'aggregated.json'), JSON.stringify(result, null, 2));
   fs.writeFileSync(path.join(dir, 'aggregated.md'), renderMarkdown(result));
   process.stdout.write(args.includes('--json') ? JSON.stringify(result, null, 2) : renderMarkdown(result));
-  process.exit(result.verdict === 'APPROVE' ? 0 : 1);
+  process.exit(result.verdict === VERDICT.APPROVE ? 0 : result.verdict === VERDICT.INCOMPLETE ? 3 : 1);
 }
