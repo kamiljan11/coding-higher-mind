@@ -20,7 +20,8 @@ To repozytorium jest tym systemem, wyeksportowanym i zsanityzowanym, żeby dało
 |---|---|---|---|
 | **Utwardzanie promptu** | każdy niebanalny prompt (`UserPromptSubmit`) | wstrzykuje PG-core: niejasność → pytania, nie wykonanie; read-before-assert; „gotowe" tylko z dowodem (exit code / diff / HTTP); status `VERIFIED / UNVERIFIED / FAILED`; raport dla sponsora, nie „dobrze" | `hooks/prompt-guard.js` |
 | **Bramka edycji** | każda edycja pliku, także przez Bash (`PostToolUse`) | eslint / oxlint / `tsc -b` / ruff / pyright na zmienionym pliku; błędy wracają prosto do agenta | `hooks/post-edit-check.js`, `hooks/post-bash-edit-check.js` |
-| **Strażnik komend** | każda komenda shellowa (`PreToolUse`) | blokuje `--no-verify`, force-push, `reset --hard`, `rm -rf` poza katalogami buildu, `gh pr merge`, sekrety w linii komendy, `curl \| sh`; wyjątki są jawne (`ALLOW_*=1`) i logowane | `hooks/bash-guard.js` |
+| **Strażnik komend** | każda komenda shellowa (`PreToolUse`) | blokuje `--no-verify`, force-push, `reset --hard`, `rm -rf` poza katalogami buildu, `gh pr merge`, sekrety w linii komendy, `curl \| sh`; wyjątki wydaje człowiek, nie agent: piszesz w czacie `pozwól ALLOW_X`, dopiero wtedy komenda z `ALLOW_X=1` przechodzi (30 min / 3 użycia; `ALLOW_CONTROL_PLANE` 60 min); każde użycie jest logowane | `hooks/bash-guard.js` |
+| **Strażnik edycji, monitor pętli, migawka przed kompakcją** | edycje plików (`PreToolUse`), każde wywołanie narzędzia (`PostToolUse`), przed kompakcją (`PreCompact`) | ta sama reguła warstwy kontrolnej dla Edit/Write; 4 identyczne wywołania z rzędu = sygnał stop; migawka ostatnich poleceń i edytowanych plików przeżywa `/compact` (sekrety i dane osobowe maskowane) | `hooks/edit-guard.js`, `hooks/loop-monitor.js`, `hooks/precompact-snapshot.js` |
 | **Bramka stop** | koniec sesji (`Stop`) | liczy **tier ryzyka T0–T3 z diffu** (ścieżki + rozmiar), odpala lint/typy/testy na wszystkim, co się zmieniło, i odmawia zamknięcia sesji T2+ bez wymaganych działów recenzentów | `hooks/stop-gate.js`, `hooks/lib/risk-tier.js` |
 | **Bramki gita** | commit / push (globalny `core.hooksPath`) | konwencjonalny opis commita; skan sekretów; świeżość bazy (`merge-base` — klon o niepowiązanej historii jest blokowany); powtórzone literały w nowym kodzie; nowa zależność musi istnieć w npm/PyPI i nie być typosquatem; zakomentowany kod; nowe `TODO` bez wpisu w rejestrze; kolumna PII bez wiersza w inwentarzu prywatności; lint migracji SQL (RLS `USING` + `WITH CHECK`, higiena `SECURITY DEFINER`, klucze obce tenantów); parser workflowów GitHuba na plikach workflow; diff > 400 linii źródłowych; **nowy cykl importów lub import wbrew zadeklarowanym warstwom** | `git-hooks/pre-commit`, `git-hooks/pre-push`, `git-hooks/commit-msg`, `bin/*` |
 | **Działy recenzentów** | T1+ (zalecane) / T2+ (wymagane) | 9 agentów tylko-do-odczytu ze **świeżym kontekstem** i schematem JSON: code, security, data, ops, ux, product, qa, weryfikator, catfish (adwokat diabła). Finding bez wykonanej komendy w `evidence` nie istnieje. Agregacja to kod (`bin/pg-aggregate.js`, k-z-n), nie model; weryfikator próbuje findingi *obalić*; zero czatu między agentami | `agents/`, `skills/pg-review` |
@@ -30,7 +31,7 @@ To repozytorium jest tym systemem, wyeksportowanym i zsanityzowanym, żeby dało
 | **Narzędzia floty** | na żądanie / cyklicznie | ścisła ochrona gałęzi z nazw jobów workflow, merge PR tylko na aktualnym merge-ref, rollout pojedynczego pliku jako PR, dowód z produkcji z API Vercela (nigdy z ręcznie wpisanego URL), kopanie sesji i historii gita, cotygodniowe zdrowie strażników, miesięczna kalibracja recenzentów (ten sam defekt w dwóch opakowaniach musi dostać ten sam werdykt) | `bin/mas_*.py`, `scheduled-tasks/` |
 | **Samotesty** | `node bin/pg-selftest.js` | każda bramka ma test **pozytywny** (musi zablokować), pokrycie reguła→bramka sprawdza skrypt; indeks narzędzi w README jest generowany z nagłówków samych narzędzi (narzędzie bez samoopisu pokazuje się jako dług) | `bin/test_*.js`, `bin/pg-rule-coverage.js`, `bin/pg-map.py` |
 
-Policzone w dniu eksportu, nie szacowane: 184 pliki, ~15 700 linii, 32 narzędzia, 10 zestawów testów, 7 hooków, 3 hooki gita, 9 agentów-recenzentów, 150 blizn, 25 plików szablonu, 4 rutyny kodowe + 7 pulpitowych.
+Policzone w dniu eksportu, nie szacowane: 212 plików, ~23 400 linii, 39 narzędzi, 11 zestawów testów, 10 hooków, 3 hooki gita, 9 agentów-recenzentów, 160 blizn, 25 plików szablonu, 7 rutyn kodowych + 7 pulpitowych.
 
 ---
 
@@ -72,14 +73,14 @@ prompt ──▶ prompt-guard.js (protokół) ──▶ edycja ──▶ post-ed
 koniec sesji ──▶ stop-gate.js: tier z diffu; T2+ = działy recenzentów (skill pg-review) albo sesja się nie zamknie
 ```
 
-Każdy czerwony wynik zatrzymuje zmianę w tym miejscu. Każdy wyjątek to nazwana zmienna (`ALLOW_MAIN=1`, `ALLOW_LARGE_DIFF=1`, `ALLOW_BOUNDARIES=1`, …) — świadoma decyzja, logowana do `~/.claude/logs/gates.jsonl` i widoczna w cotygodniowym audycie.
+Każdy czerwony wynik zatrzymuje zmianę w tym miejscu. Każdy wyjątek to nazwana zmienna (`ALLOW_MAIN=1`, `ALLOW_LARGE_DIFF=1`, `ALLOW_BOUNDARIES=1`, …). Od 1.2.0 agent nie ustawi jej sam: strażnik komend przepuszcza ją dopiero po tym, jak napiszesz w czacie samo `pozwól ALLOW_X`. Decyzja jest logowana do `~/.claude/logs/gates.jsonl` i widoczna w cotygodniowym audycie.
 
 ---
 
 ## Trzy idee, na których stoi całość
 
 1. **Bramki, nie proza.** Reguła, którą agent może zapomnieć, nie jest regułą. Wszystko, co ważne, odpala się na zdarzeniu (prompt, edycja, komenda, stop, commit, push, CI) i ma test dowodzący, że blokuje swój przypadek. Reguły istniejące tylko w dokumencie sprawdza `bin/pg-rule-coverage.js` — reguła bez bramki oblewa audyt.
-2. **Blizna → bramka.** `pg/cases.md` trzyma 149 realnych awarii floty (bramka RLS na złym stanie, fallback, który po cichu zmienił sprzedawcę na fakturze, zielone CI na nieaktualnym merge-ref, które rozwaliło `main`, hook, który dwa razy czytał stdin i nigdy nie ruszył, …). Każdy punkt checklisty i każda bramka cytuje bliznę, z której powstała — reguła Google SRE. Postmortem kończy się nową bramką albo nową blizną, nigdy „będziemy uważniejsi".
+2. **Blizna → bramka.** `pg/cases.md` trzyma 160 realnych awarii floty (bramka RLS na złym stanie, fallback, który po cichu zmienił sprzedawcę na fakturze, zielone CI na nieaktualnym merge-ref, które rozwaliło `main`, hook, który dwa razy czytał stdin i nigdy nie ruszył, …). Każdy punkt checklisty i każda bramka cytuje bliznę, z której powstała — reguła Google SRE. Postmortem kończy się nową bramką albo nową blizną, nigdy „będziemy uważniejsi".
 3. **Dowód, nie proza.** „Gotowe" to komenda, exit code i obejrzany stan. Raport kończy się `VERIFIED` (dowód zacytowany) / `UNVERIFIED` (czego brakuje) / `FAILED` (co się stało). To ma największe znaczenie tam, gdzie agenci zmierzalnie zawyżają sukces (w jednym benchmarku 75,8 % zgłoszonych „sukcesów" to deklaracje bez dowodu) i ustępują pod naciskiem. Patrz [docs/pl/VERIFIED-PROTOCOL.md](docs/pl/VERIFIED-PROTOCOL.md) — to jedna rzecz, którą warto wkleić do każdego promptu w Claude Cowork.
 
 ---

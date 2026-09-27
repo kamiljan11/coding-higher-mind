@@ -1,0 +1,19 @@
+{
+  "$comment": "Baseline permissions.deny (landscape #10, 2026-09-26). Warstwa 1 = harness Claude Code (dziala takze w bypassPermissions), niezaleznie od parserow hookow. guard_health: settings.json permissions.deny MUSI zawierac wszystkie ponizsze wpisy; sciezki absolutne w skladni //dysk/... (inaczej CC traktuje je jako wzgledne). Odczyt przez Bash pilnuje bash-guard (regula cred-bypass).",
+  "deny": [
+    "Read(~/.ssh/**)",
+    "Read(~/.aws/**)",
+    "Read(~/.git-credentials)",
+    "Read(~/.netrc)",
+    "Read(//d/infisical-vault/.claude-machine-auth)",
+    "Read(~/.claude/pg/deny-canary.txt)",
+    "Edit(~/.bashrc)",
+    "Edit(~/.bash_profile)",
+    "Edit(~/.profile)",
+    "Edit(~/.gitconfig)",
+    "Write(~/.bashrc)",
+    "Write(~/.bash_profile)",
+    "Write(~/.profile)",
+    "Write(~/.gitconfig)"
+  ]
+}

@@ -1,0 +1,2 @@
+# Fikstura pg-eval (source-env, negatyw): komunikat wspominajacy wyjatek to NIE ustawienie zmiennej.
+echo "Wyjatek tylko za zgoda: ALLOW_SECRET=1 git commit"

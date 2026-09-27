@@ -3,6 +3,12 @@
 # Powod: audyt A3 — 28,9 % commitow floty zgodnych z konwencja, CHANGELOG 105 commitow za kodem;
 # historia nieczytelna dla obcego, changelog nie do wygenerowania. Przechodza: merge/revert/fixup/squash,
 # oraz ALLOW_MSG=1 git commit ... (swiadoma decyzja, np. import historii).
+for pg_var in ALLOW_MSG ALLOW_SECRET; do  # audyt obejsc (landscape #5)
+  eval "pg_val=\${$pg_var:-}"
+  if [ -n "$pg_val" ] && [ "$pg_val" != "0" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/hooks/lib/gate-log.js" ]; then
+    node "$HOME/.claude/hooks/lib/gate-log.js" commit-msg bypass "$pg_var=$pg_val" "$(pwd)" 2>/dev/null || true
+  fi
+done
 [ "$ALLOW_MSG" = "1" ] && exit 0
 # Sekret w TRESCI commita (nie w diffie) omijal pre-commit — ta sama lista wzorcow co w pre-commit (dogfood 2026-09-05).
 if [ "$ALLOW_SECRET" != "1" ] && grep -qE 'ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gho_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|sbp_[A-Za-z0-9]{20,}|xox[bpars]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----' "$1"; then

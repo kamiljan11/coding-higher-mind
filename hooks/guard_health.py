@@ -57,9 +57,12 @@ HOOK_WIRING = [
     ("Stop", "stop-gate.js"),
     ("PreToolUse", "bash-guard.js"),
     ("PreToolUse", "memory-guard.js"),
+    ("PreToolUse", "edit-guard.js"),
+    ("PostToolUse", "loop-monitor.js"),
+    ("PreCompact", "precompact-snapshot.js"),
     ("SessionStart", "session-context.js"),
 ]
-LIB_FILES = ["lib/gate-log.js", "lib/lint-file.js"]
+LIB_FILES = ["lib/gate-log.js", "lib/lint-file.js", "lib/shell-parse.js", "lib/bash-rules.js", "lib/overrides.js", "lib/protected-paths.js"]
 # `tsc --noEmit` przy project references sprawdza NIC — kazde miejsce z typecheckiem musi znac `tsc -b`
 TSC_B_SITES = [
     CLAUDE / "hooks" / "lib" / "lint-file.js",
@@ -84,6 +87,9 @@ try:
     check("PostToolUse laczy desktop-commander write_file/edit_block", "mcp__desktop-commander__write_file" in matchers, matchers)
     check("PostToolUse laczy Bash|PowerShell (edycje przez sed/heredoc)", "Bash|PowerShell" in matchers, matchers)
     check("PostToolUse timeout >= 120 s", all(h.get("timeout", 60) >= MIN_HOOK_TIMEOUT_S for g in post for h in g.get("hooks", [])), "domyslne 60 s ucina tsc -b")
+    _pre = hooks.get("PreToolUse", [])
+    _bg = " | ".join(g.get("matcher", "") for g in _pre if any("bash-guard" in h.get("command", "") for h in g.get("hooks", [])))
+    check("bash-guard lapie tez desktop-commander start_process/interact (omijal matcher Bash)", "start_process" in _bg and "interact_with_process" in _bg, _bg)
     stop_ok = any(h.get("timeout", 60) >= 150 for g in hooks.get("Stop", []) for h in g.get("hooks", []) if "stop-gate" in h.get("command", ""))
     check("Stop stop-gate timeout >= 150 s", stop_ok, "lint+tsc+testy nie mieszcza sie w 60 s")
 except Exception as e:  # noqa: BLE001
@@ -125,12 +131,18 @@ if GATES_LOG.exists():
     counts = Counter()
     empty_reason = 0
     malformed = 0
-    for line in read(GATES_LOG).splitlines():
+    # Po rotacji (5 MB) czesc okna 7 dni jest w gates.1.jsonl — bez niego obejscia z poczatku tygodnia znikaly z raportu.
+    _rotated = GATES_LOG.with_name("gates.1.jsonl")
+    for line in (read(_rotated) + "\n" + read(GATES_LOG)).splitlines():
+        if not line.strip():
+            continue
         try:
             e = json.loads(line)
             if datetime.fromisoformat(e["ts"].replace("Z", "+00:00")) < since:
                 continue
             counts[(e.get("hook"), e.get("event"))] += 1
+            if e.get("event") in ("bypass", "would_block"):
+                counts[(e.get("event") + "-reason", (e.get("reason") or "")[:60])] += 1
             if e.get("event") == "skipped":
                 counts[("skip-reason", (e.get("reason") or "")[:40])] += 1
                 if not e.get("reason"):
@@ -178,6 +190,11 @@ check("test_dup_literals: 8 przypadkow", _rc_out(_r)[0] == 0, (_rc_out(_r)[1].st
 # Nieaktualne = ktos dodal/zmienil narzedzie bez `python bin/pg-map.py`; narzedzie bez opisu = obcy senior nie wie, co to robi.
 _r = sh([sys.executable, str(CLAUDE / "bin" / "pg-map.py"), "--check"], timeout=60)
 check("pg-map: README.md + bin/README.md aktualne, kazde narzedzie w bin/ ma samoopis", _rc_out(_r)[0] == 0 and "bez opisu: 0" in _rc_out(_r)[1], (_rc_out(_r)[1].strip().splitlines() or ["brak wyniku"])[-1])
+
+# Wpiecia hookow tego komputera = migawka pg/settings-hooks.json (pg-wire.js, 2026-09-26). Rozjazd na Zenbooku = laptop
+# dostanie stare wpiecia (brak --export); na laptopie = czesc bramek nie dziala (brak --apply). Widoczne tez w zadaniu bez sesji.
+_w = sh(["node", str(CLAUDE / "bin" / "pg-wire.js"), "--check"], timeout=60)
+check("pg-wire: wpiecia hookow w settings.json = pg/settings-hooks.json", _rc_out(_w)[0] == 0, (_rc_out(_w)[1].strip().splitlines() or ["brak wyniku"])[-1])
 # 2h. Hooki gita (#!/bin/sh) musza parsowac pod POSIX sh, nie tylko pod Git Bash: na Ubuntu sh = dash, w WSL/busybox tez.
 # Blizna PREPUSH-BASHISM-DASH (2026-09-12): here-string `<<<` i tablice `x=()` wywalaly hook z rc 2 = KAZDY push/commit zablokowany
 # na Linuksie; wykryte dopiero przez CI publicznego eksportu. Bez WSL = info (CI ubuntu eksportu jest druga linia).
@@ -187,7 +204,13 @@ if shutil.which("wsl"):
         _win = str(CLAUDE / "git-hooks" / _hook)
         _r = sh(["wsl", "-e", "sh", "-c", f"sh -n \"$(wslpath '{_win}')\""], timeout=60)
         _rc, _out = _rc_out(_r)
-        check(f"git-hooks/{_hook}: skladnia POSIX sh (WSL sh -n)", _rc == 0, (_out.strip().splitlines() or ["brak wyniku"])[-1][:160])
+        # wsl.exe pisze bledy w UTF-16 (bajty NUL); awaria USLUGI WSL (0x8007xxxx, Wsl/Service) = nie da sie sprawdzic,
+        # a nie blad skladni hooka — info, jak brak WSL (2026-09-26: RED na commit-msg przy padnietej usludze WSL).
+        _plain = _out.replace("\x00", "")
+        if _rc != 0 and re.search(r"Wsl/Service|0x8007[0-9a-f]{4}|Wsl/E_", _plain, re.IGNORECASE):
+            print(f"info: git-hooks/{_hook}: WSL niedostepny ({_plain.strip().splitlines()[-1][:80] if _plain.strip() else 'brak wyniku'}) — skladnia sprawdzana w CI eksportu")
+            continue
+        check(f"git-hooks/{_hook}: skladnia POSIX sh (WSL sh -n)", _rc == 0, (_plain.strip().splitlines() or ["brak wyniku"])[-1][:160])
 else:
     print("info: brak WSL — skladnia POSIX hookow sprawdzana tylko w CI eksportu (ubuntu)")
 for tool in ["sql-migration-lint.js", "fleet-metrics.js"]:
@@ -311,6 +334,41 @@ check("PG-DocLog-Auto wylaczony", rc != 0 or "Disabled" in out, "task WLACZONY =
 for wf in ["claude-review.yml", "auto-improve.yml"]:
     p = CLAUDE / "templates" / "repo" / ".github" / "workflows" / wf
     check(f"szablon {wf} bez ANTHROPIC_API_KEY", p.exists() and "ANTHROPIC_API_KEY" not in read(p))
+
+# 6. Landscape 2026-09-26: mutanty bramek, audyt obejsc, efektywne hooki repo, deny baseline, pieczec warstwy kontrolnej.
+# 6a. Testy mutacyjne bash-guard: regula, ktorej wylaczenia nie wykrywa zaden test = regula bez kontroli (#4).
+_r = sh(["node", str(CLAUDE / "bin" / "pg-mutate.js")], timeout=180)
+check("pg-mutate: kazdy mutant bash-guard zabity", _rc_out(_r)[0] == 0, (_rc_out(_r)[1].strip().splitlines() or ["brak wyniku"])[-1])
+# 6b. Obejscia (#5) i reguly w trybie observe (#20) z 7 dni — widoczne w raporcie, decyzja o enforce po danych.
+for (kind, reason), n in sorted(((k, n) for k, n in counts.items() if k[0] in ("bypass-reason", "would_block-reason")), key=lambda kv: -kv[1])[:8]:
+    info.append(f"{kind.split('-')[0]} {reason}: {n}")
+# 6c. Efektywne hooki per repo (#7): lokalny core.hooksPath w repo floty omija globalne bramki. WARN (dlug klientow — naprawa
+# per repo za zgoda uzytkownika, zasada zakresu 2026-08-09), nie RED.
+_global_hooks = (CLAUDE / "git-hooks").resolve()
+_roots = [ln.strip() for ln in read(CLAUDE / "pg" / "trusted-roots.txt").splitlines() if ln.strip() and not ln.startswith("#")]
+_local_override = []
+for _root in _roots:
+    _rp = Path(_root)
+    for _repo in ([_rp] if (_rp / ".git").exists() else [d for d in _rp.glob("*") if (d / ".git").exists()])[:60]:
+        _rc, _hp = _rc_out(sh(["git", "-C", str(_repo), "config", "--local", "--get", "core.hooksPath"], timeout=15))
+        if _rc == 0 and _hp.strip() and Path(_repo, _hp.strip()).resolve() != _global_hooks:
+            _local_override.append(_repo.name)
+if _local_override:
+    info.append(f"WARN lokalny core.hooksPath (globalne bramki nie dzialaja): {', '.join(sorted(set(_local_override))[:8])}")
+# 6d. permissions.deny zawiera baseline (#10); sciezki absolutne w skladni `//` (inaczej CC traktuje je jako wzgledne).
+try:
+    _deny = set(json.loads(read(CLAUDE / "settings.json")).get("permissions", {}).get("deny", []))
+    _base = set(json.loads(read(CLAUDE / "pg" / "deny-baseline.json")).get("deny", []))
+    check("permissions.deny zawiera baseline (pg/deny-baseline.json)", _base <= _deny, f"brakuje: {sorted(_base - _deny)[:4]}")
+    _bad = [d for d in _deny if re.match(r"^\w+\([A-Za-z]:[/\\]", d)]
+    check("permissions.deny: sciezki absolutne jako //dysk/...", not _bad, f"zla forma: {_bad[:3]}")
+except Exception as e:  # noqa: BLE001
+    red.append(f"deny baseline nieczytelny — {e}")
+# 6e. Pieczec warstwy kontrolnej (#11): hash hookow i narzedzi wolanych z pre-commit vs hooks/.seal.json.
+# Brak pieczeci = RED (data-review 2026-09-26: skasowanie pliku zamienialo RED w info, pieczec niczego nie chronila).
+_rc, _out = _rc_out(sh(["node", str(CLAUDE / "bin" / "pg-seal.js"), "--check"], timeout=30))
+check("pieczec warstwy kontrolnej istnieje i jest zgodna (hooks/, git-hooks/, bramki bin/)", _rc == 0,
+      (_out.strip().splitlines() or ["brak wyniku"])[-1][:160] + (" — utworz: node ~/.claude/bin/pg-seal.js (za zgoda uzytkownika)" if _rc == 3 else ""))
 
 # Raport
 stamp = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M")

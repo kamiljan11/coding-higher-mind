@@ -18,7 +18,16 @@ const path = require('path');
 const readline = require('readline');
 const { lintFiles, isCodeFile, WRITE_COMMAND_RX, CHILD_ENV } = require('./lib/lint-file');
 const { log } = require('./lib/gate-log');
-const { classify, modelFor } = require('./lib/risk-tier');
+// Werdykty z jednego zrodla (pg-aggregate; plik pod pieczecia). Nieudany require NIE moze po cichu wylaczyc bramki
+// (ops-review 2026-09-27: exit 1 hooka Stop nie blokuje) — blad trafia do logu, a recenzja T2+ blokuje z powodem.
+let VERDICT = null;
+let aggLoadError = '';
+try { ({ VERDICT } = require(path.join(__dirname, '..', 'bin', 'pg-aggregate.js'))); } catch (e) {
+  aggLoadError = String(e && e.message || e).slice(0, 160);
+  log({ hook: 'stop-gate', event: 'skipped', reason: `pg-aggregate.js nie laduje sie: ${aggLoadError}`, target: __dirname });
+}
+const { classify, modelFor, T3_PATH_RX, contentEscalation } = require('./lib/risk-tier');
+const { isTempPath } = require('./lib/protected-paths');
 
 const HOOK = 'stop-gate';
 const MAX_REPOS = 4;
@@ -30,12 +39,18 @@ const MAX_LINT_FILES = 20;
 const POST_REVIEW_EDIT_BUDGET = 8; // poprawki po review nie wymagaja kolejnego review; nowy feature — tak
 const TEST_TIMEOUT_MS = 55000;
 const GIT_TIMEOUT_MS = 15000;
+// Budzet CALEGO hooka (settings.json: timeout 170 s). 4 repo x (tsc 90 s + testy 55 s) przekraczalo go i Claude Code
+// zabijal hook = niedeterministyczny fail-open (design review 2026-09-26). Po budzecie — jawny skip w logu.
+const STOP_BUDGET_MS = 140000;
+const STARTED_AT = Date.now();
+const budgetLeft = () => STOP_BUDGET_MS - (Date.now() - STARTED_AT);
+const TEST_CMD_RX = /\b(npm (run )?test|pnpm (run )?test|yarn test|npx (--no-install )?(vitest|jest|playwright test)|vitest( run)?|jest|pytest|python -m pytest|node [^\s]*test[\w_-]*\.js)\b/;
+const nudgesOut = []; // #6: komunikaty dla uzytkownika (stdout JSON systemMessage), nie stderr, ktory przy exit 0 ginie w debug logu
 const REVIEWER_RX = /reviewer|verifier/i;
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'mcp__desktop-commander__write_file', 'mcp__desktop-commander__edit_block']);
 const TEST_FILE_RX = /(\.(test|spec)\.|_test\.|test_[^/\\]*\.py|[\/\\]tests?[\/\\]|[\/\\]e2e[\/\\])/;
 const SQL_FILE_RX = /\.sql$/i;
 const TEMPLATE_TEST = path.join('src', 'test', 'example.test.ts');
-const ENV_MISSING_RX = /ETIMEDOUT|ENOENT|not recognized|No module named|command not found/i;
 
 let input = {};
 try { input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}'); } catch (e) { process.exit(0); }
@@ -117,31 +132,94 @@ function reviewerRoleOf(toolInput) {
   return m ? m[1] : null;
 }
 
+// Katalog przebiegu pg-review z komendy `node .../pg-aggregate.js "<dir>"` (tylko sciezka literalna — `$RUN` nie przetrwa
+// miedzy wywolaniami Bash). stop-gate czyta z niego aggregated.json (#1: INCOMPLETE nie moze przejsc jako „review zrobione").
+// Przekierowanie do %TEMP%//tmp//dev/null (log skryptu, `2>&1`) to nie edycja kodu. Bez tego `> $TEMP/ship.log`
+// unieważniało reczny przebieg testow i stop-gate zadal go w kolko (sesja 2026-09-26).
+const REDIRECT_RX = /(\d?>{1,2}&?\s*)(["']?)([^\s"'|&;<>]+)\2/g;
+function withoutTempRedirects(command) {
+  return String(command).replace(REDIRECT_RX, (m, op, q, target) => {
+    if (/&$/.test(op.trim()) || /^\d+$/.test(target)) return ' '; // 2>&1
+    const t = target.replace(/^\$\{?(TEMP|TMP|TMPDIR)\}?|^%(TEMP|TMP)%|^\$env:(TEMP|TMP)/i, os.tmpdir());
+    return isTempPath(t) ? ' ' : m;
+  });
+}
+const AGGREGATE_DIR_RX =/pg-aggregate\.js["']?\s+(?:"([^"$]+)"|'([^'$]+)'|([^\s"'$;&|]+))/;
+
 async function parseTranscript(transcriptPath) {
-  const result = { available: false, editedFiles: [], editsAfterReview: 0, reviewerRan: false, reviewersRan: new Set() };
+  const result = { available: false, editedFiles: [], editsAfterReview: 0, reviewerRan: false, reviewersRan: new Set(),
+    startedAt: null, t3EditAfterReview: false, aggregateRuns: [], testRunAfterEdit: false, lastAssistantText: '' };
   if (!transcriptPath || !fs.existsSync(transcriptPath)) return result;
   result.available = true;
+  const onEdit = (file) => {
+    result.editsAfterReview++;
+    result.testRunAfterEdit = false;
+    for (const run of result.aggregateRuns) run.editsAfter++;
+    if (file && T3_PATH_RX.test(String(file).replace(/\\/g, '/'))) result.t3EditAfterReview = true;
+  };
   const rl = readline.createInterface({ input: fs.createReadStream(transcriptPath, { encoding: 'utf8' }), crlfDelay: Infinity });
   for await (const line of rl) {
-    if (!line.includes('"tool_use"')) continue;
+    const hasTool = line.includes('"tool_use"');
+    if (!hasTool && !(line.includes('"assistant"') && line.includes('"text"')) && result.startedAt) continue;
     let entry;
     try { entry = JSON.parse(line); } catch (e) { continue; }
-    for (const block of (entry.message && entry.message.content) || []) {
+    if (!result.startedAt && entry.timestamp) result.startedAt = Date.parse(entry.timestamp) || null;
+    if (entry.isSidechain) continue;
+    const content = (entry.message && entry.message.content) || [];
+    if (entry.type === 'assistant' && Array.isArray(content)) {
+      const text = content.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n');
+      if (text.trim()) result.lastAssistantText = text;
+    }
+    if (!hasTool) continue;
+    for (const block of content) {
       if (!block || block.type !== 'tool_use') continue;
       const toolInput = block.input || {};
       if (EDIT_TOOLS.has(block.name)) {
         const file = toolInput.file_path || toolInput.path || toolInput.notebook_path;
         if (file) result.editedFiles.push(file);
-        result.editsAfterReview++;
-      } else if (/^(Bash|PowerShell)$/.test(block.name) && WRITE_COMMAND_RX.test(String(toolInput.command || ''))) {
-        result.editsAfterReview++;
+        onEdit(file);
+      } else if (/^(Bash|PowerShell)$/.test(block.name)) {
+        const command = String(toolInput.command || '');
+        if (WRITE_COMMAND_RX.test(withoutTempRedirects(command))) onEdit(null);
+        if (TEST_CMD_RX.test(command)) result.testRunAfterEdit = true;
+        const agg = AGGREGATE_DIR_RX.exec(command);
+        if (agg) result.aggregateRuns.push({ dir: agg[1] || agg[2] || agg[3], editsAfter: 0 });
       } else if (block.name === 'Agent') {
         const role = reviewerRoleOf(toolInput);
-        if (role) { result.reviewerRan = true; result.reviewersRan.add(role); result.editsAfterReview = 0; }
+        if (role) { result.reviewerRan = true; result.reviewersRan.add(role); result.editsAfterReview = 0; result.t3EditAfterReview = false; }
       }
     }
   }
   return result;
+}
+
+// Commity zrobione W TEJ SESJI (reflog HEAD: wpisy `commit*` od startu transkryptu). #14: „commit przed Stop" zdejmowal
+// T3, bo stop-gate widzial tylko brudne drzewo. Reflog, nie `git log --since` — pull/merge z origin to nie praca sesji.
+function sessionCommitFiles(root, startedAt) {
+  if (!startedAt) return { files: [], lines: 0, shas: [] };
+  // ops-review 2026-09-26: do 30 x `git show` bez sprawdzenia budzetu mogl przekroczyc timeout hooka.
+  if (budgetLeft() < 30000) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (commity sesji)', target: root }); return { files: [], lines: 0, shas: [] }; }
+  const r = sh('git log -g --date=unix --format=%gd%x09%H%x09%gs -n 200 HEAD', root, GIT_TIMEOUT_MS);
+  if (!r.ok) return { files: [], lines: 0, shas: [] };
+  const shas = [];
+  for (const line of r.out.split('\n')) {
+    const m = /^HEAD@\{(\d+)\}\t([0-9a-f]{7,40})\t(.*)$/.exec(line.trim());
+    if (m && Number(m[1]) * 1000 >= startedAt && /^commit( \((amend|initial)\))?:/.test(m[3])) shas.push(m[2]);
+  }
+  const files = new Set();
+  let lines = 0;
+  for (const sha of shas.slice(0, 30)) {
+    if (budgetLeft() < 25000) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (git show)', target: root }); break; }
+    const show = sh(`git show --numstat --format= ${sha}`, root, GIT_TIMEOUT_MS);
+    if (!show.ok) continue;
+    for (const l of show.out.split('\n')) {
+      const m = /^(\d+|-)\s+(\d+|-)\s+(.+)$/.exec(l.trim());
+      if (!m) continue;
+      lines += (Number(m[1]) || 0) + (Number(m[2]) || 0);
+      files.add(path.join(root, m[3]));
+    }
+  }
+  return { files: [...files], lines, shas: shas.slice(0, 30) };
 }
 
 // Granica zaufania: uruchamiamy testy/lint (= kod repo) TYLKO w repo, ktorych sesja dotykala
@@ -176,8 +254,25 @@ function hasPytestConfig(root, changed) {
   try { if (/\[tool\.pytest/.test(fs.readFileSync(path.join(root, 'pyproject.toml'), 'utf8'))) return true; } catch (e) { /* brak pyproject */ }
   return changed.some((f) => /(^|[\/\\])test_[^\/\\]*\.py$/.test(f));
 }
-// Zwraca output czerwonych testow albo null (zielone / brak testow / srodowisko).
-function runTests(root, changed) {
+// Werdykt z KODU WYJSCIA (landscape #2): wczesniej ETIMEDOUT i `No module named` (ImportError w tescie!) dawaly „skipped",
+// a `--passWithNoTests` zamienial zero wykonanych testow w zielone. Teraz:
+//  - brak samego narzedzia (ENOENT, `No module named pytest`, command not found) = skip w logu (fail-open na srodowisko),
+//  - timeout = blok, CHYBA ze agent sam uruchomil testy po ostatniej edycji (wtedy would_block: suita > 55 s nie moze
+//    blokowac kazdego Stop do konca zycia repo — design review 2026-09-26),
+//  - kazdy inny exit != 0 (takze import error, 0 testow) = czerwone.
+const TOOL_ABSENT_RX = /ENOENT|not recognized|command not found|No module named '?pytest'?\b|could not determine executable/i;
+const isTimeout = (t) => /ETIMEDOUT|SIGTERM/.test(String(t.msg || '')) || t.status === null;
+function testVerdict(t, root, label, transcript) {
+  if (!t || t.ok) return null;
+  if (isTimeout(t)) {
+    if (transcript.testRunAfterEdit) { log({ hook: HOOK, event: 'would_block', reason: `${label} timeout ${TEST_TIMEOUT_MS / 1000}s (testy uruchomione recznie po edycji)`, target: root }); return null; }
+    return `Testy (${label}) nie skonczyly sie w ${TEST_TIMEOUT_MS / 1000} s. Uruchom je sam (pelny wynik, exit code) PO ostatniej edycji — wtedy bramka przyjmie Twoj przebieg.`;
+  }
+  if (TOOL_ABSENT_RX.test((t.msg || '') + ' ' + String(t.out || '').slice(0, 400))) { log({ hook: HOOK, event: 'skipped', reason: `${label}: narzedzie niedostepne`, target: root }); return null; }
+  return failureReport(t);
+}
+// Zwraca opis czerwonych testow albo null (zielone / brak testow / srodowisko).
+function runTests(root, changed, transcript) {
   const changedJs = changed.some((f) => /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/.test(f));
   const changedPy = changed.some((f) => /\.py$/.test(f));
   const pkg = readPkg(root);
@@ -185,20 +280,21 @@ function runTests(root, changed) {
   if (changedPy && !hasPytestConfig(root, changed)) log({ hook: HOOK, event: 'skipped', reason: 'no pytest config', target: root });
   if (changedJs && pkg) {
     let t = null;
-    if (pkg.scripts && pkg.scripts.test) t = sh('npm test --silent', root, TEST_TIMEOUT_MS);
-    else if (hasBin(root, 'vitest')) t = sh('npx --no-install vitest run --passWithNoTests', root, TEST_TIMEOUT_MS);
+    if (budgetLeft() < TEST_TIMEOUT_MS) log({ hook: HOOK, event: 'skipped', reason: 'stop budget (testy JS)', target: root });
+    else if (pkg.scripts && pkg.scripts.test) t = sh('npm test --silent', root, TEST_TIMEOUT_MS);
+    else if (hasBin(root, 'vitest')) t = sh('npx --no-install vitest run', root, TEST_TIMEOUT_MS);
     else log({ hook: HOOK, event: 'skipped', reason: 'no test script / vitest', target: root });
-    if (t && !t.ok) {
-      if (ENV_MISSING_RX.test((t.msg || '') + ' ' + t.out.slice(-300))) log({ hook: HOOK, event: 'skipped', reason: 'tests env/timeout', target: root });
-      else return failureReport(t);
-    }
+    const bad = testVerdict(t, root, 'JS', transcript);
+    if (bad) return bad;
   }
   if (changedPy && hasPytestConfig(root, changed)) {
-    const t = sh('python -m pytest -q -x -p no:cacheprovider', root, TEST_TIMEOUT_MS);
-    if (!t.ok) {
-      if (ENV_MISSING_RX.test((t.msg || '') + ' ' + t.out.slice(-300))) log({ hook: HOOK, event: 'skipped', reason: 'pytest env/timeout', target: root });
-      else return failureReport(t);
-    }
+    if (budgetLeft() < TEST_TIMEOUT_MS) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (pytest)', target: root }); return null; }
+    // `python`, a gdy go brak — `python3` (Linux bez aliasu). Sztywne python3 na Linuksie gubilo narzedzia zainstalowane
+    // dla `python` (CI publicznego repo 2026-09-27: runner ma pytest pod `python`).
+    let t = sh('python -m pytest -q -x -p no:cacheprovider', root, TEST_TIMEOUT_MS);
+    if (!t.ok && /python: (command )?not found|: not found|not recognized|No module named pytest/i.test(t.out || '')) t = sh('python3 -m pytest -q -x -p no:cacheprovider', root, TEST_TIMEOUT_MS);
+    const bad = testVerdict(t, root, 'pytest', transcript);
+    if (bad) return bad;
   }
   return null;
 }
@@ -210,29 +306,37 @@ const UI_CHANGE_RX = /\.(tsx|jsx|vue|svelte)$|[\/\\](routes?|pages|app)[\/\\]|su
 
 function nudges(root, changed) {
   if (!changed.some((f) => TEST_FILE_RX.test(f))) {
-    process.stderr.write('[stop-gate] Uwaga: zmieniono kod bez zmiany testow. Nowa logika => dopisz test (DoD). Refaktor/config => zignoruj.\n');
+    nudgesOut.push('[stop-gate] Uwaga: zmieniono kod bez zmiany testow. Nowa logika => dopisz test (DoD). Refaktor/config => zignoruj.');
   }
   if (fs.existsSync(ENV_REF_GATE)) {
     // execFileSync (tablica argumentow), nie string powloki: sciezka repo z metaznakami nie moze stac sie komenda
     // (security-reviewer 2026-09-12: SHELL-STRING-INTERPOLATION).
     const env = spawnSync(process.execPath, [ENV_REF_GATE, '--repo', root], { cwd: root, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, env: CHILD_ENV });
-    if (env.status === 1) process.stderr.write('[stop-gate] DEV NA PRODZIE: lokalny .env wskazuje na produkcyjny ref Supabase (PRR P15). Przelacz na staging/branch albo zadeklaruj `pg.single_env: true` z powodem w CLAUDE.md.\n' + String(env.stdout || '').split('\n').slice(0, 4).join('\n') + '\n');
+    if (env.status === 1) nudgesOut.push('[stop-gate] DEV NA PRODZIE: lokalny .env wskazuje na produkcyjny ref Supabase (PRR P15). Przelacz na staging/branch albo zadeklaruj `pg.single_env: true` z powodem w CLAUDE.md.\n' + String(env.stdout || '').split('\n').slice(0, 4).join('\n'));
   }
   if (changed.some((f) => UI_CHANGE_RX.test(f)) && fs.existsSync(path.join(root, QA_PATHS_DOC))) {
-    process.stderr.write('[stop-gate] UI/route/edge fn zmienione i docs/CRITICAL-PATHS.md istnieje -> sciezki krytyczne na instancjach: `node ~/.claude/bin/qa-matrix.js --repo . --base-url <url>` albo dzial qa-reviewer (pg-review 1b). Na T3 z linia `pg.qa_url: <url>` w CLAUDE.md qa-reviewer staje sie WYMAGANY (narada D-2026-09-12, opcja C); bez niej = ostrzezenie.\n');
+    nudgesOut.push('[stop-gate] UI/route/edge fn zmienione i docs/CRITICAL-PATHS.md istnieje -> sciezki krytyczne na instancjach: `node ~/.claude/bin/qa-matrix.js --repo . --base-url <url>` albo dzial qa-reviewer (pg-review 1b). Na T3 z linia `pg.qa_url: <url>` w CLAUDE.md qa-reviewer staje sie WYMAGANY (narada D-2026-09-12, opcja C); bez niej = ostrzezenie.');
   }
   if (fs.existsSync(path.join(root, TEMPLATE_TEST))) {
     const list = sh('git ls-files -- "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx"', root, GIT_TIMEOUT_MS);
     const real = (list.out || '').split('\n').map((s) => s.trim()).filter((s) => s && !/src\/test\/example\.test\.ts$/.test(s) && !/^e2e\//.test(s));
-    if (!real.length) process.stderr.write('[stop-gate] Uwaga: jedyny test jednostkowy to szablonowy src/test/example.test.ts — bramka testow pilnuje niczego.\n');
+    if (!real.length) nudgesOut.push('[stop-gate] Uwaga: jedyny test jednostkowy to szablonowy src/test/example.test.ts — bramka testow pilnuje niczego.');
   }
 }
 
 // Tier T0..T3 z lib/risk-tier.js (sciezki + rozmiar diffu). T0/T1 nie wymagaja recenzji przy Stop
 // (T1 = code-reviewer zalecany, ale blokujemy dopiero od T2 — proporcjonalnosc, nie paraliz).
-function reviewRequirement(root, changedCode) {
-  const lines = changedLineCount(root, changedCode);
+function reviewRequirement(root, changedCode, extraLines, sessionShas) {
+  const lines = changedLineCount(root, changedCode) + (extraLines || 0);
   const verdict = classify(changedCode, lines, root);
+  // N1 (OBSERVE): tier z TRESCI dodanych linii (platnosci/service_role/DDL) — najpierw zbieramy FP, bez blokady.
+  // Takze tresc commitow z tej sesji (code-review 2026-09-26: bez nich N1 byl slepy na to samo, co #14 zamknal dla sciezek).
+  if (verdict.tier !== 'T3' && budgetLeft() > 20000) {
+    const diffs = [sh('git diff HEAD -U0', root, GIT_TIMEOUT_MS), ...(sessionShas || []).slice(0, 10).map((sha) => sh(`git show -U0 --format= ${sha}`, root, GIT_TIMEOUT_MS))];
+    const added = diffs.filter((d) => d.ok).map((d) => d.out).join('\n').split('\n').filter((l) => /^\+(?!\+\+)/.test(l)).join('\n').slice(0, 400000);
+    const hit = contentEscalation(added);
+    if (hit) log({ hook: HOOK, event: 'would_block', reason: `tier-content: ${verdict.tier} -> T3 (${hit})`, target: root });
+  }
   // Sufit z pg.phase zostawia slad w telemetrii — obnizenie wymagan przez tresc repo ma byc widoczne, nie ciche.
   if (verdict.phaseCapped) log({ hook: HOOK, event: 'skipped', reason: `review cap: pg.phase ${verdict.phase} -> ${verdict.tier}`, target: root });
   if (verdict.tier === 'T0' || verdict.tier === 'T1') return null;
@@ -240,10 +344,58 @@ function reviewRequirement(root, changedCode) {
   return { tier: verdict.tier, why: verdict.reasons.join('; '), reviewers: list, required: verdict.reviewers };
 }
 
+// #1: ostatni przebieg pg-review z transkryptu. INCOMPLETE = recenzja NIE zrobiona; REQUEST CHANGES bez zadnej edycji
+// po agregacji = findings nienaprawione. Brak przebiegu w transkrypcie = dawna regula (role recenzentow).
+const sameRepo = (a, b) => path.resolve(a).replace(/\\/g, '/').toLowerCase() === path.resolve(b).replace(/\\/g, '/').toLowerCase();
+function readAgg(dir) { try { return JSON.parse(fs.readFileSync(path.join(dir, 'aggregated.json'), 'utf8')); } catch (e) { return null; } }
+function aggregateProblem(transcript, requiredAgents, root) {
+  if (!VERDICT) {
+    log({ hook: HOOK, event: 'skipped', reason: `pg-aggregate.js nie laduje sie: ${aggLoadError}`, target: root });
+    return `bin/pg-aggregate.js nie laduje sie (${aggLoadError}) — PG jest uszkodzony; przywroc plik (git -C ~/.claude checkout bin/pg-aggregate.js za fraza uzytkownika) i sprawdz pieczec`;
+  }
+  // Najnowsza agregacja TEGO repo (pole `repo` z --repo). Agregacje bez pola `repo` licza sie dla kazdego repo (dawne
+  // przebiegi); z innym `repo` — pomijane (sesja 2026-09-26: ping-pong blokad miedzy ~/.claude a demo-site).
+  const runs = [...transcript.aggregateRuns].reverse().filter((r) => fs.existsSync(path.join(r.dir, 'aggregated.json')));
+  const run = runs.find((r) => { const a = readAgg(r.dir); return a && a.repo && sameRepo(a.repo, root); }) ||
+    runs.find((r) => { const a = readAgg(r.dir); return a && !a.repo; });
+  if (!run) return null;
+  const agg = readAgg(run.dir);
+  if (!agg) return `aggregated.json w ${run.dir} nieczytelny`;
+  if (agg.verdict === VERDICT.INCOMPLETE) return `ostatnia agregacja (${run.dir}) = INCOMPLETE: ${(agg.incomplete || []).join('; ')}`;
+  // Agregacja bez --tier nie sprawdza rol (data-review 2026-09-26: sam findings.code.json = APPROVE przy T3). Role wymagane
+  // przez tier z DIFFU musza byc w agregacji niezaleznie od flag, z jakimi ja uruchomiono.
+  const roles = new Set(agg.roles || []);
+  const missingRoles = (requiredAgents || []).map((a) => String(a).replace(/-reviewer$/, '')).filter((r) => !roles.has(r));
+  if (missingRoles.length) return `ostatnia agregacja (${run.dir}) nie zawiera rol wymaganych przez tier: ${missingRoles.join(', ')}`;
+  if (agg.verdict === VERDICT.REQUEST_CHANGES && run.editsAfter === 0) return `ostatnia agregacja (${run.dir}) = REQUEST CHANGES, a po niej nie bylo zadnej poprawki (blocker ${agg.stats && agg.stats.blocker}, must_fix ${agg.stats && agg.stats.must_fix})`;
+  return null;
+}
+
+// #18 (OBSERVE): twierdzenia z ostatniej wiadomosci vs stan. Tylko would_block — enforce po tygodniu danych (#20).
+function observeClaims(transcript, repos) {
+  const text = transcript.lastAssistantText || '';
+  if (/\b(testy (przechodza|przeszly|zielone|OK)|tests? (pass|passed|green)|wszystkie (testy )?OK|all tests pass)/i.test(text) && !transcript.testRunAfterEdit && transcript.editsAfterReview > 0) {
+    log({ hook: HOOK, event: 'would_block', reason: 'claim: "testy przechodza" bez uruchomienia testow po ostatniej edycji', target: repos.join(';') });
+  }
+  if (/\b(wypchni\w*|spushowa\w*|pushed|pushniet\w*)\b/i.test(text)) {
+    for (const root of repos) {
+      const st = sh('git status -sb', root, GIT_TIMEOUT_MS);
+      if (st.ok && /\[ahead \d+/.test(st.out.split('\n')[0])) log({ hook: HOOK, event: 'would_block', reason: 'claim: "wypchniete" przy ahead > 0', target: root });
+    }
+  }
+}
+
+function emitNudges() {
+  if (!nudgesOut.length) return;
+  process.stdout.write(JSON.stringify({ systemMessage: nudgesOut.join('\n') }) + '\n');
+}
+
 async function main() {
   if (state.reasons.length >= MAX_BLOCKS_PER_CYCLE) {
     clearState();
+    // #17: po limicie NIE zwalniamy po cichu — uzytkownik dostaje komunikat, co zostalo niezalatwione.
     log({ hook: HOOK, event: 'skipped', reason: `max ${MAX_BLOCKS_PER_CYCLE} blocks reached: ${state.reasons.join(',')}`, target: cwd });
+    nudgesOut.push(`[stop-gate] LIMIT ${MAX_BLOCKS_PER_CYCLE} blokad w tym cyklu — sesja konczy sie mimo niezalatwionych bramek: ${state.reasons.join(', ')}. Sprawdz recznie albo popros o dokonczenie.`);
     return;
   }
   const transcript = await parseTranscript(input.transcript_path);
@@ -257,32 +409,47 @@ async function main() {
     const changed = changedFiles(root);
     // SQL (migracje/RLS) nie ma lintera w hooku, ale to najbardziej ryzykowna klasa zmian — liczy sie do review.
     const changedCode = changed.filter((f) => isCodeFile(f) || SQL_FILE_RX.test(f));
-    if (!changedCode.length) continue;
+    // #14: pliki commitow z tej sesji licza sie do TIERU (nie do lintu — ten zrobil pre-commit).
+    const committed = transcript.available ? sessionCommitFiles(root, transcript.startedAt) : { files: [], lines: 0 };
+    const committedCode = committed.files.filter((f) => (isCodeFile(f) || SQL_FILE_RX.test(f)) && !changedCode.includes(f));
+    if (!changedCode.length && !committedCode.length) continue;
     touched++;
 
-    if (!alreadyBlocked('lint', root)) {
-      const lint = lintFiles(changedCode.filter(isCodeFile).slice(0, MAX_LINT_FILES), { hook: HOOK });
-      if (lint) block('lint', root, lint.header + '\n' + lint.out);
+    if (changedCode.length && !alreadyBlocked('lint', root)) {
+      if (budgetLeft() < 20000) log({ hook: HOOK, event: 'skipped', reason: 'stop budget (lint)', target: root });
+      else {
+        const lint = lintFiles(changedCode.filter(isCodeFile).slice(0, MAX_LINT_FILES), { hook: HOOK });
+        if (lint) block('lint', root, lint.header + '\n' + lint.out);
+      }
     }
-    if (!alreadyBlocked('testy', root)) {
-      const failed = runTests(root, changed);
+    if (changedCode.length && !alreadyBlocked('testy', root)) {
+      const failed = runTests(root, changed, transcript);
       if (failed) block('testy', root, 'Testy nie przechodza. Napraw je, dopiero potem koncz:\n' + failed);
     }
     if (!alreadyBlocked('review', root) && transcript.available) {
-      const need = reviewRequirement(root, changedCode);
+      const need = reviewRequirement(root, [...changedCode, ...committedCode], committed.lines, committed.shas);
       // Kazdy WYMAGANY dzial musial sie odpalic (nie: jakikolwiek recenzent) — narada 2026-09-12, fakt code-reviewera.
       const missing = need ? need.required.filter((r) => !transcript.reviewersRan.has(r)) : [];
-      const reviewed = transcript.reviewerRan && transcript.editsAfterReview <= POST_REVIEW_EDIT_BUDGET && missing.length === 0;
+      // #14: edycja sciezki T3 PO ostatnim review = review ponownie (budzet 8 edycji dotyczy reszty).
+      const t3Stale = need && need.tier === 'T3' && transcript.t3EditAfterReview;
+      const reviewed = transcript.reviewerRan && transcript.editsAfterReview <= POST_REVIEW_EDIT_BUDGET && missing.length === 0 && !t3Stale;
       if (need && !reviewed) block('review', root,
         `Zmiana ${need.tier} (${need.why}) bez pelnej recenzji dzialowej. Wymagani recenzenci: ${need.reviewers}. ` +
         (missing.length && transcript.reviewerRan ? `BRAKUJE: ${missing.join(', ')} (odpalono: ${[...transcript.reviewersRan].join(', ') || 'nikogo'}). ` : '') +
+        (t3Stale ? 'Plik ze sciezki T3 zmieniony PO ostatnim review — review musi objac aktualny stan. ' : '') +
         'Odpal skill pg-review (finderzy rownolegle, swiezy kontekst, read-only -> agregacja -> weryfikator), ' +
         'napraw findings w tej samej turze, potem zakoncz. Procedura: ~/.claude/pg/dod.md. Bramka, nie proza (7L).');
+      const aggProblem = need ? aggregateProblem(transcript, need.required.filter((r) => /reviewer$/.test(r)), root) : null;
+      if (aggProblem) block('review', root, `Recenzja dzialowa niedomknieta: ${aggProblem}. Dopusc brakujace dzialy / napraw findings i zagreguj ponownie (--tier ${need.tier} --final).`);
     }
     nudges(root, changed);
   }
+  observeClaims(transcript, repos);
   clearState();
   log({ hook: HOOK, event: 'ran', reason: `${touched}/${repos.length} repos with code changes`, target: repos.join(';') });
 }
 
-main().then(() => process.exit(0)).catch(() => process.exit(0));
+main().then(() => { emitNudges(); process.exit(0); }).catch((e) => {
+  log({ hook: HOOK, event: 'skipped', reason: 'internal error: ' + String(e && e.message || e).slice(0, 120), target: cwd });
+  process.exit(0);
+});
