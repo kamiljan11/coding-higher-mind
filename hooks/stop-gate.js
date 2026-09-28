@@ -313,8 +313,8 @@ function runTests(root, changed, transcript) {
     if (bad) return bad;
   }
   if (changedPy && hasPytestConfig(root, changed)) {
-    // Rezerwa = testy + JEDNA proba na interpreter (python, python3).
-    if (budgetLeft() < TEST_TIMEOUT_MS + 2 * PY_PROBE_MS) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (pytest)', target: root }); return null; }
+    // Rezerwa = testy + dwie proby na interpreter (`--version` i find_spec) dla python i python3.
+    if (budgetLeft() < TEST_TIMEOUT_MS + 4 * PY_PROBE_MS) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (pytest)', target: root }); return null; }
     // Jedna proba na interpreter, PRZED testami (tresc testow nie wybiera interpretera — data-review 2026-09-27):
     // importlib.util.find_spec z tym samym sys.path co `python -m pytest` (cwd repo na poczatku) mowi, SKAD bylby ladowany
     // pytest i _pytest, NIE wykonujac kodu z repo — podrobiony `__file__` i sys.exit(0) przy imporcie nic nie daja
@@ -322,16 +322,34 @@ function runTests(root, changed, transcript) {
     //  - modul z repo poza site-packages/dist-packages = podmiana -> blokada, takze gdy prawdziwego pytesta brak,
     //  - .venv wewnatrz repo (site-packages) to legalny pytest,
     //  - oba znalezione = ten interpreter uruchamia testy; brak w obu = skip widoczny dla uzytkownika; timeout = blok.
-    const specPy = 'import importlib.util as u;[print(\'ORIGIN\', m, getattr(u.find_spec(m), \'origin\', None) or \'\') for m in (\'pytest\', \'_pytest\')]';
+    // Kolejnosc ma znaczenie (data-review 2026-09-28): najpierw WYJMUJEMY katalog repo z sys.path, potem importujemy
+    // importlib.util (plik importlib.py w repo nie wykona sie), dopiero potem wracamy z '' dla find_spec — ten sam
+    // wynik co `python -m pytest`. `sys` jest wbudowany, nie da sie go podmienic. stdout w UTF-8 (sciezki z „ł").
+    const specPy = 'import sys;sys.path.pop(0);sys.stdout.reconfigure(encoding=\'utf-8\');import importlib.util as u;sys.path.insert(0,\'\');[print(\'ORIGIN\', m, getattr(u.find_spec(m), \'origin\', None) or \'\') for m in (\'pytest\', \'_pytest\')]';
     const realRoot = realLower(root);
-    const inRepoCode = (f) => { const r = realLower(path.resolve(root, f)); return r.startsWith(realRoot + '/') && !/\/(site|dist)-packages\//.test(r); };
+    // Sciezke modulu porownujemy BEZ rozwijania linkow (junction `pytest/` w repo wskazujacy na site-packages to nadal
+    // kod z repo — security-review 2026-09-28); realpath tylko dla roota, zeby nazwy 8.3 roota sie zgadzaly.
+    const plainRoot = path.resolve(root).replace(/\\/g, '/').replace(/\/+$/, '');
+    const norm = (x) => (process.platform === 'win32' ? x.toLowerCase() : x);
+    const inRepoCode = (f) => {
+      const r = norm(path.resolve(root, f).replace(/\\/g, '/'));
+      return (r.startsWith(realRoot + '/') || r.startsWith(norm(plainRoot) + '/')) && !/\/(site|dist)-packages\//.test(r);
+    };
     let py = null;
     let probeTimeout = null;
     let shadow = '';
     for (const p of ['python', 'python3']) {
+      // Istnienie interpretera: `--version` nie wykonuje zadnego kodu. Na Windows brak komendy daje exit 1 (nie 127),
+      // wiec rozrozniamy „nie ma pythona" od „proba padla" wlasnie ta druga proba (data-review 2026-09-28).
+      const ver = sh(`${p} --version`, root, PY_PROBE_MS);
+      if (isTimeout(ver)) { probeTimeout = probeTimeout || Object.assign({}, ver, { probe: true }); continue; }
+      if (!ver.ok) continue; // brak tego interpretera
       const r = sh(`${p} -c "${specPy}"`, root, PY_PROBE_MS);
       if (isTimeout(r)) { probeTimeout = probeTimeout || Object.assign({}, r, { probe: true }); continue; }
-      if (!r.ok) continue; // brak tego interpretera
+      // Interpreter jest, a proba padla albo nie wypisala obu linii = nie wiemy, skad bylby pytest -> blokada, nie skip.
+      if (!r.ok || !/^ORIGIN pytest/m.test(r.out || '') || !/^ORIGIN _pytest/m.test(r.out || '')) {
+        return `Proba pochodzenia pytesta (${p}) nie dala wyniku (exit ${r.status}): ${String(r.out || r.msg || '').trim().split(/\r?\n/).pop().slice(0, 120)} — nie da sie potwierdzic, ze testy uruchomia prawdziwego pytesta.`;
+      }
       const origins = {};
       for (const line of String(r.out || '').split(/\r?\n/)) { const m = /^ORIGIN (\S+) ?(.*)$/.exec(line.trim()); if (m) origins[m[1]] = m[2].trim(); }
       const local = ['pytest', '_pytest'].map((m) => origins[m]).filter((o) => o && inRepoCode(o));
@@ -339,7 +357,11 @@ function runTests(root, changed, transcript) {
       if (origins.pytest && origins._pytest) { py = p; break; }
     }
     if (shadow) return `pytest ladowany z repo (${shadow.slice(-100)}) — plik w repo zaslania prawdziwego pytesta, wynik testow nie jest wiarygodny. Zmien nazwe tego pliku.`;
-    const t = py ? sh(`${py} -m pytest -q -x -p no:cacheprovider`, root, TEST_TIMEOUT_MS)
+    // Testy przez wrapper, nie `-m pytest`: runpy/importlib i sam pytest z zaleznosciami laduja sie z repo WYJETYM z sys.path,
+    // dopiero potem wraca '' (importy projektu w testach dzialaja jak przy -m). Plik importlib.py w repo z exit(0)
+    // zamienial czerwone testy w zielone (test 2026-09-28).
+    const runPy = 'import sys;sys.path.pop(0);import pytest;sys.path.insert(0,\'\');sys.exit(pytest.main([\'-q\',\'-x\',\'-p\',\'no:cacheprovider\']))';
+    const t = py ? sh(`${py} -c "${runPy}"`, root, TEST_TIMEOUT_MS)
       : probeTimeout || { ok: false, status: 127, toolAbsent: true, out: 'No module named pytest (ani python, ani python3)' };
     const bad = testVerdict(t, root, 'pytest', transcript);
     if (bad) return bad;
