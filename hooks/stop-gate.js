@@ -269,7 +269,7 @@ function testVerdict(t, root, label, transcript) {
   if (!t || t.ok) return null;
   if (isTimeout(t) && t.probe) {
     // Zawiesila sie sama proba `python -c "import pytest"` (limit PY_PROBE_MS), nie testy — osobny komunikat (code-review 2026-09-28).
-    return `Proba interpretera Pythona (\`python -c "import pytest"\`) nie skonczyla sie w ${PY_PROBE_MS / 1000} s — srodowisko Pythona wisi. Uruchom testy sam (pelny wynik, exit code) PO ostatniej edycji.`;
+    return `Proba narzedzia testow (${label}: \`npm --version\` / \`python -c "import pytest"\`) nie skonczyla sie w ${PY_PROBE_MS / 1000} s — srodowisko wisi. Uruchom testy sam (pelny wynik, exit code) PO ostatniej edycji.`;
   }
   if (isTimeout(t)) {
     if (transcript.testRunAfterEdit) { log({ hook: HOOK, event: 'would_block', reason: `${label} timeout ${TEST_TIMEOUT_MS / 1000}s (testy uruchomione recznie po edycji)`, target: root }); return null; }
@@ -292,9 +292,14 @@ function runTests(root, changed, transcript) {
   if (changedPy && !hasPytestConfig(root, changed)) log({ hook: HOOK, event: 'skipped', reason: 'no pytest config', target: root });
   if (changedJs && pkg) {
     let t = null;
-    if (budgetLeft() < TEST_TIMEOUT_MS) log({ hook: HOOK, event: 'skipped', reason: 'stop budget (testy JS)', target: root });
+    if (budgetLeft() < TEST_TIMEOUT_MS + PY_PROBE_MS) log({ hook: HOOK, event: 'skipped', reason: 'stop budget (testy JS)', target: root });
     // Obecnosc npm sprawdzona PROBA przed testami — kod wyjscia testu (tez 127) jest zawsze werdyktem (review 2026-09-28).
-    else if (pkg.scripts && pkg.scripts.test) t = sh('npm --version', root, PY_PROBE_MS).ok ? sh('npm test --silent', root, TEST_TIMEOUT_MS) : { ok: false, status: 127, toolAbsent: true, out: 'npm niedostepny' };
+    else if (pkg.scripts && pkg.scripts.test) {
+      const npmProbe = sh('npm --version', root, PY_PROBE_MS);
+      // Zawieszona proba = sciezka timeoutu (blok), jak przy Pythonie — nie cichy skip (security-review 2026-09-28).
+      t = npmProbe.ok ? sh('npm test --silent', root, TEST_TIMEOUT_MS)
+        : isTimeout(npmProbe) ? Object.assign({}, npmProbe, { probe: true }) : { ok: false, status: 127, toolAbsent: true, out: 'npm niedostepny' };
+    }
     else if (hasBin(root, 'vitest')) t = sh('npx --no-install vitest run', root, TEST_TIMEOUT_MS);
     else log({ hook: HOOK, event: 'skipped', reason: 'no test script / vitest', target: root });
     const bad = testVerdict(t, root, 'JS', transcript);
@@ -305,6 +310,11 @@ function runTests(root, changed, transcript) {
     if (budgetLeft() < TEST_TIMEOUT_MS + 2 * PY_PROBE_MS) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (pytest)', target: root }); return null; }
     // Interpreter wybieramy PROBA `import pytest` przed testami, nie z wyniku testow — tresc testu (`user: not found`)
     // nie moze odpalic drugiego przebiegu i zgubic czerwieni (data-review 2026-09-27). Brak obu = sztywny komunikat braku.
+    // Lokalny `pytest.py`/`pytest/` w repo zaslania prawdziwego pytesta: `python -m pytest` uruchomilby go i dal exit 0
+    // mimo `assert False` (security + data review 2026-09-28). Blokada wprost zamiast zmiany sys.path, ktora psulaby importy.
+    if (fs.existsSync(path.join(root, 'pytest.py')) || fs.existsSync(path.join(root, 'pytest', '__init__.py'))) {
+      return 'W katalogu glownym repo jest pytest.py albo pakiet pytest/ — zaslania prawdziwego pytesta, wiec wynik testow nie jest wiarygodny. Zmien nazwe tego pliku.';
+    }
     const probes = [];
     // `sys.path.pop(0)` = bez katalogu repo: plik `pytest.py` w repo nie zasloni prawdziwego pytesta (security-review 2026-09-28).
     const py = ['python', 'python3'].find((p) => { const r = sh(`${p} -c "import sys; sys.path.pop(0); import pytest"`, root, PY_PROBE_MS); probes.push(r); return r.ok; });

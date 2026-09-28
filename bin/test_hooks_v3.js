@@ -553,7 +553,22 @@ try {
   write(path.join(repoHang, 'a.py'), 'x = 2\n');
   const hangEnv = Object.assign({}, process.env, { PATH: shimDir + path.delimiter + process.env.PATH });
   const rHang = spawnSync('node', [path.join(HOOKS, 'stop-gate.js')], { input: JSON.stringify({ cwd: repoHang }), encoding: 'utf8', env: hangEnv, timeout: 120000 });
-  check('stop-gate: zawieszona proba interpretera => 2 z komunikatem o probie', rHang.status === 2 && /Proba interpretera/.test(rHang.stderr || ''), 'exit=' + rHang.status + ' ' + (rHang.stderr || '').slice(0, 200));
+  check('stop-gate: zawieszona proba interpretera => 2 z komunikatem o probie', rHang.status === 2 && /Proba narzedzia testow/.test(rHang.stderr || ''), 'exit=' + rHang.status + ' ' + (rHang.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repoHang)); } catch (e) { /* brak = ok */ }
+  // To samo dla npm: zawieszone `npm --version` = blokada, nie cichy skip testow JS (code/data review 2026-09-28).
+  if (process.platform === 'win32') fs.writeFileSync(path.join(shimDir, 'npm.cmd'), '@ping -n 11 127.0.0.1 >nul\r\n');
+  else { fs.writeFileSync(path.join(shimDir, 'npm'), '#!/bin/sh\nsleep 10\n'); fs.chmodSync(path.join(shimDir, 'npm'), 0o755); }
+  const repoNpmHang = makeRepo('npm-hang', { 'package.json': JSON.stringify({ name: 'fx', scripts: { test: 'node -e "process.exit(1)"' } }), 'src/a.ts': 'export const a = 1;\n' });
+  write(path.join(repoNpmHang, 'src/a.ts'), 'export const a = 2;\n');
+  const rNpmHang = spawnSync('node', [path.join(HOOKS, 'stop-gate.js')], { input: JSON.stringify({ cwd: repoNpmHang }), encoding: 'utf8', env: hangEnv, timeout: 120000 });
+  check('stop-gate: zawieszone npm --version => 2 z komunikatem o probie', rNpmHang.status === 2 && /Proba narzedzia testow/.test(rNpmHang.stderr || ''), 'exit=' + rNpmHang.status + ' ' + (rNpmHang.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repoNpmHang)); } catch (e) { /* brak = ok */ }
+  // Lokalny pytest.py zaslaniajacy pytesta => blokada wprost.
+  const repoShadow = makeRepo('py-shadow', { 'tests/test_a.py': 'def test_a():\n    assert False\n', 'pytest.py': 'import sys\nsys.exit(0)\n', 'a.py': 'x = 1\n' });
+  write(path.join(repoShadow, 'a.py'), 'x = 2\n');
+  const rShadow = runHook('stop-gate.js', { cwd: repoShadow });
+  check('stop-gate: pytest.py w repo => 2 [testy] (zaslania pytesta)', rShadow.status === 2 && /zaslania prawdziwego pytesta/.test(rShadow.stderr || ''), 'exit=' + rShadow.status + ' ' + (rShadow.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repoShadow)); } catch (e) { /* brak = ok */ }
   try { fs.unlinkSync(stopGateState(repoHang)); } catch (e) { /* brak = ok */ }
   fs.rmSync(shimDir, { recursive: true, force: true });
   // Test konczacy sie kodem 127 to CZERWONE testy, nie brak narzedzia (review 2026-09-28: 127 dawalo cichy skip).
