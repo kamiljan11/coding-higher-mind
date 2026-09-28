@@ -25,5 +25,11 @@ Stop-gate na Windowsie (ops-review 2026-09-28): `execSync` z `timeout` zabija pr
 dzialaja; sprzatanie drzewa procesow (`taskkill /T`) wymaga przejscia z execSync na spawn z PID — do zrobienia, gdy
 problem sie pojawi.
 
+Stop-gate, testy (data-review 2026-09-28, poza zakresem poprawek): (1) na Windows `npm.cmd` w katalogu repo zaslania
+prawdziwego npm (cmd.exe szuka najpierw w cwd) — analogiczne sprawdzenie pochodzenia jak dla pytesta jeszcze nie
+zrobione; (2) pominiecie testow z braku budzetu czasu trafia tylko do logu, bez `systemMessage`.
+Agent, ktory swiadomie falszuje zielone testy (conftest.py z os._exit(0), edycja testow), jest poza zasiegiem tej
+bramki — lapie go recenzja dzialowa diffu, nie wykonanie testow.
+
 Luka procesowa: `bin/pg-aggregate.js` nie ma stanu „ryzyko zaakceptowane" — finding swiadomie zostawiony trzyma
 werdykt REQUEST CHANGES. Do dodania: `accepted_risks` z uzasadnieniem i data przegladu.

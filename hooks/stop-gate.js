@@ -38,7 +38,14 @@ const MAX_BLOCKS_PER_CYCLE = BLOCK_REASONS * MAX_REPOS;
 const MAX_LINT_FILES = 20;
 const POST_REVIEW_EDIT_BUDGET = 8; // poprawki po review nie wymagaja kolejnego review; nowy feature — tak
 const TEST_TIMEOUT_MS = 55000;
-const PY_PROBE_MS = 8000; // proba `python -c "import pytest"` — brak binarki konczy sie od razu (ENOENT)
+const PY_PROBE_MS = 8000;
+// Prawdziwa sciezka do porownan (nazwy 8.3, junction); male litery tylko na Windowsie.
+const realLower = (p) => {
+  let x;
+  try { x = fs.realpathSync.native(p); } catch (e) { x = path.resolve(p); }
+  x = x.replace(/\\/g, '/').replace(/\/+$/, '');
+  return process.platform === 'win32' ? x.toLowerCase() : x;
+}; // proba `python -c "import pytest"` — brak binarki konczy sie od razu (ENOENT)
 const GIT_TIMEOUT_MS = 15000;
 // Budzet CALEGO hooka (settings.json: timeout 170 s). 4 repo x (tsc 90 s + testy 55 s) przekraczalo go i Claude Code
 // zabijal hook = niedeterministyczny fail-open (design review 2026-09-26). Po budzecie — jawny skip w logu.
@@ -306,20 +313,32 @@ function runTests(root, changed, transcript) {
     if (bad) return bad;
   }
   if (changedPy && hasPytestConfig(root, changed)) {
-    // Rezerwa = testy + 2 proby interpretera (ops-review 2026-09-28: proby nie byly wliczone w budzet).
+    // Rezerwa = testy + JEDNA proba na interpreter (python, python3).
     if (budgetLeft() < TEST_TIMEOUT_MS + 2 * PY_PROBE_MS) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (pytest)', target: root }); return null; }
-    // Interpreter wybieramy PROBA `import pytest` przed testami, nie z wyniku testow — tresc testu (`user: not found`)
-    // nie moze odpalic drugiego przebiegu i zgubic czerwieni (data-review 2026-09-27). Brak obu = sztywny komunikat braku.
-    // Lokalny `pytest.py`/`pytest/` w repo zaslania prawdziwego pytesta: `python -m pytest` uruchomilby go i dal exit 0
-    // mimo `assert False` (security + data review 2026-09-28). Blokada wprost zamiast zmiany sys.path, ktora psulaby importy.
-    if (fs.existsSync(path.join(root, 'pytest.py')) || fs.existsSync(path.join(root, 'pytest', '__init__.py'))) {
-      return 'W katalogu glownym repo jest pytest.py albo pakiet pytest/ — zaslania prawdziwego pytesta, wiec wynik testow nie jest wiarygodny. Zmien nazwe tego pliku.';
+    // Jedna proba na interpreter, PRZED testami (tresc testow nie wybiera interpretera — data-review 2026-09-27):
+    // importlib.util.find_spec z tym samym sys.path co `python -m pytest` (cwd repo na poczatku) mowi, SKAD bylby ladowany
+    // pytest i _pytest, NIE wykonujac kodu z repo — podrobiony `__file__` i sys.exit(0) przy imporcie nic nie daja
+    // (security + data + code + ops review 2026-09-28).
+    //  - modul z repo poza site-packages/dist-packages = podmiana -> blokada, takze gdy prawdziwego pytesta brak,
+    //  - .venv wewnatrz repo (site-packages) to legalny pytest,
+    //  - oba znalezione = ten interpreter uruchamia testy; brak w obu = skip widoczny dla uzytkownika; timeout = blok.
+    const specPy = 'import importlib.util as u;[print(\'ORIGIN\', m, getattr(u.find_spec(m), \'origin\', None) or \'\') for m in (\'pytest\', \'_pytest\')]';
+    const realRoot = realLower(root);
+    const inRepoCode = (f) => { const r = realLower(path.resolve(root, f)); return r.startsWith(realRoot + '/') && !/\/(site|dist)-packages\//.test(r); };
+    let py = null;
+    let probeTimeout = null;
+    let shadow = '';
+    for (const p of ['python', 'python3']) {
+      const r = sh(`${p} -c "${specPy}"`, root, PY_PROBE_MS);
+      if (isTimeout(r)) { probeTimeout = probeTimeout || Object.assign({}, r, { probe: true }); continue; }
+      if (!r.ok) continue; // brak tego interpretera
+      const origins = {};
+      for (const line of String(r.out || '').split(/\r?\n/)) { const m = /^ORIGIN (\S+) ?(.*)$/.exec(line.trim()); if (m) origins[m[1]] = m[2].trim(); }
+      const local = ['pytest', '_pytest'].map((m) => origins[m]).filter((o) => o && inRepoCode(o));
+      if (local.length) { shadow = local[0]; break; }
+      if (origins.pytest && origins._pytest) { py = p; break; }
     }
-    const probes = [];
-    // `sys.path.pop(0)` = bez katalogu repo: plik `pytest.py` w repo nie zasloni prawdziwego pytesta (security-review 2026-09-28).
-    const py = ['python', 'python3'].find((p) => { const r = sh(`${p} -c "import sys; sys.path.pop(0); import pytest"`, root, PY_PROBE_MS); probes.push(r); return r.ok; });
-    // Proba, ktora przekroczyla czas, to NIE brak narzedzia — idzie sciezka timeoutu (security-review 2026-09-28).
-    const probeTimeout = !py && probes.some(isTimeout) ? Object.assign({}, probes.find(isTimeout), { probe: true }) : null;
+    if (shadow) return `pytest ladowany z repo (${shadow.slice(-100)}) — plik w repo zaslania prawdziwego pytesta, wynik testow nie jest wiarygodny. Zmien nazwe tego pliku.`;
     const t = py ? sh(`${py} -m pytest -q -x -p no:cacheprovider`, root, TEST_TIMEOUT_MS)
       : probeTimeout || { ok: false, status: 127, toolAbsent: true, out: 'No module named pytest (ani python, ani python3)' };
     const bad = testVerdict(t, root, 'pytest', transcript);

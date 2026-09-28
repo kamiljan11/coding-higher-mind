@@ -569,6 +569,33 @@ try {
   const rShadow = runHook('stop-gate.js', { cwd: repoShadow });
   check('stop-gate: pytest.py w repo => 2 [testy] (zaslania pytesta)', rShadow.status === 2 && /zaslania prawdziwego pytesta/.test(rShadow.stderr || ''), 'exit=' + rShadow.status + ' ' + (rShadow.stderr || '').slice(0, 200));
   try { fs.unlinkSync(stopGateState(repoShadow)); } catch (e) { /* brak = ok */ }
+  // _pytest.py z sys.exit(0) (data-review 2026-09-28) — tez wykrywane po pochodzeniu modulu.
+  const repoShadow3 = makeRepo('py-shadow3', { 'tests/test_a.py': 'def test_a():\n    assert False\n', '_pytest.py': 'import sys\nsys.exit(0)\n', 'a.py': 'x = 1\n' });
+  write(path.join(repoShadow3, 'a.py'), 'x = 2\n');
+  const rShadow3 = runHook('stop-gate.js', { cwd: repoShadow3 });
+  check('stop-gate: _pytest.py w repo => 2 (pochodzenie modulu)', rShadow3.status === 2 && /zaslania prawdziwego pytesta/.test(rShadow3.stderr || ''), 'exit=' + rShadow3.status + ' ' + (rShadow3.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repoShadow3)); } catch (e) { /* brak = ok */ }
+  // pytest.py podrabiajacy __file__ na site-packages i konczacy sys.exit(0) — find_spec nie wykonuje go, wiec blokada (security 2026-09-28).
+  const repoSpoof = makeRepo('py-spoof', { 'tests/test_a.py': 'def test_a():\n    assert False\n', 'pytest.py': "__file__ = '/usr/lib/python3/site-packages/pytest/__init__.py'\nprint(__file__)\nprint(__file__)\nimport sys\nsys.exit(0)\n", 'a.py': 'x = 1\n' });
+  write(path.join(repoSpoof, 'a.py'), 'x = 2\n');
+  const rSpoof = runHook('stop-gate.js', { cwd: repoSpoof });
+  check('stop-gate: pytest.py z podrobionym __file__ => 2 (find_spec)', rSpoof.status === 2 && /zaslania prawdziwego pytesta/.test(rSpoof.stderr || ''), 'exit=' + rSpoof.status + ' ' + (rSpoof.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repoSpoof)); } catch (e) { /* brak = ok */ }
+  // Legalny pytest z .venv WEWNATRZ repo (site-packages) nie jest podmiana (ops + data review 2026-09-28).
+  const repoVenv = makeRepo('py-venv', { 'tests/test_a.py': 'def test_a():\n    assert True\n', 'a.py': 'x = 1\n' });
+  const venvSite = path.join(repoVenv, '.venv', 'Lib', 'site-packages');
+  fs.mkdirSync(path.join(venvSite, '_pytest'), { recursive: true });
+  fs.writeFileSync(path.join(venvSite, '_pytest', '__init__.py'), '');
+  write(path.join(repoVenv, 'a.py'), 'x = 2\n');
+  const rVenv = spawnSync('node', [path.join(HOOKS, 'stop-gate.js')], { input: JSON.stringify({ cwd: repoVenv }), encoding: 'utf8', env: Object.assign({}, process.env, { PYTHONPATH: venvSite }), timeout: 120000 });
+  check('stop-gate: _pytest z .venv/site-packages w repo => NIE „zaslania" (legalny venv)', !/zaslania prawdziwego pytesta/.test(rVenv.stderr || ''), 'exit=' + rVenv.status + ' ' + (rVenv.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repoVenv)); } catch (e) { /* brak = ok */ }
+  // Inna forma podmiany (pakiet _pytest/ w repo) — wykrywana po pochodzeniu modulu, nie po nazwie pliku.
+  const repoShadow2 = makeRepo('py-shadow2', { 'tests/test_a.py': 'def test_a():\n    assert False\n', '_pytest/__init__.py': '', 'a.py': 'x = 1\n' });
+  write(path.join(repoShadow2, 'a.py'), 'x = 2\n');
+  const rShadow2 = runHook('stop-gate.js', { cwd: repoShadow2 });
+  check('stop-gate: pakiet _pytest/ w repo => 2 (pochodzenie modulu)', rShadow2.status === 2 && /zaslania prawdziwego pytesta/.test(rShadow2.stderr || ''), 'exit=' + rShadow2.status + ' ' + (rShadow2.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repoShadow2)); } catch (e) { /* brak = ok */ }
   try { fs.unlinkSync(stopGateState(repoHang)); } catch (e) { /* brak = ok */ }
   fs.rmSync(shimDir, { recursive: true, force: true });
   // Test konczacy sie kodem 127 to CZERWONE testy, nie brak narzedzia (review 2026-09-28: 127 dawalo cichy skip).

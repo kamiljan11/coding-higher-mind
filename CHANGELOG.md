@@ -3,6 +3,10 @@
 All notable changes to the public PG export. Dates are the export dates; the private system moves faster and is squashed
 into these releases.
 
+## [1.2.4] — 2026-09-28
+
+- **Shadowed pytest is detected by module origin, not by file name.** One probe per interpreter asks `importlib.util.find_spec` where `pytest` and `_pytest` would load from, with the same `sys.path` as `python -m pytest`, without running any code from the repo. A module inside the repo blocks the stop (a `pytest.py`, `_pytest.py`, `.pyw`, `.pyc` or package, including one that fakes `__file__` and exits 0), even when no real pytest is installed. A virtualenv inside the repo (`site-packages`) is legitimate. Paths are compared after `realpath` (Windows 8.3 names).
+
 ## [1.2.3] — 2026-09-28
 
 - A hanging `npm --version` probe blocks the stop (same as a hanging Python probe) instead of silently skipping JS tests; the JS test budget reserves time for the probe.
