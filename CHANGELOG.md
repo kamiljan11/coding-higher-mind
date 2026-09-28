@@ -3,6 +3,13 @@
 All notable changes to the public PG export. Dates are the export dates; the private system moves faster and is squashed
 into these releases.
 
+## [1.2.1] — 2026-09-28
+
+- **Stop gate, pytest:** the interpreter is picked by a probe (`python -c "import pytest"`, then `python3`) before the tests run. Before, a second run was triggered by matching the test output, so a failing test that printed `…: not found` could lose its red verdict.
+- **Lint gate, ruff:** `ruff` → `python -m ruff` → `python3 -m ruff`, and a timeout no longer starts the next attempt (three attempts could exceed the stop-gate budget).
+- **A missing tool is recognised by a signal, not by text.** Before, a red test that printed `ENOENT` or `command not found` was logged as "tool unavailable" and the stop passed. Now a skip needs exit 127/9009 (the shell could not find the command) or a failed `import pytest` probe; any other non-zero exit is red. A probe that times out goes the timeout route.
+- CI installs ruff and pytest before the self-test.
+
 ## [1.2.0] — 2026-09-27
 
 PG v4: built after comparing PG with 35 open-source agent-guard projects, then reviewed after rollout by the security, code, data and ops reviewers plus a verifier.

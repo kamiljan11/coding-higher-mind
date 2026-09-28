@@ -38,6 +38,7 @@ const MAX_BLOCKS_PER_CYCLE = BLOCK_REASONS * MAX_REPOS;
 const MAX_LINT_FILES = 20;
 const POST_REVIEW_EDIT_BUDGET = 8; // poprawki po review nie wymagaja kolejnego review; nowy feature — tak
 const TEST_TIMEOUT_MS = 55000;
+const PY_PROBE_MS = 8000; // proba `python -c "import pytest"` — brak binarki konczy sie od razu (ENOENT)
 const GIT_TIMEOUT_MS = 15000;
 // Budzet CALEGO hooka (settings.json: timeout 170 s). 4 repo x (tsc 90 s + testy 55 s) przekraczalo go i Claude Code
 // zabijal hook = niedeterministyczny fail-open (design review 2026-09-26). Po budzecie — jawny skip w logu.
@@ -256,11 +257,14 @@ function hasPytestConfig(root, changed) {
 }
 // Werdykt z KODU WYJSCIA (landscape #2): wczesniej ETIMEDOUT i `No module named` (ImportError w tescie!) dawaly „skipped",
 // a `--passWithNoTests` zamienial zero wykonanych testow w zielone. Teraz:
-//  - brak samego narzedzia (ENOENT, `No module named pytest`, command not found) = skip w logu (fail-open na srodowisko),
+//  - brak samego narzedzia = skip w logu (fail-open na srodowisko) — rozpoznany SYGNALEM, nie trescia wyjscia:
+//    pytest = proba `import pytest` nie powiodla sie dla python i python3; JS = kod 127 (sh: komenda nie istnieje)
+//    albo 9009 (cmd.exe). Tresc (`ENOENT`, `command not found`) wypisana przez CZERWONY test dawala wczesniej skip
+//    (security + data review 2026-09-28),
 //  - timeout = blok, CHYBA ze agent sam uruchomil testy po ostatniej edycji (wtedy would_block: suita > 55 s nie moze
 //    blokowac kazdego Stop do konca zycia repo — design review 2026-09-26),
 //  - kazdy inny exit != 0 (takze import error, 0 testow) = czerwone.
-const TOOL_ABSENT_RX = /ENOENT|not recognized|command not found|No module named '?pytest'?\b|could not determine executable/i;
+const TOOL_ABSENT_STATUS = new Set([127, 9009]);
 const isTimeout = (t) => /ETIMEDOUT|SIGTERM/.test(String(t.msg || '')) || t.status === null;
 function testVerdict(t, root, label, transcript) {
   if (!t || t.ok) return null;
@@ -268,7 +272,7 @@ function testVerdict(t, root, label, transcript) {
     if (transcript.testRunAfterEdit) { log({ hook: HOOK, event: 'would_block', reason: `${label} timeout ${TEST_TIMEOUT_MS / 1000}s (testy uruchomione recznie po edycji)`, target: root }); return null; }
     return `Testy (${label}) nie skonczyly sie w ${TEST_TIMEOUT_MS / 1000} s. Uruchom je sam (pelny wynik, exit code) PO ostatniej edycji — wtedy bramka przyjmie Twoj przebieg.`;
   }
-  if (TOOL_ABSENT_RX.test((t.msg || '') + ' ' + String(t.out || '').slice(0, 400))) { log({ hook: HOOK, event: 'skipped', reason: `${label}: narzedzie niedostepne`, target: root }); return null; }
+  if (t.toolAbsent || TOOL_ABSENT_STATUS.has(t.status)) { log({ hook: HOOK, event: 'skipped', reason: `${label}: narzedzie niedostepne (exit ${t.status})`, target: root }); return null; }
   return failureReport(t);
 }
 // Zwraca opis czerwonych testow albo null (zielone / brak testow / srodowisko).
@@ -288,11 +292,16 @@ function runTests(root, changed, transcript) {
     if (bad) return bad;
   }
   if (changedPy && hasPytestConfig(root, changed)) {
-    if (budgetLeft() < TEST_TIMEOUT_MS) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (pytest)', target: root }); return null; }
-    // `python`, a gdy go brak — `python3` (Linux bez aliasu). Sztywne python3 na Linuksie gubilo narzedzia zainstalowane
-    // dla `python` (CI publicznego repo 2026-09-27: runner ma pytest pod `python`).
-    let t = sh('python -m pytest -q -x -p no:cacheprovider', root, TEST_TIMEOUT_MS);
-    if (!t.ok && /python: (command )?not found|: not found|not recognized|No module named pytest/i.test(t.out || '')) t = sh('python3 -m pytest -q -x -p no:cacheprovider', root, TEST_TIMEOUT_MS);
+    // Rezerwa = testy + 2 proby interpretera (ops-review 2026-09-28: proby nie byly wliczone w budzet).
+    if (budgetLeft() < TEST_TIMEOUT_MS + 2 * PY_PROBE_MS) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (pytest)', target: root }); return null; }
+    // Interpreter wybieramy PROBA `import pytest` przed testami, nie z wyniku testow — tresc testu (`user: not found`)
+    // nie moze odpalic drugiego przebiegu i zgubic czerwieni (data-review 2026-09-27). Brak obu = sztywny komunikat braku.
+    const probes = [];
+    const py = ['python', 'python3'].find((p) => { const r = sh(`${p} -c "import pytest"`, root, PY_PROBE_MS); probes.push(r); return r.ok; });
+    // Proba, ktora przekroczyla czas, to NIE brak narzedzia — idzie sciezka timeoutu (security-review 2026-09-28).
+    const probeTimeout = !py && probes.find(isTimeout);
+    const t = py ? sh(`${py} -m pytest -q -x -p no:cacheprovider`, root, TEST_TIMEOUT_MS)
+      : probeTimeout || { ok: false, status: 127, toolAbsent: true, out: 'No module named pytest (ani python, ani python3)' };
     const bad = testVerdict(t, root, 'pytest', transcript);
     if (bad) return bad;
   }

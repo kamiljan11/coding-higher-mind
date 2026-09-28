@@ -135,9 +135,11 @@ function lintPyFiles(files, root, hook) {
   // B006 (mutowalny default argumentu) = error wg pg/paradigm.md:43; domyslny zestaw ruffa
   // nie zawiera regul B, wiec bez tej flagi reguła istniała tylko na papierze (2026-09-06).
   let ruff = run('ruff check --extend-select B006,B008 ' + list, root, TIMEOUT_LINT_MS);
-  if (ruff.missing) ruff = run('python -m ruff check ' + list, root, TIMEOUT_LINT_MS); // pip --user bez PATH
+  // Kolejne proby TYLKO przy braku narzedzia — timeout nie odpala nastepnej (ops-review 2026-09-27: 3x45 s > budzet stopu).
+  const retry = (r) => r.missing && !/^timeout/.test(r.why || '');
+  if (retry(ruff)) ruff = run('python -m ruff check ' + list, root, TIMEOUT_LINT_MS); // pip --user bez PATH
   // Linux bez aliasu `python` — dopiero wtedy python3 (CI 2026-09-27: sztywne python3 gubilo ruffa zainstalowanego dla python).
-  if (ruff.missing) ruff = run('python3 -m ruff check ' + list, root, TIMEOUT_LINT_MS);
+  if (retry(ruff)) ruff = run('python3 -m ruff check ' + list, root, TIMEOUT_LINT_MS);
   if (ruff.missing) skipped(hook, ruff.why, root);
   else if (ruff.out) return { blocked: true, header: `Ruff znalazl problemy (${baseNames(files)}) — popraw je teraz:`, out: trimReport(ruff.out) };
 

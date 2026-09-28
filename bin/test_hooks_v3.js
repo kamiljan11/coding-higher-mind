@@ -535,6 +535,21 @@ try {
   check('stop-gate #2: ImportError w tescie => 2 [testy]', rPy.status === 2 && /\[testy\]/.test(rPy.stderr || ''), 'exit=' + rPy.status + ' ' + (rPy.stderr || '').slice(0, 200));
   try { fs.unlinkSync(stopGateState(repoPy)); } catch (e) { /* brak = ok */ }
 
+  // Czerwony test, ktory WYPISUJE „ENOENT" / „command not found" / format dash, dalej blokuje — brak narzedzia rozpoznaje
+  // kod wyjscia (127/9009), nie tresc (security + data review 2026-09-28).
+  const noisyScript = 'node -e "console.error(\'ENOENT: x\');console.error(\'foo: command not found\');console.error(\'/bin/sh: 1: npx: not found\');process.exit(1)"';
+  const repoNoisy = makeRepo('tests-red-noisy', { 'package.json': JSON.stringify({ name: 'fx', scripts: { test: noisyScript } }), 'src/a.ts': 'export const a = 1;\n' });
+  write(path.join(repoNoisy, 'src/a.ts'), 'export const a = 2;\n');
+  const rNoisy = runHook('stop-gate.js', { cwd: repoNoisy });
+  check('stop-gate: czerwony test z tekstem „ENOENT/not found" => 2 [testy] (nie skip)', rNoisy.status === 2 && /\[testy\]/.test(rNoisy.stderr || ''), 'exit=' + rNoisy.status + ' ' + (rNoisy.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repoNoisy)); } catch (e) { /* brak = ok */ }
+  // Prawdziwy brak narzedzia: kod 127 (sh: komenda nie istnieje) = pominiecie, nie blokada.
+  const repoAbsent = makeRepo('tests-absent', { 'package.json': JSON.stringify({ name: 'fx', scripts: { test: 'node -e "process.exit(127)"' } }), 'src/a.ts': 'export const a = 1;\n' });
+  write(path.join(repoAbsent, 'src/a.ts'), 'export const a = 2;\n');
+  const rAbsent = runHook('stop-gate.js', { cwd: repoAbsent });
+  check('stop-gate: exit 127 (brak narzedzia) => bez blokady [testy]', !/\[testy\]/.test(rAbsent.stderr || ''), 'exit=' + rAbsent.status + ' ' + (rAbsent.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repoAbsent)); } catch (e) { /* brak = ok */ }
+
   // #6: podpowiedz (kod bez testow) idzie na STDOUT jako JSON systemMessage, stderr pusty przy exit 0
   const repoNudge = makeRepo('nudge', { 'package.json': JSON.stringify({ name: 'n' }), 'README.md': 'x\n' });
   write(path.join(repoNudge, 'x.py'), 'x = 1\n');
