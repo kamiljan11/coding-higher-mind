@@ -3,6 +3,11 @@
 All notable changes to the public PG export. Dates are the export dates; the private system moves faster and is squashed
 into these releases.
 
+## [1.2.2] — 2026-09-28
+
+- **Test verdicts come only from the exit code.** 1.2.1 still skipped a suite that exited with 127 or 9009 as "tool unavailable", so a test script calling a removed binary passed silently. Now the runner is checked by a probe before the tests (`npm --version`; `import pytest` with the repo directory removed from `sys.path`, so a local `pytest.py` cannot shadow it), and any non-zero exit of the suite is red.
+- A skipped test run is shown to the human as a `systemMessage`, not only logged. A hanging interpreter probe blocks with its own message instead of the 55 s test-timeout text.
+
 ## [1.2.1] — 2026-09-28
 
 - **Stop gate, pytest:** the interpreter is picked by a probe (`python -c "import pytest"`, then `python3`) before the tests run. Before, a second run was triggered by matching the test output, so a failing test that printed `…: not found` could lose its red verdict.

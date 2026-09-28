@@ -543,12 +543,37 @@ try {
   const rNoisy = runHook('stop-gate.js', { cwd: repoNoisy });
   check('stop-gate: czerwony test z tekstem „ENOENT/not found" => 2 [testy] (nie skip)', rNoisy.status === 2 && /\[testy\]/.test(rNoisy.stderr || ''), 'exit=' + rNoisy.status + ' ' + (rNoisy.stderr || '').slice(0, 200));
   try { fs.unlinkSync(stopGateState(repoNoisy)); } catch (e) { /* brak = ok */ }
-  // Prawdziwy brak narzedzia: kod 127 (sh: komenda nie istnieje) = pominiecie, nie blokada.
-  const repoAbsent = makeRepo('tests-absent', { 'package.json': JSON.stringify({ name: 'fx', scripts: { test: 'node -e "process.exit(127)"' } }), 'src/a.ts': 'export const a = 1;\n' });
-  write(path.join(repoAbsent, 'src/a.ts'), 'export const a = 2;\n');
-  const rAbsent = runHook('stop-gate.js', { cwd: repoAbsent });
-  check('stop-gate: exit 127 (brak narzedzia) => bez blokady [testy]', !/\[testy\]/.test(rAbsent.stderr || ''), 'exit=' + rAbsent.status + ' ' + (rAbsent.stderr || '').slice(0, 200));
-  try { fs.unlinkSync(stopGateState(repoAbsent)); } catch (e) { /* brak = ok */ }
+  // Zawieszona proba interpretera (fałszywy python/python3 spiacy dluzej niz PY_PROBE_MS) => blokada z wlasnym komunikatem.
+  const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-pyshim-'));
+  for (const name of ['python', 'python3']) {
+    if (process.platform === 'win32') fs.writeFileSync(path.join(shimDir, name + '.cmd'), '@ping -n 11 127.0.0.1 >nul\r\n');
+    else { fs.writeFileSync(path.join(shimDir, name), '#!/bin/sh\nsleep 10\n'); fs.chmodSync(path.join(shimDir, name), 0o755); }
+  }
+  const repoHang = makeRepo('py-hang', { 'tests/test_a.py': 'def test_a():\n    assert True\n', 'a.py': 'x = 1\n' });
+  write(path.join(repoHang, 'a.py'), 'x = 2\n');
+  const hangEnv = Object.assign({}, process.env, { PATH: shimDir + path.delimiter + process.env.PATH });
+  const rHang = spawnSync('node', [path.join(HOOKS, 'stop-gate.js')], { input: JSON.stringify({ cwd: repoHang }), encoding: 'utf8', env: hangEnv, timeout: 120000 });
+  check('stop-gate: zawieszona proba interpretera => 2 z komunikatem o probie', rHang.status === 2 && /Proba interpretera/.test(rHang.stderr || ''), 'exit=' + rHang.status + ' ' + (rHang.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repoHang)); } catch (e) { /* brak = ok */ }
+  fs.rmSync(shimDir, { recursive: true, force: true });
+  // Test konczacy sie kodem 127 to CZERWONE testy, nie brak narzedzia (review 2026-09-28: 127 dawalo cichy skip).
+  const repo127 = makeRepo('tests-127', { 'package.json': JSON.stringify({ name: 'fx', scripts: { test: 'node -e "process.exit(127)"' } }), 'src/a.ts': 'export const a = 1;\n' });
+  write(path.join(repo127, 'src/a.ts'), 'export const a = 2;\n');
+  const r127 = runHook('stop-gate.js', { cwd: repo127 });
+  check('stop-gate: test z exit 127 => 2 [testy] (nie skip)', r127.status === 2 && /\[testy\]/.test(r127.stderr || ''), 'exit=' + r127.status + ' ' + (r127.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repo127)); } catch (e) { /* brak = ok */ }
+  // Prawdziwy brak pytesta (proba importu nie przechodzi dla python i python3) => pominiecie widoczne jako systemMessage.
+  const noPyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-nopy-'));
+  for (const name of ['python', 'python3']) {
+    if (process.platform === 'win32') fs.writeFileSync(path.join(noPyDir, name + '.cmd'), '@exit /b 1\r\n');
+    else { fs.writeFileSync(path.join(noPyDir, name), '#!/bin/sh\nexit 1\n'); fs.chmodSync(path.join(noPyDir, name), 0o755); }
+  }
+  const repoNoPy = makeRepo('py-absent', { 'tests/test_a.py': 'def test_a():\n    assert False\n', 'a.py': 'x = 1\n' });
+  write(path.join(repoNoPy, 'a.py'), 'x = 2\n');
+  const rNoPy = spawnSync('node', [path.join(HOOKS, 'stop-gate.js')], { input: JSON.stringify({ cwd: repoNoPy }), encoding: 'utf8', env: Object.assign({}, process.env, { PATH: noPyDir + path.delimiter + process.env.PATH }), timeout: 120000 });
+  check('stop-gate: brak pytesta => bez blokady [testy], komunikat dla uzytkownika', !/\[testy\]/.test(rNoPy.stderr || '') && /NIE zostaly uruchomione/.test(rNoPy.stdout || ''), 'exit=' + rNoPy.status + ' out=' + (rNoPy.stdout || '').slice(0, 160));
+  try { fs.unlinkSync(stopGateState(repoNoPy)); } catch (e) { /* brak = ok */ }
+  fs.rmSync(noPyDir, { recursive: true, force: true });
 
   // #6: podpowiedz (kod bez testow) idzie na STDOUT jako JSON systemMessage, stderr pusty przy exit 0
   const repoNudge = makeRepo('nudge', { 'package.json': JSON.stringify({ name: 'n' }), 'README.md': 'x\n' });
