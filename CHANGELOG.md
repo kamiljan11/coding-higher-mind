@@ -3,6 +3,12 @@
 All notable changes to the public PG export. Dates are the export dates; the private system moves faster and is squashed
 into these releases.
 
+## [1.2.5] — 2026-09-28
+
+- **Tests run through a wrapper instead of `python -m pytest`:** pytest and everything it loads at startup (`runpy`, `importlib`, plugins) are imported with the repo directory removed from `sys.path`; the repo path comes back only before `pytest.main()`, so project imports in tests work as before. An `importlib.py` in the repo that exits 0 no longer turns red tests green.
+- The origin probe removes the repo from `sys.path` before importing `importlib.util`, writes UTF-8 (paths with non-ASCII characters), and checks the interpreter with `--version` first: a probe that fails on a working interpreter blocks instead of counting as "no Python".
+- Module paths are compared without resolving links, so a junction `pytest/` inside the repo is detected. Known limit: a module imported lazily after startup can still be shadowed; see the docs.
+
 ## [1.2.4] — 2026-09-28
 
 - **Shadowed pytest is detected by module origin, not by file name.** One probe per interpreter asks `importlib.util.find_spec` where `pytest` and `_pytest` would load from, with the same `sys.path` as `python -m pytest`, without running any code from the repo. A module inside the repo blocks the stop (a `pytest.py`, `_pytest.py`, `.pyw`, `.pyc` or package, including one that fakes `__file__` and exits 0), even when no real pytest is installed. A virtualenv inside the repo (`site-packages`) is legitimate. Paths are compared after `realpath` (Windows 8.3 names).

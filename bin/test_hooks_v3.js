@@ -581,6 +581,12 @@ try {
   const rSpoof = runHook('stop-gate.js', { cwd: repoSpoof });
   check('stop-gate: pytest.py z podrobionym __file__ => 2 (find_spec)', rSpoof.status === 2 && /zaslania prawdziwego pytesta/.test(rSpoof.stderr || ''), 'exit=' + rSpoof.status + ' ' + (rSpoof.stderr || '').slice(0, 200));
   try { fs.unlinkSync(stopGateState(repoSpoof)); } catch (e) { /* brak = ok */ }
+  // importlib.py w repo z SystemExit(0): proba nie moze go wykonac (repo wyjete z sys.path przed importem) — data-review 2026-09-28.
+  const repoImpl = makeRepo('py-importlib', { 'tests/test_a.py': 'def test_a():\n    assert False\n', 'importlib.py': 'raise SystemExit(0)\n', 'a.py': 'x = 1\n' });
+  write(path.join(repoImpl, 'a.py'), 'x = 2\n');
+  const rImpl = runHook('stop-gate.js', { cwd: repoImpl });
+  check('stop-gate: importlib.py z exit(0) w repo => nadal czerwone testy (2), nie skip', rImpl.status === 2 && !/NIE zostaly uruchomione/.test(rImpl.stdout || ''), 'exit=' + rImpl.status + ' ' + (rImpl.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repoImpl)); } catch (e) { /* brak = ok */ }
   // Legalny pytest z .venv WEWNATRZ repo (site-packages) nie jest podmiana (ops + data review 2026-09-28).
   const repoVenv = makeRepo('py-venv', { 'tests/test_a.py': 'def test_a():\n    assert True\n', 'a.py': 'x = 1\n' });
   const venvSite = path.join(repoVenv, '.venv', 'Lib', 'site-packages');
