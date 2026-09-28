@@ -264,15 +264,23 @@ function hasPytestConfig(root, changed) {
 //  - timeout = blok, CHYBA ze agent sam uruchomil testy po ostatniej edycji (wtedy would_block: suita > 55 s nie moze
 //    blokowac kazdego Stop do konca zycia repo — design review 2026-09-26),
 //  - kazdy inny exit != 0 (takze import error, 0 testow) = czerwone.
-const TOOL_ABSENT_STATUS = new Set([127, 9009]);
 const isTimeout = (t) => /ETIMEDOUT|SIGTERM/.test(String(t.msg || '')) || t.status === null;
 function testVerdict(t, root, label, transcript) {
   if (!t || t.ok) return null;
+  if (isTimeout(t) && t.probe) {
+    // Zawiesila sie sama proba `python -c "import pytest"` (limit PY_PROBE_MS), nie testy — osobny komunikat (code-review 2026-09-28).
+    return `Proba interpretera Pythona (\`python -c "import pytest"\`) nie skonczyla sie w ${PY_PROBE_MS / 1000} s — srodowisko Pythona wisi. Uruchom testy sam (pelny wynik, exit code) PO ostatniej edycji.`;
+  }
   if (isTimeout(t)) {
     if (transcript.testRunAfterEdit) { log({ hook: HOOK, event: 'would_block', reason: `${label} timeout ${TEST_TIMEOUT_MS / 1000}s (testy uruchomione recznie po edycji)`, target: root }); return null; }
     return `Testy (${label}) nie skonczyly sie w ${TEST_TIMEOUT_MS / 1000} s. Uruchom je sam (pelny wynik, exit code) PO ostatniej edycji — wtedy bramka przyjmie Twoj przebieg.`;
   }
-  if (t.toolAbsent || TOOL_ABSENT_STATUS.has(t.status)) { log({ hook: HOOK, event: 'skipped', reason: `${label}: narzedzie niedostepne (exit ${t.status})`, target: root }); return null; }
+  if (t.toolAbsent) {
+    // Pominiecie widoczne dla uzytkownika, nie tylko w logu (security-review 2026-09-28).
+    log({ hook: HOOK, event: 'skipped', reason: `${label}: narzedzie niedostepne`, target: root });
+    nudgesOut.push(`[stop-gate] Testy ${label} NIE zostaly uruchomione w ${path.basename(root)}: brak narzedzia (${String(t.out || '').slice(0, 80)}).`);
+    return null;
+  }
   return failureReport(t);
 }
 // Zwraca opis czerwonych testow albo null (zielone / brak testow / srodowisko).
@@ -285,7 +293,8 @@ function runTests(root, changed, transcript) {
   if (changedJs && pkg) {
     let t = null;
     if (budgetLeft() < TEST_TIMEOUT_MS) log({ hook: HOOK, event: 'skipped', reason: 'stop budget (testy JS)', target: root });
-    else if (pkg.scripts && pkg.scripts.test) t = sh('npm test --silent', root, TEST_TIMEOUT_MS);
+    // Obecnosc npm sprawdzona PROBA przed testami — kod wyjscia testu (tez 127) jest zawsze werdyktem (review 2026-09-28).
+    else if (pkg.scripts && pkg.scripts.test) t = sh('npm --version', root, PY_PROBE_MS).ok ? sh('npm test --silent', root, TEST_TIMEOUT_MS) : { ok: false, status: 127, toolAbsent: true, out: 'npm niedostepny' };
     else if (hasBin(root, 'vitest')) t = sh('npx --no-install vitest run', root, TEST_TIMEOUT_MS);
     else log({ hook: HOOK, event: 'skipped', reason: 'no test script / vitest', target: root });
     const bad = testVerdict(t, root, 'JS', transcript);
@@ -297,9 +306,10 @@ function runTests(root, changed, transcript) {
     // Interpreter wybieramy PROBA `import pytest` przed testami, nie z wyniku testow — tresc testu (`user: not found`)
     // nie moze odpalic drugiego przebiegu i zgubic czerwieni (data-review 2026-09-27). Brak obu = sztywny komunikat braku.
     const probes = [];
-    const py = ['python', 'python3'].find((p) => { const r = sh(`${p} -c "import pytest"`, root, PY_PROBE_MS); probes.push(r); return r.ok; });
+    // `sys.path.pop(0)` = bez katalogu repo: plik `pytest.py` w repo nie zasloni prawdziwego pytesta (security-review 2026-09-28).
+    const py = ['python', 'python3'].find((p) => { const r = sh(`${p} -c "import sys; sys.path.pop(0); import pytest"`, root, PY_PROBE_MS); probes.push(r); return r.ok; });
     // Proba, ktora przekroczyla czas, to NIE brak narzedzia — idzie sciezka timeoutu (security-review 2026-09-28).
-    const probeTimeout = !py && probes.find(isTimeout);
+    const probeTimeout = !py && probes.some(isTimeout) ? Object.assign({}, probes.find(isTimeout), { probe: true }) : null;
     const t = py ? sh(`${py} -m pytest -q -x -p no:cacheprovider`, root, TEST_TIMEOUT_MS)
       : probeTimeout || { ok: false, status: 127, toolAbsent: true, out: 'No module named pytest (ani python, ani python3)' };
     const bad = testVerdict(t, root, 'pytest', transcript);
