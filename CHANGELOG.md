@@ -3,6 +3,11 @@
 All notable changes to the public PG export. Dates are the export dates; the private system moves faster and is squashed
 into these releases.
 
+## [1.2.3] — 2026-09-28
+
+- A hanging `npm --version` probe blocks the stop (same as a hanging Python probe) instead of silently skipping JS tests; the JS test budget reserves time for the probe.
+- A `pytest.py` file or `pytest/` package in the repo root blocks the stop: it would shadow the real pytest and turn `assert False` into exit 0.
+
 ## [1.2.2] — 2026-09-28
 
 - **Test verdicts come only from the exit code.** 1.2.1 still skipped a suite that exited with 127 or 9009 as "tool unavailable", so a test script calling a removed binary passed silently. Now the runner is checked by a probe before the tests (`npm --version`; `import pytest` with the repo directory removed from `sys.path`, so a local `pytest.py` cannot shadow it), and any non-zero exit of the suite is red.

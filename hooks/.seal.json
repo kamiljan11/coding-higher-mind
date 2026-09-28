@@ -1,5 +1,5 @@
 {
- "sealed_at": "2026-09-28T09:25:23.859Z",
+ "sealed_at": "2026-09-28T09:32:58.349Z",
  "files": {
   "hooks/bash-guard.js": "e73c94dfc105598968f018893d3dd9a84f802fcd8391835bf772d78ad8442b58",
   "hooks/edit-guard.js": "056a13090bd2c4b3ddcc255859b96538e5ab12b87b29141ed0c0277623ad3444",
@@ -11,7 +11,7 @@
   "hooks/precompact-snapshot.js": "37e43e594893e505c3a0bb3d649874591b529211ee79dffd66fddd44e943fd66",
   "hooks/prompt-guard.js": "1956221e192ef41343d9a625e9b985ffd7f4daef098df07dc0502a88483dd7ab",
   "hooks/session-context.js": "61d8c3d90b22e9291ce0a11e983ced60991901600594ec0434acef6e10b976b6",
-  "hooks/stop-gate.js": "2f1bf67e7d7ffb8f4398c263fb687160db39d78abaa62d6de14ace1264e7db54",
+  "hooks/stop-gate.js": "b6dc545d5cbbf367a264c684de171d779560cc042cd904b1ef490b5e2ad96cd0",
   "hooks/lib/bash-rules.js": "c6428ef2354730b48be077042798198a4404a258c1f876a3a33044c0b5b5f0dd",
   "hooks/lib/gate-log.js": "de9f1cb0b961d1de53f97ffcf09fbdbc5e46b60cacb24725ca83b0766b8c51f7",
   "hooks/lib/lint-file.js": "e7db76e875116ec779dca3044a1b7318cbfcd6e8ba57656f15f60b673b5d35ed",
