@@ -3,6 +3,12 @@
 All notable changes to the public PG export. Dates are the export dates; the private system moves faster and is squashed
 into these releases.
 
+## [1.2.6] — 2026-09-28
+
+- The wrapper and the probe put the absolute working directory back on `sys.path` (like `python -m pytest`), not `''`: a test that calls `monkeypatch.chdir` and then imports a project module passes again. The repo entry is removed only when it is the first one (`PYTHONSAFEPATH`).
+- A probe that fails on `python` falls through to `python3`; the stop blocks only when no interpreter gives an answer.
+- Child processes get `NoDefaultCurrentDirectoryInExePath=1`, so on Windows a `python.bat` or `npm.cmd` in the repo cannot replace the real tool.
+
 ## [1.2.5] — 2026-09-28
 
 - **Tests run through a wrapper instead of `python -m pytest`:** pytest and everything it loads at startup (`runpy`, `importlib`, plugins) are imported with the repo directory removed from `sys.path`; the repo path comes back only before `pytest.main()`, so project imports in tests work as before. An `importlib.py` in the repo that exits 0 no longer turns red tests green.

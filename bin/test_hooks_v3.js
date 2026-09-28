@@ -587,6 +587,22 @@ try {
   const rImpl = runHook('stop-gate.js', { cwd: repoImpl });
   check('stop-gate: importlib.py z exit(0) w repo => nadal czerwone testy (2), nie skip', rImpl.status === 2 && !/NIE zostaly uruchomione/.test(rImpl.stdout || ''), 'exit=' + rImpl.status + ' ' + (rImpl.stderr || '').slice(0, 200));
   try { fs.unlinkSync(stopGateState(repoImpl)); } catch (e) { /* brak = ok */ }
+  // Legalny test zmieniajacy katalog (monkeypatch.chdir), potem import modulu projektu — wrapper musi dac zielone
+  // (data-review 2026-09-28: sys.path z '' zamiast sciezki bezwzglednej psul ten import).
+  const repoChdir = makeRepo('py-chdir', { 'tests/test_a.py': 'def test_a(monkeypatch, tmp_path):\n    monkeypatch.chdir(tmp_path)\n    import modul_projektu\n    assert modul_projektu.X == 1\n', 'modul_projektu.py': 'X = 1\n', 'a.py': 'x = 1\n' });
+  write(path.join(repoChdir, 'a.py'), 'x = 2\n');
+  const rChdir = runHook('stop-gate.js', { cwd: repoChdir });
+  check('stop-gate: test z monkeypatch.chdir + import modulu projektu => bez blokady [testy]', !/\[testy\]/.test(rChdir.stderr || ''), 'exit=' + rChdir.status + ' ' + (rChdir.stderr || '').slice(0, 300));
+  try { fs.unlinkSync(stopGateState(repoChdir)); } catch (e) { /* brak = ok */ }
+  // Windows: npm.cmd w katalogu repo nie podmienia npm (NoDefaultCurrentDirectoryInExePath w CHILD_ENV, security 2026-09-28).
+  if (process.platform === 'win32') {
+    const repoNpmShim = makeRepo('npm-shim', { 'package.json': JSON.stringify({ name: 'fx', scripts: { test: 'node -e "process.exit(1)"' } }), 'npm.cmd': '@exit /b 0\r\n', 'src/a.ts': 'export const a = 1;\n' });
+    write(path.join(repoNpmShim, 'src/a.ts'), 'export const a = 2;\n');
+    const envNoNdcd = Object.assign({}, process.env); delete envNoNdcd.NoDefaultCurrentDirectoryInExePath;
+    const rNpmShim = spawnSync('node', [path.join(HOOKS, 'stop-gate.js')], { input: JSON.stringify({ cwd: repoNpmShim }), encoding: 'utf8', env: envNoNdcd, timeout: 120000 });
+    check('stop-gate: npm.cmd w repo nie podmienia npm => czerwone testy 2', rNpmShim.status === 2 && /\[testy\]/.test(rNpmShim.stderr || ''), 'exit=' + rNpmShim.status + ' ' + (rNpmShim.stderr || '').slice(0, 200));
+    try { fs.unlinkSync(stopGateState(repoNpmShim)); } catch (e) { /* brak = ok */ }
+  }
   // Legalny pytest z .venv WEWNATRZ repo (site-packages) nie jest podmiana (ops + data review 2026-09-28).
   const repoVenv = makeRepo('py-venv', { 'tests/test_a.py': 'def test_a():\n    assert True\n', 'a.py': 'x = 1\n' });
   const venvSite = path.join(repoVenv, '.venv', 'Lib', 'site-packages');

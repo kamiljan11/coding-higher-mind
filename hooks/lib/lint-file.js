@@ -60,6 +60,9 @@ const shortCmd = (cmd) => cmd.split(' ').slice(0, 3).join(' ');
 const CHILD_ENV = Object.assign({}, process.env, {
   CI: '1',
   GIT_CONFIG_PARAMETERS: "'core.fsmonitor=false' 'core.untrackedCache=false' 'core.hooksPath=/dev/null'",
+  // Windows: cmd.exe NIE szuka programu w katalogu biezacym (python.bat / npm.cmd w repo nie podmienia narzedzi —
+  // security-review 2026-09-28). Na Linuksie zmienna jest ignorowana.
+  NoDefaultCurrentDirectoryInExePath: '1',
 });
 // Usuwamy sciezki (w cudzyslowach) zanim szukamy sygnatur "brak narzedzia" — plik `ENOENT.ts` nie moze
 // zamienic realnego bledu lintu w cichy skip (finding security-reviewer 2026-09-05).
