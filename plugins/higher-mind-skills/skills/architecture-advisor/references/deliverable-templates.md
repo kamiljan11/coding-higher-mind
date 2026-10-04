@@ -102,8 +102,8 @@ flowchart LR
     User([User]) --> Web[Lovable/React on Cloudflare Pages]
     Web --> API[Cloudflare Worker / API]
     API --> DB[(Supabase / Postgres)]
-    API --> Pay[Rapyd · Straumur]:::ext
-    API --> ID[Signicat · Audkenni]:::ext
+    API --> Pay[payment-gateway · local-acquirer]:::ext
+    API --> ID[esign-provider · eid-provider]:::ext
     API -. errors .-> Sentry[(Sentry)]:::obs
     classDef ext fill:#eee,stroke:#999,stroke-dasharray:4 3;
     classDef obs fill:#fff,stroke:#c33,stroke-dasharray:2 2;

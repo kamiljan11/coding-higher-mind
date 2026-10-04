@@ -29,7 +29,7 @@ Everything else can be inferred or is reversible.
 
 ### Step 4 — Recommendation (simplest design that fits)
 - **Booking:** integrate **Cal.com** — don't build a calendar/availability engine (commodity, two-way door).
-- **Deposit:** **Straumur** hosted checkout for domestic ISK; project-c never touches card data (stays out of PCI scope). This is the decision that got the full analysis — see ADR below.
+- **Deposit:** **local-acquirer** hosted checkout for domestic ISK; project-c never touches card data (stays out of PCI scope). This is the decision that got the full analysis — see ADR below.
 - **Glue & notifications:** **n8n** workflow on the booking webhook → confirmation **SMS via Twilio** → log the booking. Add **Supabase** *only if* bookings need to live somewhere beyond Cal.com; for now, Cal.com + n8n is enough.
 - **No backend, no app, no custom payment flow, no microservices.** Stated explicitly so the deferral is a recorded decision, not an omission.
 
@@ -37,7 +37,7 @@ Everything else can be inferred or is reversible.
 
 **Mini scorecard — payment processor** (weighted by: ISK-domestic ×3, low fees ×2, integration simplicity ×2, no PCI scope ×3):
 
-| Criterion | Straumur | Rapyd | Stripe |
+| Criterion | local-acquirer | payment-gateway | Stripe |
 |---|---|---|---|
 | ISK domestic | best | ok | weak/indirect |
 | Fees on small ISK deposits | low | med | med |
@@ -47,7 +47,7 @@ Everything else can be inferred or is reversible.
 
 **ADR (the one-way door):**
 ```
-# ADR-001: Take the project-c booking deposit via Straumur hosted checkout
+# ADR-001: Take the project-c booking deposit via local-acquirer hosted checkout
 - Status: Accepted   - Date: 2026-06-15
 - Context tags: solo operator · very low volume · uncertain demand · takes ISK · GDPR/PII
 
@@ -57,21 +57,21 @@ feature is unproven. The operator is non-technical. Payments and personal data a
 hard-to-reverse parts of this; everything else is trivially changeable.
 
 ## Decision
-Use Straumur's hosted checkout for the deposit. Card data never touches project-c systems.
+Use local-acquirer's hosted checkout for the deposit. Card data never touches project-c systems.
 Booking handled by Cal.com; n8n + Twilio for confirmation. No custom backend yet.
 
 ## Trade-offs accepted
-Tied to Straumur for now (migrating processors later is real work). Cal.com + Straumur are two
+Tied to local-acquirer for now (migrating processors later is real work). Cal.com + local-acquirer are two
 separate tools rather than one unified flow — accepted for the simplicity and zero PCI scope.
 
 ## Alternatives rejected
-- Rapyd / Stripe — fine processors, but heavier integration and no advantage for low-volume
+- payment-gateway / Stripe — fine processors, but heavier integration and no advantage for low-volume
   domestic ISK today. Reconsider if going international or adding subscriptions.
 - Custom payment integration — rejected: pulls project-c into PCI scope for zero benefit.
 
 ## Consequences
 Easier: live in days, nothing to operate. Harder: two tools to reconcile; refunds handled in
-Straumur. Maintain: one n8n workflow, one Twilio number.
+local-acquirer. Maintain: one n8n workflow, one Twilio number.
 
 ## Revisit when
 Volume passes ~15–20 bookings/day, recurring/subscription billing is needed, or project-c
@@ -83,7 +83,7 @@ expands outside Iceland — then reassess processor and whether bookings need Su
 flowchart LR
   Cust([Customer]) --> Cal[Cal.com booking]
   Cal -- webhook --> N8N[n8n]
-  N8N --> Pay[Straumur hosted checkout]:::ext
+  N8N --> Pay[local-acquirer hosted checkout]:::ext
   N8N --> SMS[Twilio SMS confirm]:::ext
   N8N -. optional .-> DB[(Supabase — only if needed)]
   classDef ext fill:#eee,stroke:#999,stroke-dasharray:4 3;
@@ -95,18 +95,18 @@ money/identity decision earned the full treatment.
 
 ---
 
-## Example 2 — AUDIT: "Is my Straumur payment-webhook automation any good?"
+## Example 2 — AUDIT: "Is my local-acquirer payment-webhook automation any good?"
 
 **What reading the n8n JSON + the worker reveals:** a single 40-node n8n workflow that (a)
-receives Straumur webhooks, (b) emails receipts, and (c) syncs a spreadsheet — three unrelated
+receives local-acquirer webhooks, (b) emails receipts, and (c) syncs a spreadsheet — three unrelated
 jobs in one canvas. The webhook node does the spreadsheet sync *inline* before responding. No
-dedupe on the Straumur event id. No Sentry. Secrets are in n8n credentials (good).
+dedupe on the local-acquirer event id. No Sentry. Secrets are in n8n credentials (good).
 
 **Findings scorecard:**
 
 | # | Finding | Type | Severity | Effort | Priority |
 |---|---|---|---|---|---|
-| 1 | Webhook not idempotent — Straumur retries → double receipts / double sync | Under-eng / risk | High | Low | Do now |
+| 1 | Webhook not idempotent — local-acquirer retries → double receipts / double sync | Under-eng / risk | High | Low | Do now |
 | 2 | Slow spreadsheet sync runs *inside* the webhook response path → timeouts → more retries | Under-eng / risk | High | Med | Do now |
 | 3 | No error monitoring; a failed run is silent (Sentry is in the stack) | Under-eng / risk | Med | Low | Do now |
 | 4 | One 40-node workflow doing 3 jobs → fragile, hard to change | Over-eng (maintainability) | Med | Med | Plan |

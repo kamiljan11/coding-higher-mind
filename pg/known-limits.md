@@ -84,3 +84,4 @@ werdykt REQUEST CHANGES. Do dodania: `accepted_risks` z uzasadnieniem i data prz
 - `arch` fail-open (logowane jako `skipped`, nie ciche): nieśledzony plik > 1 MB (np. zrzut pg_dump), > 200 plikow, > 10 commitow sesji.
 - Znaczniki `logs/stop-gate-wm/*.json` nie sa sprzatane automatycznie (po jednym malym pliku na sesje) — sprzatanie reczne / guard_health.
 - `CREATE TEMP TABLE` celowo nie jest sygnalem architektury; `CREATE TABLE` wewnatrz literalu `'...'` jest ignorowany, w ciele `$$...$$` — liczony.
+- stop-gate liczy do tieru WSZYSTKIE commity z reflogu od startu sesji, takze commity rownoleglej sesji w tym samym repo (falszywe [review]). Atrybucja po slowie „commit” w transkrypcie zostala cofnieta 2026-10-04 (agent kontroluje tekst komendy -> ukryty commit T3 omijal recenzje). Obejscie FP: drugi Stop przepuszcza z komunikatem. Bezpieczna atrybucja wymaga pozytywnego dowodu obcosci (transkrypt innej sesji z commitem w oknie) — do zrobienia.

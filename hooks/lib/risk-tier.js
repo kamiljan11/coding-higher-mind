@@ -20,7 +20,7 @@ const PROTOTYPE_TIER_CAP = 'T1';
 // `.example/.sample/.template/.dist` (takze `.env.local.example`, konwencja Next.js) = dokumentacja, NIE T3.
 // False positive zgloszony przez agenta demo-site 2026-09-05 (docs/CI-only PR dostal T3 przez `.env.example`);
 // we flocie 24x `.env.example` + 2x `.env.local.example`. Nieznana kolejnosc sufiksow (`.env.example.local`) = strona bezpieczna (T3).
-const T3_PATH_RX = /supabase[\/\\](migrations|functions)|\.sql$|[\/\\](auth|rls|billing|payments?|checkout|rapyd|stripe|invoice|wallet|secrets?|middleware|polic(y|ies)|webhooks?|cron|scheduled)[\/\\.]|[\/\\](admin|super)[\/\\]|(^|[\/\\])\.env(?![\w.-]*\.(example|sample|template|dist)s?$)(\.[\w.-]+)?$|infisical/i;
+const T3_PATH_RX = /supabase[\/\\](migrations|functions)|\.sql$|[\/\\](auth|rls|billing|payments?|checkout|payment-gateway|stripe|invoice|wallet|secrets?|middleware|polic(y|ies)|webhooks?|cron|scheduled)[\/\\.]|[\/\\](admin|super)[\/\\]|(^|[\/\\])\.env(?![\w.-]*\.(example|sample|template|dist)s?$)(\.[\w.-]+)?$|infisical/i;
 // T2: wspolna logika, API, dane, zaleznosci, konfiguracja buildu/CI.
 const T2_PATH_RX = /[\/\\](api|routes?|server|services?|lib|hooks|store|db|data|models?|schema|integrations?)[\/\\]|package(-lock)?\.json$|pnpm-lock\.yaml$|tsconfig.*\.json$|vite\.config|next\.config|\.github[\/\\]workflows|Dockerfile|docker-compose/i;
 // T0: nic nie wykonuje sie na prod inaczej niz jako tekst/styl.

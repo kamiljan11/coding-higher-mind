@@ -28,7 +28,7 @@ Plus dwa pliki-narzędziownie:
 
 ### v2 — rozszerzenie z multi-agent researchu (pliki 11–15)
 
-Dogłębny research na 7 kątów (app-like, interaktywność, generative/WebGL, craft agencyjny, CSS-only, motion, emerging/AI) dorzucił pięć plików. Surowe, pełne findings (więcej niż tu) leżą w Obsidianie: `~/.claude/memory\Web Bajery Research\` (notatki 01–07 + _INDEX).
+Dogłębny research na 7 kątów (app-like, interaktywność, generative/WebGL, craft agencyjny, CSS-only, motion, emerging/AI) dorzucił pięć plików. Surowe, pełne findings (więcej niż tu) leżą w Obsidianie: `~/Obsidian/MAIN/Claude Memory/Web Bajery Research/` (notatki 01–07 + _INDEX).
 
 - **`references/11-app-like.md`** — strony jak natywne apki: ⌘K command palette, bottom sheet (Vaul), optimistic UI, pull-to-refresh, swipe actions, wirtualizacja, live cursors, local-first, streaming/generative UI, PWA (install/badge/share/wake lock), <dialog>, bottom nav, **flagi w przełączniku języka**.
 - **`references/12-interaktywnosc-delight.md`** — zabawa: physics hero/ragdoll (Matter.js/rapier), Konami, mini-gry, audio-reactive, infinite canvas (tldraw), interaktywne 404, zdrapka, koło fortuny, cursor chat, sticker peel, scrollytelling, sound design.

@@ -31,7 +31,7 @@ Flag where the structure is more complex than any present constraint justifies:
 - **Event-driven indirection** for a flow that one readable function would express.
 - **An agent framework / multi-step agent** wrapping what is really one prompt or a fixed 2–3 call sequence.
 - **A dedicated vector DB** for a corpus that fits in a prompt or in pgvector.
-- **A custom backend / custom auth** where managed (Supabase, hosted checkout, Signicat) would do.
+- **A custom backend / custom auth** where managed (Supabase, hosted checkout, esign-provider) would do.
 - **Multiple datastores** before any one is saturated.
 - **Premature abstraction** — heavy config, plugin systems, generic frameworks for one concrete use.
 - **Kubernetes / self-hosted infra** a solo maintainer babysits where a PaaS would run it for free.
@@ -56,7 +56,7 @@ money, identity, or data loss is involved.
 
 **Reliability**
 - Are **payment/webhook handlers idempotent** (dedupe on event id)? Providers retry — non-idempotent handlers double-charge or double-process. High severity.
-- Do calls to external APIs have **timeouts, retries, and failure handling**? What happens when Straumur/Rapyd/RetellAI/an LLM is slow or down?
+- Do calls to external APIs have **timeouts, retries, and failure handling**? What happens when local-acquirer/payment-gateway/RetellAI/an LLM is slow or down?
 - Is there a **single point of failure** on something that must stay up?
 - Is slow work done **inside a webhook/request handler** (causing provider timeouts and retries)?
 
@@ -70,7 +70,7 @@ money, identity, or data loss is involved.
 
 **Payments & identity (Iceland-specific)**
 - Does anything touch **raw card data**? It shouldn't — use the processor's hosted checkout to stay out of PCI scope.
-- Is identity verification **homegrown** where it should be Signicat / Dokobit / Audkenni (legal eID)?
+- Is identity verification **homegrown** where it should be esign-provider / esign-provider-b / eid-provider (legal eID)?
 
 ## Turning the checklists into output
 

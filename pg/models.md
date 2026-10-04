@@ -52,7 +52,7 @@ Budzet tokenow: T0 0x, T1 ~1x, T2 ~4x, T3 ~8-10x „jednej recenzji diffu" (Anth
 
 ## Dryf i zmiana modelu (bramka, nie zaufanie)
 
-- **Golden suite** `~/.claude/pg/eval/`: 30-60 przypadkow, POLOWA to czyste diffy (precision zabija review-bota: SWR-Bench najlepszy model P 16,65 %), pozytywy = realne incydenty floty z `rule_id` (RLS job_id bez triggera, Stripe-vs-Rapyd, VAPID mismatch, `tsc -b`, sekret w commicie, `as any` na martwym polu, pusty catch, test edytowany razem z kodem).
+- **Golden suite** `~/.claude/pg/eval/`: 30-60 przypadkow, POLOWA to czyste diffy (precision zabija review-bota: SWR-Bench najlepszy model P 16,65 %), pozytywy = realne incydenty floty z `rule_id` (RLS job_id bez triggera, Stripe-vs-payment-gateway, VAPID mismatch, `tsc -b`, sekret w commicie, `as any` na martwym polu, pusty catch, test edytowany razem z kodem).
 - Metryki per rola: recall na pozytywach, FP-rate na negatywach, schema-validity %, evidence-compliance %, tokeny, czas, **$0-gate coverage** (ile pozytywow lapia bramki deterministyczne bez modelu — ma rosnac; kazdy punkt to darmowa, trwala jakosc).
 - Kadencja: kazda edycja prompta roli -> szybki przebieg (deterministyczna czesc `bin/pg-eval.js` + 1 rola na Sonnet); **zmiana modelu domyslnego = zdarzenie bramkowane**: brak wdrozenia, jesli recall spadl > 10 p.p. albo FP-rate wzrosl > 2x; miesieczny baseline na przypietym modelu (ciche dryfy checkpointu).
 - Prompty rol i delty = pliki w git; regresja = jeden `git revert`.
