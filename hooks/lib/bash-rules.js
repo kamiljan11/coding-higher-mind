@@ -20,7 +20,8 @@ const OWN_GIT_HOOKS = normalizePath(CLAUDE_DIR + '/git-hooks');
 const MUTATING_GIT = new Set(['stash', 'checkout', 'switch', 'reset', 'restore', 'commit', 'push', 'merge', 'rebase', 'apply', 'am', 'cherry-pick', 'revert', 'clean', 'rm', 'mv', 'add', 'tag', 'pull', 'worktree', 'update-ref', 'filter-branch', 'gc', 'prune']);
 const WRITE_PROGS = new Set(['rm', 'del', 'erase', 'remove-item', 'ri', 'rmdir', 'rd', 'mv', 'move', 'move-item', 'mi', 'cp', 'copy', 'copy-item', 'cpi', 'tee', 'touch', 'set-content', 'sc', 'add-content', 'ac', 'out-file', 'new-item', 'ni', 'truncate', 'ln', 'install', 'rename-item', 'rni', 'unlink', 'shred', 'dd']);
 // Zapis przez interpreter (python -c / node -e / heredoc): slowa API zapisu. Goly `>` liczy parser (redirects), nie ten regex.
-const CONTROL_TRACE_RX = /\/\.claude\/(hooks|git-hooks|bin|agents|scheduled-tasks|logs\/(gates|overrides))\b|\/\.claude\/settings(\.local)?\.json|\.gitconfig\b|\/\.git\/(config|hooks)\b|profile\.ps1|\/\.(bashrc|bash_profile|zshrc|profile)\b|\.claude['"]?\s*[/,)+]\s*['"]?(hooks|git-hooks|bin|agents|scheduled-tasks|settings)/;
+// + chronione pliki pg/ (security-review 2026-10-02: `python -c os.remove(...self-approval.off)` przechodzilo).
+const CONTROL_TRACE_RX = /\/\.claude\/(hooks|git-hooks|bin|agents|scheduled-tasks|logs\/(gates|overrides|stop-gate-wm))\b|\/\.claude\/pg\/(trusted-roots\.txt|private-repos\.txt|deny-baseline\.json|settings-hooks\.json|self-approval\.off)|\/\.claude\/settings(\.local)?\.json|\.gitconfig\b|\/\.git\/(config|hooks)\b|profile\.ps1|\/\.(bashrc|bash_profile|zshrc|profile)\b|\.claude['"]?\s*[/,)+]\s*['"]?(hooks|git-hooks|bin|agents|scheduled-tasks|settings)|['"]pg['"]\s*[,)+/]\s*['"](trusted-roots|private-repos|deny-baseline|settings-hooks|self-approval)/;
 const API_WRITE_RX = /open\([^)]*['"][wax]\+?b?['"]|\.write_(text|bytes)\(|writeFileSync|appendFileSync|unlinkSync|rmSync|renameSync|copyFileSync|os\.(remove|unlink|rename|replace)\(|shutil\.|\.unlink\(|\.rename\(|Set-Content|Out-File|Add-Content|Remove-Item|Move-Item|Copy-Item/;
 
 // Cele zapisu w kodzie interpretera (python/node w -c/-e albo heredocu). Zwraca { targets, unresolved }:
@@ -310,11 +311,12 @@ const RULES = [
     // Merge przez REST (security-review 2026-09-26): `gh api -X PUT .../pulls/N/merge`, curl/iwr na ten sam endpoint.
     // + GraphQL: mergePullRequest / enablePullRequestAutoMerge (weryfikator 2026-09-26: `gh api graphql` omijal regule).
     parsed: (cmd, ctx) => (cmd.prog === 'gh' && cmd.argv[1] === 'pr' && cmd.argv[2] === 'merge') ||
-      ghMergeFromFile(cmd, ctx) ||
+      ghMergeFromFile(cmd, ctx) || scriptMergeFromFile(cmd, ctx) ||
       (/^(gh|curl|invoke-restmethod|irm|invoke-webrequest|iwr|wget|http|xh)$/.test(cmd.prog) && cmd.argv.some((a) => /\/pulls\/\d+\/merge\b|\/merges\b|mergePullRequest|enablePullRequestAutoMerge/.test(a))) ||
       // Alias gh ukrywajacy merge (weryfikator 2026-09-26, runda 2); pliki (graphql/import) — ghMergeFromFile.
       (cmd.prog === 'gh' && cmd.argv[1] === 'alias' && cmd.argv[2] === 'set' && /\bpr\s+merge\b|mergePullRequest|\/merge\b/.test(cmd.argv.slice(3).join(' '))),
-    legacy: (raw) => /\bgh\s+pr\s+merge\b/i.test(raw) || /\bgh\s+api\s+graphql\b[\s\S]*\b(mergePullRequest|enablePullRequestAutoMerge)\b/.test(raw) },
+    legacy: (raw) => /\bgh\s+pr\s+merge\b/i.test(raw) || /\bgh\s+api\s+graphql\b[\s\S]*\b(mergePullRequest|enablePullRequestAutoMerge)\b/.test(raw) ||
+      (PIPED_INTERP_RX.test(raw) && SCRIPT_MERGE_RX.test(raw) && SCRIPT_NET_RX.test(raw)) },
   { id: 'gh-delete', esc: 'ALLOW_DELETE', mode: 'enforce',
     why: 'Kasowanie repo/galezi zdalnej/zasobu przez API — nieodwracalne, wymaga zgody uzytkownika.',
     legacy: (raw, nq) => /\bgh\s+(repo\s+delete|api\b[^\n;&|]*-X\s*DELETE)|\bgit\s+push\b[^\n;&|]*(\s--delete\b|\s:[\w\/-]+(\s|$))/i.test(nq),
@@ -373,6 +375,18 @@ const RULES = [
     why: 'PG_GATE_LOG / PG_OVERRIDES_DIR / PG_TRUSTED_ROOTS_FILE przekierowuja telemetrie, wyjatki i granice zaufania bramek — tylko testy (w procesie node), nigdy z komendy.',
     legacy: (raw, nq) => /\b(PG_GATE_LOG|PG_OVERRIDES_DIR|PG_TRUSTED_ROOTS_FILE)\s*=|\$env:(PG_GATE_LOG|PG_OVERRIDES_DIR|PG_TRUSTED_ROOTS_FILE)\b/i.test(raw) ||
       /\b(PG_GATE_LOG|PG_OVERRIDES_DIR|PG_TRUSTED_ROOTS_FILE)\b/.test(nq), // niecytowana wzmianka (printf -v, read, declare)
+    parsed: () => false,
+    exemptSearch: true },
+  // security-review 2026-10-02: `node -e "require('.../overrides').mintSelf(...)"` wydawal wyjatek z pominieciem recenzji
+  // (i `mint` dowolny, takze CONTROL_PLANE). Wyjatki wydaja tylko prompt-guard (fraza) i bin/pg-self-approve.js.
+  { id: 'override-mint', esc: CONTROL_PLANE, mode: 'enforce',
+    why: 'Wolanie lib/overrides.js (mint/mintSelf/consume) z komendy = wydanie sobie wyjatku z pominieciem frazy uzytkownika albo recenzji. Wyjatek B: node ~/.claude/bin/pg-self-approve.js po pg-review.',
+    // Waskie (code-review 2026-10-02: `overrides` z configu oxlint + `write(` dawalo falszywe blokady): require biblioteki
+    // + wywolanie funkcji wydajacej, albo jawna sciezka magazynu wyjatkow.
+    // Kazde zaladowanie biblioteki z kodu inline (require/import, takze destrukturyzacja i `o['mint']`) — z linii komend
+    // nie ma po co jej wolac (code-review 2026-10-02). Nazwa sklejana z kawalkow: pg/known-limits.md.
+    legacy: (raw) => /\b(require|import)\b\s*\(?\s*[^)\n]{0,200}overrides(\.js)?['"`]/i.test(raw) ||
+      /logs[\\/]+overrides/i.test(raw),
     parsed: () => false,
     exemptSearch: true },
   { id: 'control-plane', esc: CONTROL_PLANE, mode: 'enforce',
@@ -521,6 +535,104 @@ function ghMergeFromFile(cmd, ctx) {
     files.push(cmd.argv.slice(3).find((a) => !/^-/.test(a) || a === '-') || '-');
   }
   return files.some((f) => { if (f === '-') return true; const txt = readSmall(f, ctx); return !txt || MERGE_BODY_RX.test(txt); });
+}
+// Merge schowany w SKRYPCIE (2026-10-01, v2 po pg-review code+ops+security): `python merge-pr.py 45`, `python -c "..."`,
+// `bash x.sh`, `pwsh -File x.ps1`, `uv run x.py`, takze za mostem `infisical (CLI) run -- python x.py`.
+// Czytane sa TYLKO skrypty faktycznie uruchamiane (pierwszy argument pozycyjny po flagach interpretera) i kod inline
+// (-c/-e/--eval/-Command). Wzorzec merge + realne wywolanie sieci/procesu = blokada. Istniejacy, a nieczytelny skrypt =
+// blokada (fail closed). ZNANA GRANICA (pg/known-limits.md): kod importowany z innego modulu (`-m pakiet`, import)
+// i adres sklejany z kawalkow dalej niz 400 znakow — twarda granica jest dopiero w tym, ze merge wymaga tokenu z mostu.
+const SCRIPT_MERGE_RX = /\/pulls\/[^\s'"`/]*\/merge\b|mergePullRequest|enablePullRequestAutoMerge|\bpr['",\s]+merge\b|\bpulls\b[\s\S]{0,400}\bmerge\b/i;
+const SCRIPT_NET_RX = /urlopen|urllib|requests\.|httpx|aiohttp|LWP|require\(\s*['"](node:)?https?['"]\s*\)|from\s+['"](node:)?https?['"]|HTTP::Tiny|Net::HTTP|file_get_contents|open-uri|Faraday|http\.client|HTTPSConnection|\bfetch\(|https?\.request\(|axios|octokit|got\(|Invoke-(RestMethod|WebRequest)|\bcurl\b|\bwget\b|subprocess|os\.(system|popen|exec)|child_process|exec(File)?Sync|spawn(Sync)?\(|['"]gh['"]|\bgh\s+(api|pr)\b/;
+const toSlash = (p) => String(p).replace(/\\/g, '/').toLowerCase();
+// Zaufane = konkretne pliki warstwy kontrolnej (chroni je edit-guard + fraza ALLOW_CONTROL_PLANE), nie cale katalogi:
+// bin/mas_merge_prs.py scala bez wlasnych warunkow, wiec NIE jest zaufany (code-review 2026-10-01).
+const TRUSTED_SCRIPTS = new Set(['bin/pg-merge-bezpieczny.py', 'bin/test_hooks_v3.js', 'bin/test_pg_merge.py', 'bin/pg-eval.js',
+  'bin/pg-replay.js', 'bin/pg-mutate.js'].map((f) => toSlash(require('path').join(os.homedir(), '.claude', f))));
+const TRUSTED_HOOKS_DIR = toSlash(require('path').join(os.homedir(), '.claude', 'hooks')) + '/';
+const INTERPRETER_RX = /^(python[\d.]*|pythonw|py|node|deno|bun|ts-node|tsx|bash|sh|zsh|dash|ksh|pwsh|powershell|perl|ruby|php)(\.exe)?$/i;
+// Kod podany na stdin przez potok/here-string (`echo KOD | python`, `python <<< KOD`) — parser nie wiaze tresci
+// z interpreterem, wiec regula legacy patrzy na caly tekst komendy (security/code-review v2).
+const PIPED_INTERP_RX = /(\|\s*|<<<)[^|;&\n]*\b(python[\d.]*|pythonw|py|node|deno|bun|bash|sh|zsh|pwsh|powershell|perl|ruby|php)\b|\b(python[\d.]*|node|bash|sh|pwsh|perl|ruby|php)\b[^|;&\n]*<<</i;
+const RUNNER_RX = /^(uv|uvx|poetry|pipx|pdm|hatch|npx|bunx|pnpx|pnpm|yarn|npm)(\.exe)?$/i;
+// Flagi PER RODZINA (code-review v2: wspolny zbior robil z `bash -x`/`-e` flage z wartoscia/inline i przepuszczal skrypt).
+// py: case-sensitive (-x to bool, -X/-W z wartoscia); sh: -c inline, reszta bool; js: -e/-p inline; ps: -command/-file.
+const FLAGS = {
+  py: { inline: ['-c'], value: ['-X', '-W', '--check-hash-based-pycs'], ci: false },
+  js: { inline: ['-e', '--eval', '-p', '--print'], value: ['-r', '--require', '--import', '--loader', '--experimental-loader', '--env-file', '--config', '-c', '--allow-net', '--allow-read'], ci: false },
+  sh: { inline: ['-c'], value: ['-o', '-O', '--init-file', '--rcfile'], ci: false },
+  ps: { inline: ['-command', '-c', '-encodedcommand', '-enc', '-e'], value: ['-executionpolicy', '-ep', '-workingdirectory', '-wd'], ci: true },
+  pl: { inline: ['-e', '-E', '-r'], value: ['-I', '-M'], ci: false },
+};
+const familyOf = (prog) => (/^(python|py$|pythonw)/i.test(prog) ? 'py' : /^(node|deno|bun|ts-node|tsx)/i.test(prog) ? 'js'
+  : /^(pwsh|powershell)/i.test(prog) ? 'ps' : /^(perl|ruby|php)/i.test(prog) ? 'pl' : 'sh');
+const baseName = (a) => String(a || '').split(/[\\/]/).pop();
+// Kod faktycznie wykonywany: { files, inline }. Rekurencja przez `--` (menedzer sekretow (np. Infisical CLI)) i runnery (`uv run`, `npx x`).
+function executedCode(argv) {
+  const out = { files: [], inline: [] };
+  const add = (r) => { out.files.push(...r.files); out.inline.push(...r.inline); };
+  const prog = baseName(argv[0]);
+  // Plik uruchomiony wprost (`./mm.py`, `./m.pl`, shebang bez rozszerzenia) — takze po `--` mostu (security-review v3).
+  if (/[\\/]/.test(String(argv[0] || '')) && !INTERPRETER_RX.test(prog) && !RUNNER_RX.test(prog)) out.files.push(String(argv[0]));
+  if (RUNNER_RX.test(prog)) {
+    const k = argv.findIndex((a, i) => i > 0 && ['run', 'exec', 'x'].includes(a));
+    const rest = k > 0 ? argv.slice(k + 1) : argv.slice(1).filter((a) => !a.startsWith('-'));
+    if (rest.length) add(INTERPRETER_RX.test(baseName(rest[0])) ? executedCode(rest) : { files: [rest[0]], inline: [] });
+  } else if (INTERPRETER_RX.test(prog) || ['deno', 'bun'].includes(prog.toLowerCase())) {
+    const fam = familyOf(prog);
+    const F = FLAGS[fam];
+    const norm = (a) => (F.ci ? a.toLowerCase() : a);
+    for (let k = 1; k < argv.length; k++) {
+      const a = String(argv[k]);
+      const n = norm(a);
+      if ((fam === 'js' && a === '--check') || (fam === 'sh' && /^-[a-z]*n[a-z]*$/.test(a))) break; // tylko skladnia
+      if (F.inline.includes(n)) { out.inline.push(String(argv[k + 1] || '')); break; }
+      const eq = /^(--[a-z-]+)=([\s\S]*)$/i.exec(a); // `node --eval=KOD`
+      if (eq && F.inline.includes(norm(eq[1]))) { out.inline.push(eq[2]); break; }
+      // Sklejone krotkie flagi `python -Ic`, `bash -xc` (inline = nastepny argument) i doklejony kod `-c"KOD"` -> `-cKOD`.
+      // Sklejone flagi z inline na koncu: py/sh `-Ic`/`-xc`, js `-pe`, perl/ruby `-le`/`-ne`, php `-nr` (code-review v3).
+      const INLINE_TAIL = { py: 'c', sh: 'c', js: 'ep', pl: 'eEr', ps: '' }[fam];
+      if (INLINE_TAIL && /^-[A-Za-z]+$/.test(a) && a.length > 2 && INLINE_TAIL.includes(a.slice(-1))) { out.inline.push(String(argv[k + 1] || '')); break; }
+      if (fam === 'js' && /^deno/i.test(prog) && a === 'eval') { out.inline.push(String(argv[k + 1] || '')); break; }
+      if ((fam === 'py' || fam === 'sh') && /^-c./s.test(a)) { out.inline.push(a.slice(2)); break; }
+      if (fam === 'py' && a === '-m') break; // modul — znana granica (pg/known-limits.md)
+      if (fam === 'ps' && (n === '-file' || n === '-f')) { out.files.push(String(argv[k + 1] || '')); break; }
+      if (F.value.includes(n)) { k++; continue; }
+      if (a.startsWith('-') || a === 'run') continue; // `deno run x.ts`, `bun run x.ts`
+      out.files.push(a);
+      break;
+    }
+  }
+  argv.forEach((a, i) => { if (a === '--' && i > 0) add(executedCode(argv.slice(i + 1))); });
+  return out;
+}
+function scriptMergeFromFile(cmd, ctx) {
+  const { files, inline } = executedCode([cmd.prog, ...cmd.argv.slice(1)]);
+  if (/\.(py|[cm]?js|ts|sh|ps1)$/i.test(cmd.prog)) files.push(cmd.prog); // `./m.py` uruchomiony wprost (shebang)
+  if (INTERPRETER_RX.test(baseName(cmd.prog))) { // kod na stdin: `python < x.py`, `python - <<EOF`
+    for (const r of cmd.redirects || []) if (r.op === '<') files.push(r.target);
+    for (const h of [].concat(cmd.heredocs || [])) if (h && h.body) inline.push(String(h.body));
+  }
+  const hit = (txt) => SCRIPT_MERGE_RX.test(txt) && SCRIPT_NET_RX.test(txt);
+  if (inline.some(hit)) return true;
+  return files.filter(Boolean).some((a) => {
+    let full = normalizePath(expandVars(a, ctx.env), ctx.cwd);
+    // `node mm` (node dokleja .js), `python katalog/` (__main__.py) — security-review v2.
+    const exists = (p) => { try { return fs.statSync(p); } catch (e) { return null; } };
+    const st0 = exists(full);
+    if (!st0) full = ['.js', '.mjs', '.cjs', '.ts', '.py'].map((x) => full + x).find((p) => exists(p)) || full;
+    else if (st0.isDirectory()) full = ['__main__.py', 'index.js', 'main.py'].map((x) => require('path').join(full, x)).find((p) => exists(p)) || full;
+    const slash = toSlash(full);
+    if (TRUSTED_SCRIPTS.has(slash) || slash.startsWith(TRUSTED_HOOKS_DIR)) return false;
+    let txt;
+    try {
+      if (!fs.statSync(full).isFile()) return false;
+      txt = fs.readFileSync(full, 'utf8').slice(0, 2000000);
+    } catch (e) {
+      return Boolean(e) && e.code !== 'ENOENT'; // istnieje, a nieczytelny = blokada; brak pliku = interpreter i tak padnie
+    }
+    return hit(txt);
+  });
 }
 // Programy czytajace plik na stdout (`cat f | claude -p`).
 const READER_RX = /^(cat|type|get-content|gc|head|tail|more|less|tac|sed|awk|grep|cut|tr|sort)$/;

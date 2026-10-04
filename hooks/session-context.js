@@ -11,8 +11,9 @@ let input = {};
 try { input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}'); } catch (e) {}
 const reason = input.session_start_reason || input.source || 'unknown';
 // Katalog pamieci: env > vault Obsidiana wlasciciela > ~/.claude/memory (wersja publiczna PG: to samo, bez dysku <backup-drive>:).
-const OWNER_MEM = '~/.claude/memory';
-const MEM = process.env.MAS_MEMORY_DIR || (fs.existsSync(OWNER_MEM) ? OWNER_MEM : path.join(require('os').homedir(), '.claude', 'memory'));
+// Linux (laptop, 2026-10-02): vault z Syncthinga ~/Obsidian/MAIN, lokalnie, dziala tez gdy SSHFS ~/D lezy.
+const OWNER_MEM = ['~/.claude/memory', path.join(require('os').homedir(), 'Obsidian', 'MAIN', 'Claude Memory')].find((p) => fs.existsSync(p));
+const MEM = process.env.MAS_MEMORY_DIR || OWNER_MEM || path.join(require('os').homedir(), '.claude', 'memory');
 const CAP_TOTAL = 40000; // ~10k tokenow; twardy sufit
 const FILES = [
   ['RESUME.md', 6000, 'punkt kontrolny biezacej pracy (czytaj PIERWSZY)'],
