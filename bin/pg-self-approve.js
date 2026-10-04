@@ -21,7 +21,7 @@ const CLAUDE_DIR = path.join(os.homedir(), '.claude');
 const HOOKS_LIB = path.join(CLAUDE_DIR, 'hooks', 'lib');
 const overrides = require(path.join(HOOKS_LIB, 'overrides.js'));
 const gateLog = require(path.join(HOOKS_LIB, 'gate-log.js'));
-const { aggregate } = require(path.join(__dirname, 'pg-aggregate.js'));
+const { aggregate, validateRoleFile } = require(path.join(__dirname, 'pg-aggregate.js'));
 
 const REQUIRED_ROLES = ['security', 'code'];
 // Dodatkowe dzialy per wyjatek (data-review 2026-10-02: PII bez recenzji danych).
@@ -67,6 +67,14 @@ function currentFingerprint(repo, files) {
   return fingerprint(diff);
 }
 
+/** Sciezka wystepuje w tekscie jako cala nazwa (nastepny znak nie przedluza nazwy katalogu). */
+function mentionsPath(text, p) {
+  for (let i = text.indexOf(p); i >= 0; i = text.indexOf(p, i + 1)) {
+    if (!/[\w.-]/.test(text.charAt(i + p.length))) return true;
+  }
+  return false;
+}
+
 /** Transkrypty subagentow wymieniajace przebieg: [{ role, sid, reviewedAt, ruleIds }]. Szuka tylko swiezych (< 2 h). */
 function reviewerTranscripts(run, now) {
   const runNorm = norm(path.resolve(run));
@@ -87,7 +95,8 @@ function reviewerTranscripts(run, now) {
         if (!m) continue;
         const raw = fs.readFileSync(jsonl, 'utf8');
         const text = norm(raw);
-        if (!text.includes(runNorm) && !text.includes('/' + runBase + '/')) continue;
+        // Granica nazwy (code-review 2026-10-04): `pg-review-1` nie moze pasowac do transkryptu przebiegu `pg-review-1-r2`.
+        if (!mentionsPath(text, runNorm) && !text.includes('/' + runBase + '/')) continue;
         // Czas recenzji = najpozniejszy `timestamp` wpisu w transkrypcie, nie mtime pliku (security-review 2026-10-02: `touch`).
         const stamps = [...raw.matchAll(/"timestamp":"([^"]+)"/g)].map((x) => Date.parse(x[1])).filter((n) => n > 0);
         if (!stamps.length) continue;
@@ -95,7 +104,10 @@ function reviewerTranscripts(run, now) {
         // 2026-10-02: `touch -r` cofal mtime podmienionych pustych findings).
         // Tylko z WEJSC narzedzi recenzenta (tool_use), nie z wynikow — przeczytane pliki maja cudze rule_id.
         const ruleIds = [...new Set([...toolInputsText(raw).matchAll(/rule_id\\*"\s*:\s*\\*"([A-Za-z0-9_.:-]+)/g)].map((x) => x[1]))];
-        out.push({ role: m[1] || m[2], sid: sess, reviewedAt: Math.max(...stamps), ruleIds });
+        const entry = { role: m[1] || m[2], sid: sess, reviewedAt: Math.max(...stamps), ruleIds, file: jsonl };
+        // Weryfikator: jego wlasne wyjscie (komendy + tekst) — werdykty w verdicts.json musza w nim byc (security-review 2026-10-04).
+        if (entry.role === 'verifier') entry.ownText = toolInputsText(raw);
+        out.push(entry);
       }
     }
   }
@@ -138,7 +150,31 @@ function safeList(dir) {
  * Czysta decyzja. Wejscie: nazwy, powod, agregacja, wiek przebiegu, odciski, transkrypty recenzentow i mtime findings.
  * Zwraca { why } (odmowa) albo { sid } (sesja, ktorej wydac wyjatek).
  */
-function evaluate({ names, reason, agg, runAgeMs, reviewFp, currentFp, transcripts, findingsMtime, patchMtime = 0, findingsIds = {} }) {
+/** Obiekty `{...}` (bez zagniezdzen) z wyjscia weryfikatora -> klucze "finding_id|verdict|severity_after". */
+function verifierVerdictKeys(text) {
+  const keys = new Set();
+  const flat = String(text || '').replace(/\\[nrt]/g, ' ').replace(/\\/g, '');
+  for (const obj of flat.match(/\{[^{}]*\}/g) || []) {
+    const kv = {};
+    for (const m of obj.matchAll(/"(finding_id|verdict|severity_after)"\s*:\s*"([^"]*)"/g)) kv[m[1]] = m[2];
+    if (kv.finding_id && kv.verdict) keys.add(`${kv.finding_id}|${kv.verdict}|${kv.severity_after || ''}`);
+  }
+  return keys;
+}
+
+/**
+ * Werdykty z verdicts.json, ktorych (finding_id, verdict, severity_after) NIE ma w zadnym obiekcie JSON z wyjscia weryfikatora.
+ * security-review 2026-10-04 (r3 pg-merge): sam transkrypt weryfikatora + przepisany verdicts.json (`touch -d`) zmienialy
+ * werdykt; code-review d5ff01b: takze severity_after (pg-aggregate obniza nim severity). Nie-tablica = wszystko obce.
+ */
+function unboundVerdicts(verdicts, verifierTexts) {
+  if (!Array.isArray(verdicts)) return ['(verdicts nie jest tablica)'];
+  const known = new Set(verifierTexts.flatMap((t) => [...verifierVerdictKeys(t)]));
+  return verdicts.filter((v) => !known.has(`${v && v.finding_id}|${v && v.verdict}|${(v && v.severity_after) || ''}`))
+    .map((v) => String(v && v.finding_id));
+}
+
+function evaluate({ names, reason, agg, runAgeMs, reviewFp, currentFp, transcripts, findingsMtime, patchMtime = 0, findingsIds = {}, verdicts = [] }) {
   const roles = rolesFor(names);
   if (!names.length) return { why: 'brak --allow ALLOW_X' };
   const notB = names.filter((n) => overrides.tierOf(n) !== 'B');
@@ -168,6 +204,8 @@ function evaluate({ names, reason, agg, runAgeMs, reviewFp, currentFp, transcrip
   if (Number.isFinite(findingsMtime.verifier)) {
     const ver = (transcripts || []).filter((t) => t.role === 'verifier' && t.reviewedAt >= findingsMtime.verifier - 2000);
     if (!ver.length) return { why: 'verdicts.json bez transkryptu subagenta verifier (albo zmieniony po nim) — werdykty wydaje weryfikator, nie orkiestrator' };
+    const obce = unboundVerdicts(verdicts, ver.map((t) => t.ownText));
+    if (obce.length) return { why: `verdicts.json ma werdykty, ktorych weryfikator nie wydal (${obce.slice(0, 5).join(', ')}) — podmiana po weryfikacji` };
     ver.forEach((t) => sids.add(t.sid));
   }
   if (sids.size !== 1) return { why: `recenzenci z roznych sesji (${[...sids].join(', ')}) — wyjatek nalezy do jednej sesji` };
@@ -226,16 +264,18 @@ function main(argv) {
     try { findingsMtime[role] = fs.statSync(path.join(run, `findings.${role}.json`)).mtimeMs; } catch (e) { findingsMtime[role] = Infinity; }
   }
   try { findingsMtime.verifier = fs.statSync(path.join(run, 'verdicts.json')).mtimeMs; } catch (e) { /* brak = agregacja bez werdyktow */ }
+  // Tylko WAZNE findings (pg-aggregate je liczy): finding z wyczyszczonym `evidence` odpada z agregacji, wiec nie moze
+  // tez liczyc sie jako „zachowany" (security-review 2026-10-04, AUTOMERGE-FINDINGS-EVIDENCE-STRIP).
   const findingsIds = {};
   for (const role of rolesFor(names)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(path.join(run, `findings.${role}.json`), 'utf8'));
-      findingsIds[role] = (data.findings || []).map((f) => String((f && f.rule_id) || ''));
-    } catch (e) { findingsIds[role] = []; }
+    const file = path.join(run, `findings.${role}.json`);
+    findingsIds[role] = fs.existsSync(file) ? validateRoleFile(file).valid.map((f) => String(f.rule_id || '')) : [];
   }
+  let verdicts = [];
+  try { verdicts = (JSON.parse(fs.readFileSync(path.join(run, 'verdicts.json'), 'utf8')).verdicts) || []; } catch (e) { /* brak = bez weryfikatora */ }
   const verdict = evaluate({
     names, reason, agg, runAgeMs, reviewFp: fingerprint(patch), currentFp, transcripts: reviewerTranscripts(run, now), findingsMtime,
-    patchMtime: patch === null ? Infinity : fs.statSync(patchFile).mtimeMs, findingsIds,
+    patchMtime: patch === null ? Infinity : fs.statSync(patchFile).mtimeMs, findingsIds, verdicts,
   });
   if (verdict.why) return refuse(verdict.why);
   let grants;
@@ -248,6 +288,7 @@ function main(argv) {
   return 0;
 }
 
-module.exports = { evaluate, fingerprint, filesOfPatch, runKey, rolesFor, REQUIRED_ROLES, main };
+// reviewerTranscripts: tez dla pg-merge-bezpieczny.py (dowod recenzji T1/T2 = transkrypty, nie same pliki).
+module.exports = { evaluate, fingerprint, filesOfPatch, runKey, rolesFor, reviewerTranscripts, mentionsPath, unboundVerdicts, REQUIRED_ROLES, main };
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));

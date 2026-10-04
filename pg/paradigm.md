@@ -22,7 +22,7 @@ jak dodac pole do formularza?) uzywajac TYLKO README/ARCHITECTURE/ADR/kodu. <8/1
 | **Dane = plain objects + typy** | `type`/`interface` + obiekty; brak getterow/setterow, brak `this` w logice | `rg "get \w+\(\)|set \w+\("` w `src/lib` = 0 |
 | **Niemutowalnosc** | `const`, spread/`structuredClone`, `readonly`/`ReadonlyArray` w typach publicznych; nigdy mutacja parametru | `prefer-const`, `no-param-reassign` = error |
 | **Kompozycja > dziedziczenie** | `extends` tylko dla `Error` i klas frameworka; glebokosc 1; brak abstrakcyjnych klas bazowych „na przyszlosc" | `rg "class \w+ extends (?!Error)"` -> kazdy hit potrzebuje ADR |
-| **Polimorfizm przez unie, nie hierarchie** | `type Payment = {kind:'rapyd',...} \| {kind:'cash',...}` + `switch` z `never` na koncu | `@typescript-eslint/switch-exhaustiveness-check: error` |
+| **Polimorfizm przez unie, nie hierarchie** | `type Payment = {kind:'payment-gateway',...} \| {kind:'cash',...}` + `switch` z `never` na koncu | `@typescript-eslint/switch-exhaustiveness-check: error` |
 | **Parse, don't validate** | dane z zewnatrz (formularz, webhook, API, DB row) przechodza przez `zod.safeParse` NA GRANICY i dalej sa typowane; wewnatrz zero `as` | `rg "as unknown as|as any"` = 0 w `src/`; walidacja tylko w warstwie brzegowej |
 | **Bledy** | brzeg: `Result`/`safeParse` (total function); srodek: `throw` typowanego bledu (`class XError extends Error` z `code`); zero pustych `catch` | lint-file blokuje `catch` bez logu/rethrow (fleet-metrics: silentCatch) |
 | **Closures** | OK do enkapsulacji stanu w hookach/fabrykach (`createClient(config)`); NIE do „sprytnych" HOF | funkcja zwracajaca funkcje = max 1 poziom |

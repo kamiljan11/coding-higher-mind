@@ -24,8 +24,8 @@ override, not a mandate.
 - **MCP servers** — build with the `mcp-builder` skill only when a capability is reused across sessions/agents; otherwise call the API directly from n8n or a script.
 
 **Payments & identity (Iceland)**
-- **Rapyd** — cards / subscriptions. **Straumur** — domestic ISK payments. **Stripe** — exploratory BaaS. Always use the processor; never handle raw card data (keeps you out of PCI scope).
-- **Signicat + Dokobit + Audkenni (CIBA)** — legal Icelandic eID and e-signature. Never build identity verification yourself.
+- **payment-gateway** — cards / subscriptions. **local-acquirer** — domestic ISK payments. **Stripe** — exploratory BaaS. Always use the processor; never handle raw card data (keeps you out of PCI scope).
+- **esign-provider + esign-provider-b + eid-provider (CIBA)** — legal Icelandic eID and e-signature. Never build identity verification yourself.
 
 **Comms & ops**
 - **Twilio** — SMS / OTP / notifications. **RetellAI** — AI voice phone agents (reserve for genuine real-time phone needs).
@@ -48,8 +48,8 @@ Start here. Deviate only where a context constraint forces it, and record the de
 Lovable/React (Cloudflare Pages)
   → Cloudflare Worker API
     → Supabase (Postgres + Auth + Storage)
-  → payments via Rapyd/Straumur (hosted checkout)
-  → identity via Signicat/Audkenni only if legal eID is required
+  → payments via payment-gateway/local-acquirer (hosted checkout)
+  → identity via esign-provider/eid-provider only if legal eID is required
   → Sentry for errors
 ```
 No microservices, no queue, no cache, no separate vector DB until a named constraint appears.
@@ -72,7 +72,7 @@ when volume is spiky or lost events are costly (e.g. payments).
 Lovable/React static-ish build (Cloudflare Pages) · ISNIC domain
   → forms → email or n8n webhook (no backend by default)
   → Supabase only if real accounts/data are needed
-  → integrate commodities: Cal.com (booking), Stripe/Straumur (pay), reviews widget, embedded maps
+  → integrate commodities: Cal.com (booking), Stripe/local-acquirer (pay), reviews widget, embedded maps
   → hardcoded content unless the client truly self-edits → then a light CMS
 ```
 SEO and load speed matter; the client usually won't maintain anything complex. Simplicity is the

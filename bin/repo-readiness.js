@@ -128,7 +128,7 @@ const score = (id, name, points, max, why) => results.push({ id, name, points: M
 // R8 .env.example (5)
 {
   const env = read('.env.example') || read('.env.sample');
-  const needsEnv = /process\.env|import\.meta\.env|Deno\.env/.test(read('src/main.tsx') + read('src/App.tsx')) || (pkg && /supabase|stripe|rapyd|resend|twilio/i.test(JSON.stringify(pkg.dependencies || {})));
+  const needsEnv = /process\.env|import\.meta\.env|Deno\.env/.test(read('src/main.tsx') + read('src/App.tsx')) || (pkg && /supabase|stripe|payment-gateway|resend|twilio/i.test(JSON.stringify(pkg.dependencies || {})));
   // Realna wartosc po `=`: JWT, klucz sk_/sk-/pk_/sbp_, dlugi hex/base64 z mieszanka znakow. Placeholdery
   // (`your_`, `xxx`, `<...>`, `changeme`, `example`, URL projektu) NIE sa wyciekiem — false positive z 2026-09-05
   // (3 agenty zglosily R8 na czystych .env.example).

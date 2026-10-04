@@ -1,5 +1,5 @@
 {
- "sealed_at": "2026-10-04T12:33:55.557Z",
+ "sealed_at": "2026-10-04T14:18:24.509Z",
  "files": {
   "hooks/bash-guard.js": "375a563f23f48c2f3aae7f3fab536cf6e5f570319a6ef3a7bf09a5edcba8b108",
   "hooks/edit-guard.js": "056a13090bd2c4b3ddcc255859b96538e5ab12b87b29141ed0c0277623ad3444",
@@ -11,7 +11,7 @@
   "hooks/precompact-snapshot.js": "37e43e594893e505c3a0bb3d649874591b529211ee79dffd66fddd44e943fd66",
   "hooks/prompt-guard.js": "42daf2ef0f310e43c5fa9b05e641c7b1d2220949997112c0c7e6b11c4c0e11c5",
   "hooks/session-context.js": "8dda3cbff550fdd611bf435552526608a8a419c90168b5155904363014fce5a1",
-  "hooks/stop-gate.js": "e3477cfb906bc8cf1b45d166f731ff569d632951db884b19ec1a00d8c2324f63",
+  "hooks/stop-gate.js": "d22c2ae719c30a65dfbc284e86dd1f12572a1f4f691e469be9bc29dccdf5de4b",
   "hooks/lib/arch-signals.js": "58ea3dae32be7347c9c910ec81f995e1d3f0e8e386675e95c5ce90ed655e5ecd",
   "hooks/lib/bash-rules.js": "081c23169802bab363c403cf45056ea209bcf0d44330eabcc1a088eb006c0dca",
   "hooks/lib/gate-log.js": "de9f1cb0b961d1de53f97ffcf09fbdbc5e46b60cacb24725ca83b0766b8c51f7",

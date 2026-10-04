@@ -39,7 +39,7 @@ depend on it?"
 ### 5. Regulatory & compliance exposure
 "Any regulated data or process — payments, identity, health, personal data, audit trails?"
 - **Why:** Compliance imposes non-negotiable structure (data residency, audit logs, verified identity, consent). Cheaper to design in than retrofit.
-- **Pushes (Iceland-specific for uzytkownik):** Payments → PCI scope avoided by using Rapyd/Straumur/Stripe, never touching raw card data. Identity verification → Signicat/Dokobit/Audkenni (CIBA), not a homegrown flow. Personal data → GDPR: data minimization, deletion paths, EU/EEA residency.
+- **Pushes (Iceland-specific for uzytkownik):** Payments → PCI scope avoided by using payment-gateway/local-acquirer/Stripe, never touching raw card data. Identity verification → esign-provider/esign-provider-b/eid-provider (CIBA), not a homegrown flow. Personal data → GDPR: data minimization, deletion paths, EU/EEA residency.
 
 ### 6. Time horizon & budget
 "Is this a throwaway prototype, an MVP to validate, or a long-lived product you'll grow for years? What's the budget — time and money?"

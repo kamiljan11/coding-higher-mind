@@ -29,7 +29,7 @@ const cases = [
   ['<task-notification>\n<task-id>a1</task-id>\n<result>Fix the bug in repo, deploy to vercel, run tests</result>\n</task-notification>', 'SKIP', 'koperta subagenta'],
   ['Stop hook feedback: [node stop-gate.js]: STOP ZABLOKOWANY [review] w repo: Zmiana T2 bez recenzji, odpal pg-review', 'SKIP', 'echo stop-gate'],
   ['```\nTypeError: cannot read property of undefined at build (api.ts:12)\n```\nco to?', 'SKIP', 'wklejony stack trace + krotkie pytanie'],
-  ['dodaj płatności Rapyd do checkoutu w aplikacji', 'TRIGGER+KOD', 'polskie znaki: aplikacji/płatności'],
+  ['dodaj płatności payment-gateway do checkoutu w aplikacji', 'TRIGGER+KOD', 'polskie znaki: aplikacji/płatności'],
 ];
 
 let failures = 0;

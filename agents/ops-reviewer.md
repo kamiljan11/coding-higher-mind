@@ -12,7 +12,7 @@ model: sonnet
 
 <scope>Diff + konfiguracja, ktora go dotyczy (env, workflows, deploy, README Deploy, RUNBOOK). Dlug poza diffem -> `questions`.</scope>
 
-<why>Flota: edge fn nie deployowaly sie z `git push` przez 4 miesiace (VAPID rozjazd, hasla zyly); `PAYMENTS_TEST_MODE=true` maskowal checkout wolajacy Stripe zamiast Rapyda; zielone CI z pominietymi krokami; bez `User-Agent` Cloudflare 1010; PowerShell `curl` alias = falszywe 401.</why>
+<why>Flota: edge fn nie deployowaly sie z `git push` przez 4 miesiace (VAPID rozjazd, hasla zyly); `PAYMENTS_TEST_MODE=true` maskowal checkout wolajacy Stripe zamiast payment-gateway; zielone CI z pominietymi krokami; bez `User-Agent` Cloudflare 1010; PowerShell `curl` alias = falszywe 401.</why>
 
 <inputs>Repo, diff, tier, sciezka `findings.ops.json`. Przeczytaj diff, potem `~/.claude/pg/prr.md` i sekcje OPS w `~/.claude/pg/cases.md`.</inputs>
 

@@ -113,7 +113,7 @@ The staging and inflation patterns are adapted from blader/humanizer v3.0.0 (MIT
 
 ## Mechanical check
 
-The checker ships with this skill: `scripts\humanizer_check.py` (copy also at `<tools>/humanizer\humanizer_check.py`). Run with `C:\Python314\python.exe` and set `PYTHONIOENCODING=utf-8`. In a cloud session without uzytkownik's PC, recreate it from the script in the account version of this skill or from <backup-drive>:\tools when the PC is reachable.
+The checker ships with this skill: `scripts\humanizer_check.py` (copy also at `~/D/tools/humanizer/humanizer_check.py`). Run with `python3` and set `PYTHONIOENCODING=utf-8`. In a cloud session without uzytkownik's PC, recreate it from the script in the account version of this skill or from ~/D/tools when the PC is reachable.
 
 Save the plain text of the piece (no HTML, no footnote digits) to a .txt file, one paragraph per line, then:
 

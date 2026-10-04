@@ -1,0 +1,119 @@
+{
+  "_comment": "Opisy kart na kamiljan.com/claude (zakladka Skills) w obu jezykach. Eksporter (bin/pg-export-public.py) dokleja je do skills.json jako summary_pl / summary_en. Brak wpisu = karta pokazuje opis zrodlowy.",
+  "skills": {
+    "pg-review": {
+      "pl": "Recenzja zmiany jak w software housie: poziom ryzyka liczony z diffu, kilku recenzentów-specjalistów sprawdza zmianę równolegle, skrypt łączy ich wnioski, a weryfikator próbuje je obalić.",
+      "en": "Code review the way a software house does it: the risk tier comes from the diff, several specialist reviewers check the change in parallel, a script merges their findings and a verifier tries to disprove them."
+    },
+    "pg-council": {
+      "pl": "Wspólna decyzja jako protokół, nie czat: fakty i stanowiska działów zbierane niezależnie, obowiązkowy adwokat diabła, agregacja w kodzie i zapis decyzji (ADR) razem ze zdaniem odrębnym.",
+      "en": "A group decision as a protocol, not a chat: each department gathers facts and positions independently, a devil's advocate is mandatory, a script aggregates, and the decision record (ADR) keeps the dissent."
+    },
+    "anti-sycophancy": {
+      "pl": "Przeciwwaga dla przytakiwania: Claude sprawdza, zanim się zgodzi, nazywa błędne założenia i nie ogłasza sukcesu bez dowodu.",
+      "en": "A counterweight to agreeing too easily: Claude checks before it agrees, names false premises and never reports success without evidence."
+    },
+    "verify-audit": {
+      "pl": "Protokół weryfikacji, który traktuje twierdzenie jako fałszywe, dopóki źródło nie pokaże, że jest prawdziwe.",
+      "en": "A verification protocol that treats a claim as false until the source proves it true."
+    },
+    "ultra-loop": {
+      "pl": "Pętla „poproś raz, dojedź do końca”: definicja ukończenia, potem cykle implementacji, weryfikacji i oceny, aż każdy wymiar osiągnie próg.",
+      "en": "An “ask once, finish the job” loop: a definition of done, then cycles of implement, verify and score until every dimension meets its threshold."
+    },
+    "gauntlet-build": {
+      "pl": "Budowa przez wielu agentów: specyfikacja podzielona na jednostki, builder i krytyk ze świeżym kontekstem, bramki deterministyczne i weryfikator, aż do poprzeczki.",
+      "en": "A multi-agent build: the spec split into units, a builder and a critic with fresh context, deterministic gates and a verifier, until the bar is met."
+    },
+    "architecture-advisor": {
+      "pl": "Decyzje architektoniczne przez kompromisy i realny kontekst, a nie modę: wybór architektury nowego projektu, audyt istniejącej i propozycje zmian.",
+      "en": "Architecture decisions through trade-offs and real context, not hype: choosing an architecture for a new project, auditing an existing one and proposing changes."
+    },
+    "systematic-debugging": {
+      "pl": "Debugowanie w czterech fazach aż do przyczyny źródłowej, zamiast zgadywania i łatania objawów.",
+      "en": "Four-phase debugging down to the root cause, instead of guessing and patching symptoms."
+    },
+    "caveman-code": {
+      "pl": "Tryb „jaskiniowca” do pracy z kodem: odpowiedzi i prompty subagentów skrócone do minimum tokenów bez utraty sensu.",
+      "en": "Caveman mode for coding work: replies and subagent prompts cut to the fewest tokens without losing meaning."
+    },
+    "divergent-thinking": {
+      "pl": "Zamiast pierwszego rozwiązania, które działa: kilka wariantów, darmowe i kreatywne alternatywy, a potem wybór sprawdzony na tle pozostałych.",
+      "en": "Instead of the first solution that works: several options, free and creative alternatives, then a choice checked against the rest."
+    },
+    "model-router": {
+      "pl": "Dobiera model Claude (Opus, Sonnet albo Haiku) do zadania, żeby nie wydawać limitów na pracę, która ich nie wymaga.",
+      "en": "Picks the right Claude model (Opus, Sonnet or Haiku) for each task, so limits aren't spent on work that doesn't need them."
+    },
+    "diagrams": {
+      "pl": "Tworzy i aktualizuje diagramy architektury za każdym razem, gdy system albo przepływ jest projektowany, omawiany lub budowany.",
+      "en": "Creates and updates architecture diagrams whenever a system or a flow is being designed, discussed or built."
+    },
+    "humanizer": {
+      "pl": "Przegląd każdego tekstu, który wychodzi na zewnątrz (posty, maile, artykuły, teksty na stronę), żeby brzmiał jak napisany przez człowieka, a nie przez model.",
+      "en": "A pass over every text that goes out (posts, emails, articles, website copy) so it reads like a person wrote it, not a model."
+    },
+    "book-typesetting": {
+      "pl": "Zamienia surowy tekst albo markdown w profesjonalnie złożony PDF książki z nawigacją, bez zmiany ani jednego słowa autora.",
+      "en": "Turns raw text or markdown into a professionally typeset, navigable book PDF without changing a word of the author's content."
+    },
+    "landing-design-patterns": {
+      "pl": "Katalog sprawdzonych efektów do landingów B2B (Next.js + Tailwind 4) z gotowym kodem: przyciski, menu, przełączane panele, karty i tła.",
+      "en": "A catalogue of proven effects for B2B landing pages (Next.js + Tailwind 4) with ready code: buttons, menus, switchable panels, cards and backgrounds."
+    },
+    "mobile-optimization": {
+      "pl": "Audyt wersji mobilnej na prawdziwych pomiarach (cele dotyku, czcionki, Core Web Vitals, przepełnienia, obrazy) i poprawki, także wzorce znane z aplikacji.",
+      "en": "Audits a site's mobile version with real measurements (touch targets, font sizes, Core Web Vitals, overflow, images) and applies fixes, including app-like patterns."
+    },
+    "web-bajery": {
+      "pl": "Encyklopedia około 230 efektów webowych: nazwa, fraza do wyszukania, biblioteka i ocena na telefonie dla każdego.",
+      "en": "An encyclopedia of about 230 web effects: the name, a search phrase, the library and a mobile rating for each one."
+    },
+    "rate-limit-auto-recovery-templates": {
+      "pl": "Wstawia do promptów zadań szablony wznawiania po limicie, z punktami kontrolnymi i logiką powrotu.",
+      "en": "Adds rate-limit recovery templates, with checkpoints and resume logic, to task prompts."
+    }
+  },
+  "agents": {
+    "catfish": {
+      "pl": "Adwokat diabła w naradzie pg-council: szuka najmocniejszego argumentu przeciw wiodącej opcji i przeciw status quo oraz faktów, których nikt nie wniósł.",
+      "en": "The devil's advocate in a pg-council decision: finds the strongest argument against the leading option and the status quo, plus facts nobody raised."
+    },
+    "code-reviewer": {
+      "pl": "Recenzja czytelności, poprawności, testów i obserwowalności zmiany, tylko do odczytu i ze świeżym kontekstem.",
+      "en": "Reviews a change for readability, correctness, tests and observability, read-only and with a fresh context."
+    },
+    "data-reviewer": {
+      "pl": "Migracje, schemat, indeksy i ograniczenia, kompletność RLS nowych tabel, zapytania N+1, transakcje, zgodność wsteczna i odtwarzanie.",
+      "en": "Migrations, schema, indexes and constraints, RLS coverage of new tables, N+1 queries, transactions, backward compatibility and restore."
+    },
+    "landscape-reader": {
+      "pl": "Czyta niezaufaną treść z cudzych repozytoriów, mając wyłącznie dostęp do sieci: bez plików i powłoki, więc wrogi tekst nie ma czym sięgnąć po sekrety.",
+      "en": "Reads untrusted content from other people's repositories with web access only: no files and no shell, so hostile text has nothing to reach secrets with."
+    },
+    "ops-reviewer": {
+      "pl": "Ścieżka wdrożenia, flagi środowiska, timeouty i ponowienia, logi z kontekstem bez danych osobowych, rollback, koszt i to, czy bramki CI naprawdę działają.",
+      "en": "Deploy path, environment flags, timeouts and retries, logs with context but no personal data, rollback, cost, and whether CI gates really run."
+    },
+    "product-reviewer": {
+      "pl": "Czy zmiana rozwiązuje nazwany problem, trzyma się zakresu, ma metrykę i czy obca osoba przejmie projekt; to, co klient będzie zmieniał, ma być danymi, a nie kodem.",
+      "en": "Whether a change solves the named problem, stays in scope, has a metric and can be handed over to a stranger; what the client will change should be data, not code."
+    },
+    "qa-reviewer": {
+      "pl": "Uruchamia aplikację zamiast czytać sam diff: odtwarza kryterium akceptacji kliknięciami i sprawdza ścieżki krytyczne na równoległych, odizolowanych instancjach.",
+      "en": "Runs the app instead of reading only the diff: replays the acceptance criterion by clicking and checks critical paths on parallel, isolated instances."
+    },
+    "security-reviewer": {
+      "pl": "STRIDE, OWASP ASVS i lekcje z wcześniejszych incydentów (RLS, IDOR, wyścigi, sekrety) dla zmian w logowaniu, płatnościach, migracjach i webhookach.",
+      "en": "STRIDE, OWASP ASVS and lessons from past incidents (RLS, IDOR, race conditions, secrets) for changes to auth, payments, migrations and webhooks."
+    },
+    "ux-reviewer": {
+      "pl": "Stany interfejsu, słownictwo w trzech językach, waluty i daty, dostępność, mobile i potwierdzenia nieodwracalnych akcji.",
+      "en": "UI states, wording in three languages, currencies and dates, accessibility, mobile, and confirmations for irreversible actions."
+    },
+    "verifier": {
+      "pl": "Po agregacji próbuje obalić każde znalezisko: ponownie uruchamia komendę dowodu i wydaje werdykt: odtworzone, nieodtworzone albo nie da się uruchomić.",
+      "en": "After aggregation it tries to disprove each finding: reruns the evidence command and returns reproduced, not reproduced or cannot run."
+    }
+  }
+}
