@@ -58,12 +58,13 @@ function normalizePath(raw, cwd) {
 const H = normalizePath(HOME);
 const C = H + '/.claude';
 // Prefiksy (katalogi) i pliki warstwy kontrolnej. Porownanie na znormalizowanych sciezkach.
-const CONTROL_DIRS = [C + '/hooks/', C + '/git-hooks/', C + '/bin/', C + '/agents/', C + '/scheduled-tasks/', C + '/logs/overrides/'];
+const CONTROL_DIRS = [C + '/hooks/', C + '/git-hooks/', C + '/bin/', C + '/agents/', C + '/scheduled-tasks/', C + '/logs/overrides/', C + '/logs/stop-gate-wm/'];
 const CONTROL_FILES_RX = [
   new RegExp('^' + escapeRx(C) + '/settings(\\.local)?\\.json$'),
   // Granice zaufania i baseline odmow (security-review 2026-09-26: agent mogl sam dopisac zaufany katalog w pg/).
   // + migawka wpiec hookow (pg-wire.js): jedzie Syncthingiem na drugi komputer i trafia tam do settings.json (data-review 2026-09-26).
-  new RegExp('^' + escapeRx(C) + '/pg/(trusted-roots\\.txt|private-repos\\.txt|deny-baseline\\.json|settings-hooks\\.json)$'),
+  // + wylacznik samozatwierdzen (ops-review 2026-10-02: agent kasujacy plik sam przywracalby sobie poziomy A/B).
+  new RegExp('^' + escapeRx(C) + '/pg/(trusted-roots\\.txt|private-repos\\.txt|deny-baseline\\.json|settings-hooks\\.json|self-approval\\.off)$'),
   new RegExp('^' + escapeRx(C) + '/logs/gates(\\.\\d+)?\\.jsonl$'),
   new RegExp('^' + escapeRx(H) + '/\\.(gitconfig|bashrc|bash_profile|profile|zshrc|zprofile)$'),
   /\/documents\/(windows)?powershell\/[^/]*profile\.ps1$/,

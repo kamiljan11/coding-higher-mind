@@ -99,12 +99,10 @@ def render_root() -> str:
               "-> PR -> CI z `templates/repo/.github/workflows/*` -> `bin/mas_merge_prs.py` (merge tylko na aktualnym merge-ref) -> `bin/wait_prod_multi.py` (dowod z produkcji).",
               "Zakonczenie sesji: `hooks/stop-gate.js` (tier z diffu, T2+ wymaga recenzentow z `agents/` przez skill `pg-review`).",
               "", "## Katalogi", "", "| Katalog | Rola |", "|---|---|"]
+    # Bez licznikow plikow (2026-10-04): liczby roznily sie miedzy laptopem i Zenbookiem (skille-junctiony, porty),
+    # wiec --check byl zawsze czerwony na jednej z maszyn. Mapa opisuje role katalogow, nie ich rozmiar.
     for d, role in SECTIONS:
-        n = 0
-        for dp, dns, fns in os.walk(os.path.join(ROOT, d)):
-            dns[:] = [x for x in dns if x not in SKIP_DIRS]
-            n += len(fns)
-        lines.append(f"| `{d}/` ({n} plikow) | {role} |")
+        lines.append(f"| `{d}/` | {role} |")
     lines += ["", "## Testy systemu (zielone = dowod)", "",
               "`node bin/test_hooks_v3.js` · `node bin/test_slop_gates.js` · `node bin/test_dup_literals.js` · `node bin/pg-rule-coverage.js` · `python hooks/guard_health.py` (odpala wszystkie powyzsze)",
               "", "## Repo", "", "To repo = `<github-owner>/<your-private-pg-repo>` (prywatne). Poza gitem: transkrypty (`projects/`), telemetria (`logs/`), cache, poswiadczenia — patrz `.gitignore` (whitelist).", ""]

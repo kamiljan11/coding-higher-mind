@@ -16,6 +16,8 @@ const HOOKS = path.join(HOME, '.claude', 'hooks');
 const PROD_GATE_LOG = path.join(HOME, '.claude', 'logs', 'gates.jsonl');
 const GATE_LOG = path.join(os.tmpdir(), 'claude-hooktest-gates-' + process.pid + '.jsonl');
 process.env.PG_GATE_LOG = GATE_LOG;
+// Znaczniki stop-gate tez poza produkcyjnym logs/stop-gate-wm (2026-10-01 v2).
+process.env.PG_STOP_WM_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-stopwm-'));
 // Migawki PreCompact tez do %TEMP% — test nie moze pisac ani sprzatac produkcyjnego logs/precompact (code-review runda 3).
 const PRECOMPACT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-precompact-'));
 process.env.PG_PRECOMPACT_DIR = PRECOMPACT_DIR;
@@ -245,6 +247,13 @@ check('bash-guard: git status/log/diff w ~/.claude => 0', runHook('bash-guard.js
   fs.writeFileSync(path.join(fx, 'q.json'), '{"query":"mutation { mergePullRequest(input:{pullRequestId:\\"x\\"}) { clientMutationId } }"}');
   fs.writeFileSync(path.join(fx, 'ok.json'), '{"query":"query { viewer { login } }"}');
   fs.writeFileSync(path.join(fx, 'aliases.yml'), 'm: pr merge --admin\n');
+  // Merge schowany w skrypcie (2026-10-01): endpoint w pliku, nie w argv.
+  fs.writeFileSync(path.join(fx, 'merge-pr.py'), "import urllib.request\nurl = f'https://api.github.com/repos/o/r/pulls/{nr}/merge'\n");
+  fs.writeFileSync(path.join(fx, 'ok.py'), "print('pulls list only')\n");
+  // v2 (pg-review 2026-10-01): sklejany adres, os.system, skrypt powloki.
+  fs.writeFileSync(path.join(fx, 'concat.py'), "import urllib.request\nu = base + '/pulls/' + nr + '/merge'\n");
+  fs.writeFileSync(path.join(fx, 'sys.py'), "import os\nos.system('gh pr merge 5 --squash')\n");
+  fs.writeFileSync(path.join(fx, 'm.sh'), 'gh api -X PUT repos/o/r/pulls/5/merge\n');
   const bg = (command) => runHook('bash-guard.js', { tool_name: 'Bash', cwd: fx, tool_input: { command } }).status;
   const cases = [
     ['export $(<env2.txt) (plik .txt z ALLOW_*)', 'export $(<env2.txt) && git commit -m x', 2],
@@ -256,6 +265,33 @@ check('bash-guard: git status/log/diff w ~/.claude => 0', runHook('bash-guard.js
     ['gh api graphql --input q.json (merge w pliku)', 'gh api graphql --input q.json', 2],
     ['gh api graphql --input ok.json (query) przechodzi', 'gh api graphql --input ok.json', 0],
     ['gh alias import aliases.yml (pr merge)', 'gh alias import aliases.yml', 2],
+    ['python merge-pr.py (merge w skrypcie)', 'python merge-pr.py 45', 2],
+    ['most: run -- python merge-pr.py', 'infisical run --env=dev -- python merge-pr.py 45', 2],
+    ['python ok.py przechodzi', 'python ok.py', 0],
+    ['node --check skryptu nie uruchamia go', 'node --check merge-pr.py', 0],
+    ['--check jako argument skryptu nie zwalnia', 'python merge-pr.py 45 --check', 2],
+    ['python -W ignore merge-pr.py', 'python -W ignore merge-pr.py 45', 2],
+    ['python3.12 merge-pr.py', 'python3.12 merge-pr.py 45', 2],
+    ['uv run merge-pr.py', 'uv run merge-pr.py 45', 2],
+    ['python < merge-pr.py (stdin)', 'python < merge-pr.py', 2],
+    ['python -c z merge inline', "python -c \"import urllib.request; urllib.request.urlopen('https://api.github.com/repos/o/r/pulls/5/merge')\"", 2],
+    ['sklejany adres /pulls/ + /merge', 'python concat.py', 2],
+    ['os.system gh pr merge', 'python sys.py', 2],
+    ['bash m.sh', 'bash m.sh', 2],
+    ['python ok.py -W ignore przechodzi', 'python -W ignore ok.py', 0],
+    ['bash -x m.sh (flaga bool, v3)', 'bash -x m.sh', 2],
+    ['bash -e m.sh (flaga bool, v3)', 'bash -e m.sh', 2],
+    ['python -Ic inline', "python -Ic \"import urllib.request; urllib.request.urlopen('https://api.github.com/repos/o/r/pulls/5/merge')\"", 2],
+    ['echo KOD | python', "echo \"import urllib.request; urllib.request.urlopen('https://api.github.com/repos/o/r/pulls/5/merge')\" | python", 2],
+    ['node merge-pr bez rozszerzenia', 'node concat', 2],
+    ['./merge-pr.py wprost', './merge-pr.py 45', 2],
+    ['node -pe sklejone (v3)', "node -pe \"require('https').request('https://api.github.com/repos/o/r/pulls/5/merge')\"", 2],
+    ['perl -le sklejone (v3)', "perl -le 'use LWP; post(\"https://api.github.com/repos/o/r/pulls/5/merge\")'", 2],
+    ['most -- ./merge-pr.py (v3)', 'infisical run --env=dev -- ./merge-pr.py 45', 2],
+    ['deno eval (v3)', "deno eval \"fetch('https://api.github.com/repos/o/r/pulls/5/merge')\"", 2],
+    ['perl -e z merge', "perl -e 'use LWP; post(\"https://api.github.com/repos/o/r/pulls/5/merge\")' ; curl x", 2],
+    ['mas_merge_prs.py juz NIE jest zaufany', 'python "' + path.join(os.homedir(), '.claude', 'bin', 'mas_merge_prs.py').replace(/\\/g, '/') + '" o/r', fs.existsSync(path.join(os.homedir(), '.claude', 'bin', 'mas_merge_prs.py')) ? 2 : 0],
+    ['zaufany pg-merge-bezpieczny.py przechodzi', 'python ' + path.join(os.homedir(), '.claude', 'bin', 'pg-merge-bezpieczny.py').replace(/\\/g, '/') + ' o/r 1', 0],
     ['cat mint.txt | claude -p --resume', 'cat mint.txt | claude -p --resume abc', 2],
     ['claude -p "$(cat mint.txt)"', 'claude -p --resume abc "$(cat mint.txt)"', 2],
     ['cat plain.txt | claude -p przechodzi', 'cat plain.txt | claude -p', 0],
@@ -493,6 +529,91 @@ try {
   const r5b = runHook('stop-gate.js', { cwd: repoRisky, transcript_path: tAll });
   check('stop-gate: T3 ze WSZYSTKIMI wymaganymi (w tym fallback general-purpose + prefiks pluginu) => 0', r5b.status === 0, 'exit=' + r5b.status + ' ' + (r5b.stderr || '').slice(0, 240));
 
+  // ---------- architektura twardo przy T2+ (uzytkownik 2026-10-04) ----------
+  const AS = require(path.join(HOOKS, 'lib', 'arch-signals.js'));
+  // Syntetyczne diffy jak z gita: naglowek hunka po `+++` (parser czyta tylko tresc hunkow).
+  const pud = (t) => AS.parseUnifiedDiff(t.replace(/(^|\n)(\+\+\+ [^\n]*\n)/g, '$1$2@@ -0,0 +1 @@\n'));
+  const parsed = pud('diff --git a/package.json b/package.json\n+++ b/package.json\n+    "zod": "^4.1.0",\n+  "version": "1.2.3",\n' +
+    'diff --git a/Dockerfile b/Dockerfile\nnew file mode 100644\n+++ b/Dockerfile\n+FROM node:24\n' +
+    'diff --git a/x.sql b/x.sql\n+++ b/x.sql\n+CREATE TABLE IF NOT EXISTS a (id int);\n' +
+    'diff --git a/requirements.txt b/requirements.txt\n+++ b/requirements.txt\n+requests==2.32\n');
+  const sig = AS.archSignals(parsed);
+  check('arch-signals: nowa zaleznosc npm (zod), bez "version"', sig.some((s) => /package\.json: "zod"/.test(s)) && !sig.some((s) => /version/.test(s)), JSON.stringify(sig));
+  check('arch-signals: nowy Dockerfile + CREATE TABLE + requirements', sig.some((s) => /infra: Dockerfile/.test(s)) && sig.some((s) => /CREATE TABLE/.test(s)) && sig.some((s) => /requirements\.txt/.test(s)), JSON.stringify(sig));
+  const quiet = AS.archSignals(pud('diff --git a/package.json b/package.json\n+++ b/package.json\n+  "version": "2.0.0",\n+    "dev": "vite",\n' +
+    'diff --git a/Dockerfile b/Dockerfile\n+++ b/Dockerfile\n+RUN npm ci\n' + 'diff --git a/y.sql b/y.sql\n+++ b/y.sql\n+alter table a add column b int;\n'));
+  check('arch-signals: wersja/skrypt/zmiana ISTNIEJACEGO Dockerfile/ALTER => brak sygnalow', quiet.length === 0, JSON.stringify(quiet));
+  const adrBody = ['# 0003 Kolejka', '## Decyzja', 'BullMQ', '## Alternatywy', 'cron', '## Konsekwencje', 'Redis'];
+  check('arch-signals: ADR z trescia rozpoznany; pusty ADR i nie-ADR => nie', AS.hasAdr({ 'docs/adr/0003-kolejka.md': { added: adrBody, isNew: true } }) &&
+    !AS.hasAdr({ 'docs/adr/0004-x.md': { added: [''], isNew: true } }) && !AS.hasAdr({ 'docs/README.md': { added: adrBody, isNew: false } }));
+  const bump = AS.archSignals(pud('diff --git a/package.json b/package.json\n+++ b/package.json\n-    "zod": "^4.0.1",\n+    "zod": "^4.0.2",\n' +
+    'diff --git a/requirements.txt b/requirements.txt\n+++ b/requirements.txt\n-requests==2.31\n+requests==2.32\n' + 'diff --git a/z.sql b/z.sql\n+++ b/z.sql\n+-- create table pozniej\n'));
+  check('arch-signals: bump wersji istniejacej zaleznosci / komentarz SQL => brak sygnalow (ops-review)', bump.length === 0, JSON.stringify(bump));
+
+  const repoArch = makeRepo('arch', { 'package.json': JSON.stringify({ name: 'arch' }), 'supabase/migrations/001_init.sql': 'select 1;\n' });
+  const archMig = path.join(repoArch, 'supabase/migrations/002_orders.sql');
+  write(archMig, 'create table orders (id uuid primary key);\nalter table orders enable row level security;\n');
+  const T3_ALL = ['code-reviewer', 'security-reviewer', 'data-reviewer', 'ops-reviewer'].map((t) => ({ name: 'Agent', input: { subagent_type: t, prompt: 'x' } }));
+  const ra1 = runHook('stop-gate.js', { cwd: repoArch, transcript_path: transcriptWith([{ name: 'Write', input: { file_path: archMig } }, ...T3_ALL]) });
+  check('arch: T3 z nowa tabela, komplet recenzentow, BEZ ADR => 2 [arch]', ra1.status === 2 && /\[arch\]/.test(ra1.stderr || ''), 'exit=' + ra1.status + ' ' + (ra1.stderr || '').slice(0, 240));
+  try { fs.unlinkSync(stopGateState(repoArch)); } catch (e) { /* brak = ok */ }
+  const ra2 = runHook('stop-gate.js', { cwd: repoArch, transcript_path: transcriptWith([{ name: 'Write', input: { file_path: archMig } }, ...T3_ALL, { name: 'Skill', input: { skill: 'pg-council' } }]) });
+  // security-review 2026-10-04: samo wywolanie pg-council (bez ADR) nie jest dowodem narady.
+  check('arch: to samo + SAM skill pg-council (bez ADR) => 2 [arch]', ra2.status === 2 && /\[arch\]/.test(ra2.stderr || ''), 'exit=' + ra2.status + ' ' + (ra2.stderr || '').slice(0, 240));
+  try { fs.unlinkSync(stopGateState(repoArch)); } catch (e) { /* brak = ok */ }
+  const adr = path.join(repoArch, 'docs/adr/0001-orders.md');
+  write(adr, '');
+  const raEmpty = runHook('stop-gate.js', { cwd: repoArch, transcript_path: transcriptWith([{ name: 'Write', input: { file_path: archMig } }, { name: 'Write', input: { file_path: adr } }, ...T3_ALL]) });
+  check('arch: PUSTY ADR => 2 [arch]', raEmpty.status === 2 && /\[arch\]/.test(raEmpty.stderr || ''), 'exit=' + raEmpty.status);
+  try { fs.unlinkSync(stopGateState(repoArch)); } catch (e) { /* brak = ok */ }
+  write(adr, '# 0001 Tabela orders\n\n## Decyzja\nOsobna tabela orders z RLS.\n## Alternatywy\nJSON w profiles (odrzucone).\n## Konsekwencje\nMigracja + polityki.\n');
+  const ra3 = runHook('stop-gate.js', { cwd: repoArch, transcript_path: transcriptWith([{ name: 'Write', input: { file_path: archMig } }, { name: 'Write', input: { file_path: adr } }, ...T3_ALL]) });
+  check('arch: to samo + ADR w diffie => 0', ra3.status === 0, 'exit=' + ra3.status + ' ' + (ra3.stderr || '').slice(0, 240));
+  try { fs.unlinkSync(stopGateState(repoArch)); } catch (e) { /* brak = ok */ }
+  // security-review F1: po blokadzie [review] w tym cyklu bramka arch nadal dziala (nie siedzi w galezi review).
+  const tNoRev = transcriptWith([{ name: 'Write', input: { file_path: archMig } }]);
+  write(adr, ''); // ADR bez tresci -> wymog niespelniony
+  const rb1 = runHook('stop-gate.js', { cwd: repoArch, transcript_path: tNoRev });
+  const rb2 = runHook('stop-gate.js', { cwd: repoArch, transcript_path: transcriptWith([{ name: 'Write', input: { file_path: archMig } }, ...T3_ALL]) });
+  check('arch: Stop#1 [review], Stop#2 po recenzji => [arch] (nie znika)', rb1.status === 2 && /\[review\]/.test(rb1.stderr || '') && rb2.status === 2 && /\[arch\]/.test(rb2.stderr || ''),
+    'rb1=' + rb1.status + ' rb2=' + rb2.status + ' ' + (rb2.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repoArch)); } catch (e) { /* brak = ok */ }
+  // security-review F4: `npm i x` zmienia package.json bez sciezki w komendzie — manifest i tak liczy sie do arch.
+  const repoInst = makeRepo('arch-install', { 'package.json': JSON.stringify({ name: 'i', dependencies: {} }, null, 2) + '\n', 'supabase/migrations/001_init.sql': 'select 1;\n' });
+  const instMig = path.join(repoInst, 'supabase/migrations/002_rls.sql');
+  write(instMig, 'alter table a enable row level security;\n');
+  write(path.join(repoInst, 'package.json'), JSON.stringify({ name: 'i', dependencies: { 'left-pad': '^1.3.0' } }, null, 2) + '\n');
+  const ri = runHook('stop-gate.js', { cwd: repoInst, transcript_path: transcriptWith([{ name: 'Write', input: { file_path: instMig } }, { name: 'Bash', input: { command: 'npm i left-pad' } }, ...T3_ALL]) });
+  check('arch: `npm i` (manifest nie „wlasny”) przy T3 => 2 [arch]', ri.status === 2 && /\[arch\].*left-pad/s.test(ri.stderr || ''), 'exit=' + ri.status + ' ' + (ri.stderr || '').slice(0, 240));
+  // data-review 2026-10-04: wykrywanie nowej tabeli na sklejonej tresci SQL (bez stringow i komentarzy).
+  const sqlSig = (body) => AS.archSignals(pud('diff --git a/m.sql b/m.sql\nnew file mode 100644\n+++ b/m.sql\n' + body.split('\n').map((l) => '+' + l).join('\n') + '\n')).length > 0;
+  check('arch-signals SQL: unlogged / CREATE na 2 liniach / `--` w literale / DO $$ => sygnal',
+    sqlSig('create unlogged table t(i int);') && sqlSig('create\n  table foo (id int);') && sqlSig("insert into a values ('--'); create table f(i int);") && sqlSig('do $$ begin create table z(i int); end $$;'));
+  check('arch-signals SQL: komentarz blokowy / literal / TEMP => brak sygnalu',
+    !sqlSig('/* create table x */ select 1;') && !sqlSig("select 'create table foo';") && !sqlSig('create temp table t(i int);'));
+  // code-review 2026-10-04: false-positive'y npm i kolizja naglowka diffu.
+  const fp = AS.archSignals(pud('diff --git a/package.json b/package.json\n+++ b/package.json\n+  "build": "next build",\n+  "homepage": "https://x.pl",\n+  "description": "3D viewer",\n'));
+  check('arch-signals: skrypt "next build" / homepage / description => brak sygnalow', fp.length === 0, JSON.stringify(fp));
+  const coll = AS.archSignals(pud('diff --git a/package.json b/package.json\n+++ b/package.json\n+x\n+++ y\n+    "left-pad": "1.0.0"\n'));
+  check('arch-signals: linia „++ y” w tresci nie przelacza pliku', coll.some((r) => /left-pad/.test(r)), JSON.stringify(coll));
+  // Sam manifest: risk-tier liczy zaleznosci jako T2 (stara wersja tego testu oczekiwala 0, bo bramka nie widziala plikow
+  // bez kodu — code-review 2026-10-04 ARCH-GATE-NONCODE-DEAD; test zmieniony razem z kodem z tego powodu).
+  const repoSmall = makeRepo('arch-small', { 'package.json': JSON.stringify({ name: 's', dependencies: {} }, null, 2) + '\n', 'src/a.js': 'export const a = 1;\n' });
+  write(path.join(repoSmall, 'package.json'), JSON.stringify({ name: 's', dependencies: { zod: '^4.1.0' } }, null, 2) + '\n');
+  const rs = runHook('stop-gate.js', { cwd: repoSmall, transcript_path: transcriptWith([{ name: 'Write', input: { file_path: path.join(repoSmall, 'package.json') } }]) });
+  check('arch: nowa zaleznosc w samym package.json (T2 wg risk-tier) => 2 [arch]', rs.status === 2 && /\[arch\].*zod/s.test(rs.stderr || ''), 'exit=' + rs.status + ' ' + (rs.stderr || '').slice(0, 240));
+  try { fs.unlinkSync(stopGateState(repoSmall)); } catch (e) { /* brak = ok */ }
+  const repoBump = makeRepo('arch-bump', { 'package.json': JSON.stringify({ name: 'b', dependencies: { zod: '^4.0.1' } }, null, 2) + '\n' });
+  write(path.join(repoBump, 'package.json'), JSON.stringify({ name: 'b', dependencies: { zod: '^4.0.2' } }, null, 2) + '\n');
+  const rbump = runHook('stop-gate.js', { cwd: repoBump, transcript_path: transcriptWith([{ name: 'Write', input: { file_path: path.join(repoBump, 'package.json') } }]) });
+  check('arch: sam bump wersji (fleet-cve-watch) => 0, bez ADR', rbump.status === 0, 'exit=' + rbump.status + ' ' + (rbump.stderr || '').slice(0, 240));
+
+  // prompt-guard: architektura -> obowiazkowe skille
+  const pgArch = runHook('prompt-guard.js', { prompt: 'jaka architektura bedzie najlepsza dla nowego modulu rezerwacji w aplikacji' });
+  check('prompt-guard: architektura -> architecture-advisor + pg-council', /SKILL-ROUTER \(obowiazkowe\):.*architecture-advisor.*pg-council/.test(pgArch.stdout || ''), (pgArch.stdout || '').slice(-300));
+  const pgNoArch = runHook('prompt-guard.js', { prompt: 'stalem dzis dlugo w kolejce w sklepie i zastanawiam sie co ugotowac' });
+  check('prompt-guard: zwykla „kolejka w sklepie” => bez architecture-advisor', !/architecture-advisor/.test(pgNoArch.stdout || ''), (pgNoArch.stdout || '').slice(-200));
+
   // ---------- landscape 2026-09-26 ----------
   // #1: komplet dzialow, ale ostatnia agregacja = INCOMPLETE -> review niedomkniete => 2
   const runDir = path.join(FIXTURE_ROOT, 'pg-review-run');
@@ -527,6 +648,70 @@ try {
   const tLater = path.join(FIXTURE_ROOT, 'transcript-later.jsonl');
   write(tLater, JSON.stringify({ type: 'user', timestamp: new Date(Date.now() + 60000).toISOString(), message: { content: 'x' } }) + '\n');
   check('stop-gate #14: commit sprzed startu sesji => 0', runHook('stop-gate.js', { cwd: repoCommitted, transcript_path: tLater }).status === 0);
+
+  // Znacznik per sesja x repo (fix petli 2026-10-01): sesja wielodniowa blokowala kazda ture od nowa tymi samymi
+  // starymi commitami/cudzymi zmianami (limit czyscil stan, nowa tura = nowy cykl). Po przejsciu Stopu znaczniki
+  // wygaszaja ZGLOSZONE juz znaleziska; NOWY commit albo zmiana drzewa — bramka dziala jak dotad.
+  const wmSid = 'wm-sid-' + process.pid;
+  const repoWm = makeRepo('wm-loop', { 'package.json': JSON.stringify({ name: 'w' }), 'README.md': 'x\n' });
+  const wmStart = new Date(Date.now() - 60000).toISOString();
+  write(path.join(repoWm, 'supabase/migrations/010_rls.sql'), 'alter table a enable row level security;\n');
+  git(repoWm, ['add', '-A']);
+  git(repoWm, ['commit', '-q', '-m', 'rls a']);
+  // Port Linux 2026-10-02: czekaj do nastepnej pelnej sekundy, inaczej znacznik (w dol do sekundy) obejmuje ten commit.
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1050 - (Date.now() % 1000));
+  const tWm = path.join(FIXTURE_ROOT, 'transcript-wm.jsonl');
+  write(tWm, JSON.stringify({ type: 'user', timestamp: wmStart, message: { content: 'x' } }) + '\n' +
+    JSON.stringify({ type: 'assistant', timestamp: wmStart, message: { content: [{ type: 'tool_use', id: 'x', name: 'Bash', input: { command: 'git commit -m rls' } }] } }) + '\n' +
+    // Od ownedBy (2026-10-02) niezacommitowane pliki licza sie tylko, gdy sesja ich dotknela — ta sesja pisze 011 i 012.
+    ['011_rls.sql', '012_new.sql'].map((f, i) => JSON.stringify({ type: 'assistant', timestamp: wmStart, message: { content: [{ type: 'tool_use', id: 'w' + i, name: 'Write', input: { file_path: path.join(repoWm, 'supabase/migrations', f), content: '' } }] } })).join('\n') + '\n');
+  const wmRun = () => runHook('stop-gate.js', { cwd: repoWm, transcript_path: tWm, session_id: wmSid });
+  const w1 = wmRun();
+  check('znacznik: T3 zacommitowane w sesji => 2 [review]', w1.status === 2 && /\[review\]/.test(w1.stderr || ''), 'exit=' + w1.status);
+  check('znacznik: ten sam powod w tym cyklu => 0 (anty-petla, zapis znacznika)', wmRun().status === 0);
+  const w3 = wmRun();
+  check('znacznik: NASTEPNA tura, ten sam commit i drzewo => 0 (bez petli)', w3.status === 0, 'exit=' + w3.status + ' ' + (w3.stderr || '').slice(0, 160));
+  write(path.join(repoWm, 'supabase/migrations/011_rls.sql'), 'alter table b enable row level security;\n');
+  const w4 = wmRun();
+  check('znacznik: NOWA niezacommitowana zmiana T3 => 2 [review]', w4.status === 2 && /\[review\]/.test(w4.stderr || ''), 'exit=' + w4.status);
+  try { fs.unlinkSync(stopGateState(repoWm, wmSid)); } catch (e) { /* brak = ok */ }
+  git(repoWm, ['add', '-A']);
+  git(repoWm, ['commit', '-q', '-m', 'rls b']);
+  const w5 = wmRun();
+  check('znacznik: NOWY commit T3 po znaczniku => 2 [review]', w5.status === 2 && /\[review\]/.test(w5.stderr || ''), 'exit=' + w5.status);
+  const w6 = wmRun();
+  check('znacznik: przepuszczenie przez anty-petle => komunikat dla uzytkownika', w6.status === 0 && /Przepuszczone bez naprawy/.test(w6.stdout || ''), 'stdout=' + (w6.stdout || '').slice(0, 160));
+  // v2 (security-review 2026-10-01): podmiana tresci przy TEJ SAMEJ liczbie linii (numstat 1 1) nie moze wyprac znacznika.
+  write(path.join(repoWm, 'supabase/migrations/011_rls.sql'), 'alter table c enable row level security;\n');
+  const w7 = wmRun();
+  check('znacznik: zmiana tresci (numstat 1 1) => 2 [review]', w7.status === 2, 'exit=' + w7.status);
+  wmRun();
+  write(path.join(repoWm, 'supabase/migrations/011_rls.sql'), 'alter table d enable row level security;\n');
+  const w8 = wmRun();
+  check('znacznik: druga podmiana o tej samej dlugosci => 2 [review]', w8.status === 2, 'exit=' + w8.status);
+  wmRun();
+  write(path.join(repoWm, 'supabase/migrations/012_new.sql'), 'alter table e enable row level security;\n');
+  check('znacznik: nowy nieśledzony plik T3 => 2', wmRun().status === 2);
+  wmRun();
+  write(path.join(repoWm, 'supabase/migrations/012_new.sql'), 'alter table f enable row level security;\n');
+  check('znacznik: zmiana tresci nieśledzonego pliku => 2', wmRun().status === 2);
+  wmRun();
+  // Finding laptop 2026-10-02: cudzy nieśledzony plik zmienial odcisk -> znacznik gasl -> blokada za stare commity sesji.
+  write(path.join(repoWm, 'supabase/migrations/013_cudzy.sql'), 'alter table g enable row level security;\n');
+  const wForeign = wmRun();
+  check('znacznik: cudzy nieśledzony plik NIE gasi znacznika => 0', wForeign.status === 0, 'exit=' + wForeign.status + ' ' + (wForeign.stderr || '').slice(0, 160));
+  // ownedBy: plik T3, ktorego sesja nigdy nie dotknela = praca innej sesji => nie blokuje tej (petla 2026-10-01/02).
+  const repoOwn = makeRepo('owned-by', { 'package.json': JSON.stringify({ name: 'o' }), 'README.md': 'x\n' });
+  write(path.join(repoOwn, 'supabase/migrations/020_cudzy.sql'), 'alter table g enable row level security;\n');
+  const tOwnForeign = path.join(FIXTURE_ROOT, 'transcript-own-foreign.jsonl');
+  write(tOwnForeign, JSON.stringify({ type: 'user', timestamp: wmStart, message: { content: 'x' } }) + '\n');
+  check('ownedBy: cudzy nieśledzony plik T3 => 0', runHook('stop-gate.js', { cwd: repoOwn, transcript_path: tOwnForeign, session_id: wmSid + '-own-f' }).status === 0);
+  const tOwnMine = path.join(FIXTURE_ROOT, 'transcript-own-mine.jsonl');
+  write(tOwnMine, JSON.stringify({ type: 'user', timestamp: wmStart, message: { content: 'x' } }) + '\n' +
+    JSON.stringify({ type: 'assistant', timestamp: wmStart, message: { content: [{ type: 'tool_use', id: 'o', name: 'Write', input: { file_path: path.join(repoOwn, 'supabase/migrations/020_cudzy.sql'), content: '' } }] } }) + '\n');
+  check('ownedBy: ten sam plik dotkniety przez sesje => 2', runHook('stop-gate.js', { cwd: repoOwn, transcript_path: tOwnMine, session_id: wmSid + '-own-m' }).status === 2);
+  check('znacznik: lezy w PG_STOP_WM_DIR, nie w %TEMP%', fs.existsSync(process.env.PG_STOP_WM_DIR) && fs.readdirSync(process.env.PG_STOP_WM_DIR).length > 0);
+  try { fs.unlinkSync(stopGateState(repoWm, wmSid)); } catch (e) { /* brak = ok */ }
 
   // #2: ImportError w pytest (nie brak narzedzia) = czerwone, nie „skipped"
   const repoPy = makeRepo('py-import', { 'tests/test_a.py': 'import modul_ktorego_nie_ma\n\ndef test_a():\n    assert True\n', 'a.py': 'x = 1\n' });
@@ -592,7 +777,23 @@ try {
   const repoChdir = makeRepo('py-chdir', { 'tests/test_a.py': 'def test_a(monkeypatch, tmp_path):\n    monkeypatch.chdir(tmp_path)\n    import modul_projektu\n    assert modul_projektu.X == 1\n', 'modul_projektu.py': 'X = 1\n', 'a.py': 'x = 1\n' });
   write(path.join(repoChdir, 'a.py'), 'x = 2\n');
   const rChdir = runHook('stop-gate.js', { cwd: repoChdir });
-  check('stop-gate: test z monkeypatch.chdir + import modulu projektu => bez blokady [testy]', !/\[testy\]/.test(rChdir.stderr || ''), 'exit=' + rChdir.status + ' ' + (rChdir.stderr || '').slice(0, 300));
+  check('stop-gate: test z monkeypatch.chdir + import modulu projektu => zielone (nie blok, nie skip)', !/\[testy\]/.test(rChdir.stderr || '') && !/NIE zostaly uruchomione/.test(rChdir.stdout || ''), 'exit=' + rChdir.status + ' ' + (rChdir.stderr || '').slice(0, 300));
+  // Interpreter dziala (`--version` OK), a proba pochodzenia pada, python3 brak => BLOKADA, nie cichy skip (data-review 2026-09-28).
+  const brokenPyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-brokenpy-'));
+  if (process.platform === 'win32') {
+    fs.writeFileSync(path.join(brokenPyDir, 'python.cmd'), '@if "%1"=="--version" (echo Python 3.99& exit /b 0) else (exit /b 1)\r\n');
+    fs.writeFileSync(path.join(brokenPyDir, 'python3.cmd'), '@exit /b 9009\r\n');
+  } else {
+    fs.writeFileSync(path.join(brokenPyDir, 'python'), '#!/bin/sh\n[ "$1" = "--version" ] && { echo Python 3.99; exit 0; }\nexit 1\n');
+    fs.writeFileSync(path.join(brokenPyDir, 'python3'), '#!/bin/sh\nexit 127\n');
+    fs.chmodSync(path.join(brokenPyDir, 'python'), 0o755); fs.chmodSync(path.join(brokenPyDir, 'python3'), 0o755);
+  }
+  const repoBrokenPy = makeRepo('py-broken-probe', { 'tests/test_a.py': 'def test_a():\n    assert False\n', 'a.py': 'x = 1\n' });
+  write(path.join(repoBrokenPy, 'a.py'), 'x = 2\n');
+  const rBrokenPy = spawnSync('node', [path.join(HOOKS, 'stop-gate.js')], { input: JSON.stringify({ cwd: repoBrokenPy }), encoding: 'utf8', env: Object.assign({}, process.env, { PATH: brokenPyDir + path.delimiter + process.env.PATH }), timeout: 120000 });
+  check('stop-gate: proba pochodzenia pada przy dzialajacym python => 2 (nie skip)', rBrokenPy.status === 2 && /Proba pochodzenia pytesta nie dala wyniku/.test(rBrokenPy.stderr || ''), 'exit=' + rBrokenPy.status + ' ' + (rBrokenPy.stderr || '').slice(0, 200) + ' out=' + (rBrokenPy.stdout || '').slice(0, 120));
+  try { fs.unlinkSync(stopGateState(repoBrokenPy)); } catch (e) { /* brak = ok */ }
+  fs.rmSync(brokenPyDir, { recursive: true, force: true });
   try { fs.unlinkSync(stopGateState(repoChdir)); } catch (e) { /* brak = ok */ }
   // Windows: npm.cmd w katalogu repo nie podmienia npm (NoDefaultCurrentDirectoryInExePath w CHILD_ENV, security 2026-09-28).
   if (process.platform === 'win32') {

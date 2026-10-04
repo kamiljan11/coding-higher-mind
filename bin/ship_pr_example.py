@@ -9,8 +9,8 @@ Merge authority: this script merges through the GitHub REST API, so bash-guard's
 script, which refuses unless CI is green and the independent reviewer approves.
 Do not point it at another repo (SHIP_REPO) without his OK for that repo.
 
-Usage: python ship_pr_comfy.py <pr-number>   (GITHUB_Token from the Infisical bridge)
-       python ship_pr_comfy.py --self-test   (pure logic, no network, no token)
+Usage: python ship_pr_example.py <pr-number>   (GITHUB_Token from the Infisical bridge)
+       python ship_pr_example.py --self-test   (pure logic, no network, no token)
 Loops up to 3 update-branch rounds (each round re-triggers CI + review)."""
 
 import io

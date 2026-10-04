@@ -35,7 +35,18 @@ Policzone w dniu eksportu, nie szacowane: 212 plików, ~23 400 linii, 39 narzęd
 
 ---
 
-## Instalacja (5 minut)
+## Same skille (1 minuta)
+
+18 skilli roboczych (trade-offy architektury, recenzja wielodziałowa, debugowanie, pętle agentów, wzorce frontendu, pisanie) jako plugin Claude Code. Bez hooków i bez zmian w ustawieniach:
+
+```bash
+claude plugin marketplace add kamiljan11/coding-higher-mind
+claude plugin install higher-mind-skills@coding-higher-mind
+```
+
+W sesji działa to samo jako `/plugin marketplace add kamiljan11/coding-higher-mind`. Skille uruchamiasz jako `/higher-mind-skills:<nazwa>`, a Claude dobiera je też sam po opisach. Jeden skill: skopiuj `skills/<nazwa>/` do `~/.claude/skills/`. Pełna lista z jednozdaniowymi opisami jest w [`skills.json`](skills.json) i na [kamiljan.com/claude](https://kamiljan.com/claude).
+
+## Instalacja całego systemu (5 minut)
 
 Wymagania: **Node ≥ 20**, **git**, Claude Code. Opcjonalnie: Python 3 + `ruff` + `pyright` (repo w Pythonie), `gitleaks` (CI i tak go uruchamia), klient PostgreSQL albo Docker (drill backupu).
 
@@ -107,7 +118,7 @@ Nadpisania per repo w `CLAUDE.md` repozytorium: `pg.tier_floor: T2`, `pg.phase: 
 | `bin/` | narzędzia 0-tokenowe + zestawy testów; [bin/README.md](bin/README.md) jest generowany z nagłówka każdego narzędzia |
 | `agents/` | działy recenzentów (tylko odczyt, świeży kontekst, schemat JSON, `how_to_check` przy każdej regule rubryki) |
 | `pg/` | doktryna: `paradigm`, `design`, `dod`, `prr`, `postmortem`, `cases`, `council`, `models`, `github-ready`, retro; `adr/`; `eval/` (golden set bramek + pary kalibracyjne recenzentów) |
-| `skills/` | `pg-review`, `pg-council`, `anti-sycophancy`, `verify-audit`, `ultra-loop`, `gauntlet-build` |
+| `skills/` | 18 skilli, lista w `skills.json` (także jako plugin `higher-mind-skills` w `plugins/`) |
 | `templates/repo/` | wszystko, co dostaje nowe repozytorium: workflowy, eslint/tsconfig, szablon PR, szkielety docs, szablon ADR |
 | `scheduled-tasks/` | rutyny Claude Code: recenzent PR floty (dni robocze rano), nadzór CVE (co miesiąc, najpierw deterministycznie), zdrowie strażników (co tydzień), kalibracja recenzentów (co miesiąc) |
 | `routines/` | [routines/README.md](routines/README.md) — warstwa rutyn obu runtime'ów plus `cowork/`: rutyny Claude Desktop (watchdog, backup ze skryptem restore, sesje → notatki pamięci, tygodniowy raport, opt-in cykl samodoskonalenia) |

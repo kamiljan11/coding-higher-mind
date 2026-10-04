@@ -35,3 +35,52 @@ wewnatrz repo (uznawany za legalny).
 
 Luka procesowa: `bin/pg-aggregate.js` nie ma stanu „ryzyko zaakceptowane" — finding swiadomie zostawiony trzyma
 werdykt REQUEST CHANGES. Do dodania: `accepted_risks` z uzasadnieniem i data przegladu.
+
+## Merge bez frazy i regula skryptow scalajacych (2026-10-01, v2)
+
+- bash-guard czyta tylko kod faktycznie uruchamiany (skrypt, `-c`/`-e`, stdin, heredoc). NIE sledzi importow
+  (`python -m pakiet`, `import merger` z innego pliku) ani adresu sklejanego z kawalkow dalej niz 400 znakow albo
+  zakodowanego. Twarda granica: scalenie wymaga tokenu z menedzer sekretow (np. Infisical CLI), a uzycie mostu jest logowane.
+- pg-merge-bezpieczny: lista plikow PR z GitHuba nie jest przypieta do SHA (scalenie juz jest: PUT /merge z `sha`).
+  Force-push miedzy odczytem plikow a scaleniem = 409 od GitHuba, nie ciche scalenie.
+- Dowod recenzji T2 to katalog pg-review wskazany przez agenta; agent moglby podrobic findings. Ten sam poziom zaufania
+  co stop-gate wobec pg-review — przeciw temu dziala tylko recenzja rozkladu `auto-merge` w gates.jsonl.
+- Regex `auth` w nazwie pliku lapie tez np. `AuthorCard.tsx` (falszywa odmowa = fraza; wybrane swiadomie, fail-safe).
+- (v3, 2026-10-01 23:00) Otwarte do recenzji przed wlaczeniem auto-merge: T0 z dopasowania podciagu (`changelog/actions.ts`,
+  `ReadMeButton.tsx`, `.mdx`/`.svg` ze skryptem) — T0 musi byc lista dozwolonych rozszerzen tresci, nie podciag; nieśledzony
+  plik > 20 MB liczony z rozmiaru+mtime (`touch -r` po podmianie); `cat x | python` gdy x nie zawiera wzorca w tekscie komendy.
+
+## Poziomy wyjatkow A/B/C i samozatwierdzenie (2026-10-02)
+
+- Poziom A (10 bramek jakosci) nie ma limitu uzyc ani alarmu — jedyny slad to `bypass` „poziom A" w gates.jsonl.
+  Swiadoma decyzja uzytkownika (petle bez czekania); przeglad rozkladu przy retro.
+- Poziom B: dowod = transkrypty subagentow `security-reviewer` + `code-reviewer` w `~/.claude/projects/*/<sesja>/subagents`,
+  ktore wymieniaja przebieg i sa nowsze niz findings. Agent, ktory CELOWO dopisze podrobiony transkrypt JSONL + meta.json,
+  obejdzie to (model zagrozen = agent na skrotach, nie zlosliwy proces). Recenzent odpalony z promptem wskazujacym przebieg,
+  ktory nic nie zrobil, a orkiestrator napisal findings przed nim — tez przejdzie; podmiana findings PO recenzencie = odmowa.
+- `leavesRepo()` w bash-guard jest konserwatywny tekstowo: cd/-C/-R/sciezka absolutna/`..`/`~`, KAZDE `$`/backtick
+  (zmienne, podpowloki) i `GIT_*=` = poza repo -> wyjatek B nie dziala (falszywa odmowa = fraza uzytkownika).
+- Grant B (15 min / 1 uzycie) jest przypiety do repo i sesji, nie do obiektu akcji: recenzja malej zmiany autoryzuje
+  JEDNA komende RM/RESET/CLEAN/UNKNOWN_DEP/PII w tym repo. `--reason` + `self_approved` w gates.jsonl = slad do retro.
+- Czas recenzji = najpozniejszy `timestamp` w transkrypcie (nie mtime — `touch` nie pomaga); dopisanie linii JSONL to
+  celowe falszerstwo (poza modelem zagrozen). verdicts.json wymaga transkryptu subagenta `verifier`.
+- Findings musza zawierac kazdy `rule_id`, ktory recenzent zapisal w wejsciach swoich narzedzi (usuniecie findings po
+  recenzji = odmowa). Nie chroni przed zlagodzeniem `severity` przy zachowanym `rule_id` — to widac w diffie findings.
+- Klucz jednorazowosci przebiegu = skrot tresci (diff + findings WYMAGANYCH rol + werdykty), wiec kopia katalogu ani dopisany findings.x.json nie daja drugiego grantu. ALLOW_PII wymaga tez recenzji data.
+- Regula `override-mint` lapie jawne `overrides` + `mint/consume` w komendzie. Nazwa sklejana (`'over'+'rides'`) albo
+  skrypt z PLIKU ja omija — ten sam limit co dla poziomu C od 2026-09-26 (wydanie dowolnego wyjatku przez wlasny kod);
+  widzi to tylko pieczec (`pg-seal --check`) i wpisy bez `minted` w gates.jsonl. Model zagrozen = agent na skrotach.
+- Sprzatanie wyjatkow liczone po `expires`; zegar cofniety przedluza zycie wyjatku (TTL z czasu wydania).
+
+## 2026-10-04 bramka `arch` (stop-gate, T2+) i znacznik z plikow sesji
+- `arch` wykrywa z diffu tylko: nowa zaleznosc w manifescie (package.json/pyproject/requirements/Cargo/go.mod), `CREATE TABLE` w SQL, NOWY plik infra (Dockerfile, compose, vercel.json, netlify/fly, supabase/config.toml, nowy workflow). Nowy modul/katalog bez nowej zaleznosci NIE jest wykrywany.
+- Wymog spelnia plik `docs/adr/*.md` w diffie sesji z >= 5 niepustymi dodanymi liniami (po security-review 2026-10-04 samo wywolanie pg-council NIE wystarcza). Jakosci tresci bramka nie ocenia (recenzenci T2+). Jak kazda bramka: drugi Stop w cyklu przepuszcza z widocznym komunikatem (anty-petla).
+- prompt-guard: regula „architektur*” odpali tez przy stronie dla biura architektonicznego — to tylko podpowiedz skilli (bez blokady), swiadomy koszt.
+- Znacznik anty-petli liczy odcisk tylko z plikow „wlasnych” (ownedBy z transkryptu). Plik zmieniony przez sesje komenda Bash BEZ sciezki w tresci komendy (np. skrypt z pliku) nie jest „wlasny” — ta sama granica co ownedBy.
+- `bin/test_hooks_v2.js` uruchomiony przez Claude Code: bash-guard `pr-merge` blokuje (skrypt zawiera komendy merge jako dane testowe) — falszywy alarm, uruchom recznie w terminalu.
+- `arch`: przeniesienie package.json / compose (rename) widziane jak nowy plik z nowymi zaleznosciami -> mozliwy falszywy alarm (diff liczony tylko dla wlasnych sciezek, bez detekcji rename).
+- Nazwy plikow z `"`, tabulatorem albo backslashem git cytuje mimo `core.quotePath=false` -> w odcisku znacznika `:nieczytelny` (zmiana tresci takiego pliku nie odnawia znacznika).
+- `pg-council` jako slash command nie jest uznawany — jedyna droga spelnienia `arch` to ADR (>= 5 linii) w diffie sesji.
+- `arch` fail-open (logowane jako `skipped`, nie ciche): nieśledzony plik > 1 MB (np. zrzut pg_dump), > 200 plikow, > 10 commitow sesji.
+- Znaczniki `logs/stop-gate-wm/*.json` nie sa sprzatane automatycznie (po jednym malym pliku na sesje) — sprzatanie reczne / guard_health.
+- `CREATE TEMP TABLE` celowo nie jest sygnalem architektury; `CREATE TABLE` wewnatrz literalu `'...'` jest ignorowany, w ciele `$$...$$` — liczony.

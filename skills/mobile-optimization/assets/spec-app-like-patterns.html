@@ -1,0 +1,1163 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Wzorce App-Like — strona, która działa jak aplikacja</title>
+<style>
+:root{
+  --bg:#0b0e14; --panel:#11151f; --panel-2:#161b27; --line:#232a3a;
+  --ink:#e7ecf5; --ink-dim:#9aa6bd; --ink-faint:#6b768e;
+  --acc:#6c8cff; --acc-2:#3ddc97; --warn:#ffb454; --bad:#ff6b6b; --good:#3ddc97; --violet:#bb9af7;
+  --code-bg:#0d1019; --radius:14px; --maxw:920px;
+  --mono:"SFMono-Regular",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.65;font-size:17px;-webkit-font-smoothing:antialiased}
+a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
+h1,h2,h3,h4{line-height:1.25;font-weight:700;letter-spacing:-.01em}
+h2{font-size:clamp(1.5rem,4vw,2.1rem);margin:0 0 .2em}
+h3{font-size:clamp(1.2rem,3vw,1.45rem);margin:2em 0 .4em;color:#fff}
+h4{font-size:1.05rem;margin:1.4em 0 .3em;color:var(--ink)}
+p{margin:.6em 0}
+code{font-family:var(--mono);font-size:.85em;background:var(--panel-2);padding:.12em .4em;border-radius:6px;color:#d8e0f0;border:1px solid var(--line)}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow-x:auto;margin:1em 0;font-size:.82rem;line-height:1.55}
+pre code{background:none;border:none;padding:0;font-size:inherit;color:#cdd6f4}
+.tok-c{color:#6b768e;font-style:italic}.tok-p{color:#ff9e64}.tok-a{color:#7dcfff}.tok-v{color:#9ece6a}.tok-s{color:#e0af68}.tok-k{color:#bb9af7}
+.wrap{display:grid;grid-template-columns:280px 1fr;max-width:1240px;margin:0 auto}
+nav.toc{position:sticky;top:0;align-self:start;height:100vh;height:100dvh;overflow-y:auto;border-right:1px solid var(--line);padding:26px 18px 60px;background:var(--panel)}
+nav.toc .brand{font-weight:800;font-size:1.05rem;color:#fff;letter-spacing:-.02em}
+nav.toc .sub{color:var(--ink-faint);font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;margin-bottom:18px}
+nav.toc a{display:block;color:var(--ink-dim);font-size:.86rem;padding:6px 10px;border-radius:8px;margin:1px 0;border-left:2px solid transparent}
+nav.toc a:hover{background:var(--panel-2);color:var(--ink);text-decoration:none}
+nav.toc a.grp{margin-top:14px;color:var(--ink-faint);font-size:.7rem;text-transform:uppercase;letter-spacing:.1em;pointer-events:none}
+main{padding:48px clamp(20px,5vw,64px) 120px;max-width:var(--maxw);width:100%}
+.mtoggle{display:none}
+.hero{border:1px solid var(--line);background:linear-gradient(160deg,#161226,#0e1219);border-radius:var(--radius);padding:30px 28px;margin-bottom:10px}
+.hero h1{font-size:clamp(1.9rem,5vw,2.7rem);margin:.1em 0 .25em;background:linear-gradient(100deg,#fff,#bb9af7);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--ink-dim);font-size:1.02rem;max-width:62ch}
+.kbar{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.kbar span{font-size:.74rem;color:var(--ink-dim);background:var(--panel-2);border:1px solid var(--line);padding:5px 11px;border-radius:999px}
+.spec{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:1.2em 0}
+.spec .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.spec .num{font-size:1.7rem;font-weight:800;color:#fff;letter-spacing:-.02em}
+.spec .lbl{font-size:.78rem;color:var(--ink-dim);margin-top:2px}
+.spec .card.good .num{color:var(--good)}.spec .card.violet .num{color:var(--violet)}
+.note{border-left:3px solid var(--acc);background:var(--panel);padding:12px 16px;border-radius:0 10px 10px 0;margin:1.1em 0;font-size:.95rem;color:var(--ink-dim)}
+.note b{color:var(--ink)}.note.warn{border-color:var(--warn)}.note.bad{border-color:var(--bad)}.note.good{border-color:var(--good)}.note.violet{border-color:var(--violet)}
+.do-dont{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:1.1em 0}
+@media(max-width:560px){.do-dont{grid-template-columns:1fr}}
+.do-dont div{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--panel);font-size:.9rem}
+.do-dont .do{border-top:3px solid var(--good)}.do-dont .dont{border-top:3px solid var(--bad)}
+.do-dont h5{margin:.1em 0 .5em;font-size:.82rem;text-transform:uppercase;letter-spacing:.08em}
+.do-dont .do h5{color:var(--good)}.do-dont .dont h5{color:var(--bad)}
+.do-dont ul{margin:.2em 0;padding-left:18px;color:var(--ink-dim)}.do-dont li{margin:.25em 0}
+section{scroll-margin-top:20px;padding-top:34px;border-top:1px solid var(--line);margin-top:34px}
+section:first-of-type{border-top:none;margin-top:0}
+.eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.14em;color:var(--violet);font-weight:700;margin-bottom:2px}
+ul.clean{list-style:none;padding-left:0}
+ul.clean li{padding-left:26px;position:relative;margin:.45em 0;color:var(--ink-dim)}
+ul.clean li::before{content:"→";position:absolute;left:0;color:var(--violet);font-weight:700}
+ul.clean li b{color:var(--ink)}
+.demo{border:1px solid var(--line);border-radius:16px;background:var(--panel-2);padding:18px;margin:1.2em 0}
+.demo .dlabel{font-size:.7rem;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-faint);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.demo .dlabel::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--violet);box-shadow:0 0 10px var(--violet)}
+.phone{max-width:340px;margin:0 auto;background:#05070c;border:8px solid #1c2333;border-radius:34px;padding:10px;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+.phone .screen{background:#0a0d15;border-radius:24px;overflow:hidden;position:relative}
+table{width:100%;border-collapse:collapse;margin:1.1em 0;font-size:.88rem}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{color:var(--ink);font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;background:var(--panel)}
+td{color:var(--ink-dim)}td b,td code{color:var(--ink)}
+
+/* SEGMENTED CONTROL / TOGGLE */
+.seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4px;gap:2px;position:relative}
+.seg button{border:none;background:none;color:var(--ink-dim);font:inherit;font-size:.85rem;font-weight:600;padding:9px 16px;border-radius:9px;cursor:pointer;min-height:40px;position:relative;z-index:1;transition:color .2s;white-space:nowrap}
+.seg button.on{color:#06101f}
+.seg .pill{position:absolute;top:4px;bottom:4px;border-radius:9px;background:var(--violet);transition:left .28s cubic-bezier(.32,.72,0,1),width .28s cubic-bezier(.32,.72,0,1);z-index:0}
+@media(prefers-reduced-motion:reduce){.seg .pill,.seg button{transition:none}}
+
+/* iOS switch */
+.switch{position:relative;display:inline-flex;align-items:center;gap:10px;cursor:pointer;font-size:.9rem;color:var(--ink)}
+.switch input{position:absolute;opacity:0;width:0;height:0}
+.switch .track{width:52px;height:31px;border-radius:999px;background:var(--line);transition:background .25s;position:relative;flex:0 0 auto}
+.switch .knob{position:absolute;top:3px;left:3px;width:25px;height:25px;border-radius:50%;background:#fff;transition:transform .25s cubic-bezier(.32,.72,0,1);box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.switch input:checked + .track{background:var(--good)}
+.switch input:checked + .track .knob{transform:translateX(21px)}
+@media(prefers-reduced-motion:reduce){.switch .track,.switch .knob{transition:none}}
+
+/* pricing table */
+.ptable{border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-top:14px}
+.ptable .prow{display:grid;grid-template-columns:1.4fr 1fr 1fr;align-items:center}
+.ptable .prow + .prow{border-top:1px solid var(--line)}
+.ptable .prow.head{background:var(--panel);font-weight:700;color:#fff}
+.ptable .prow.head .pl{font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-faint)}
+.ptable .cell{padding:12px 14px;font-size:.9rem}
+.ptable .price{font-weight:800;color:#fff;font-size:1.05rem}
+.ptable .price .per{font-weight:500;color:var(--ink-faint);font-size:.72rem}
+.ptable .feat{color:var(--ink-dim)}
+.ptable .yes{color:var(--good);font-weight:700}.ptable .no{color:var(--ink-faint)}
+.save-badge{display:inline-block;background:rgba(61,220,151,.15);color:var(--good);border:1px solid rgba(61,220,151,.4);font-size:.72rem;font-weight:700;padding:3px 9px;border-radius:999px;margin-left:8px;opacity:0;transition:opacity .25s}
+.save-badge.on{opacity:1}
+
+/* TABS */
+.tabs{border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.tabbar{display:flex;border-bottom:1px solid var(--line);background:var(--panel);overflow-x:auto;scrollbar-width:none}
+.tabbar::-webkit-scrollbar{display:none}
+.tabbar button{flex:1;min-width:max-content;border:none;background:none;color:var(--ink-dim);font:inherit;font-weight:600;font-size:.85rem;padding:14px 16px;cursor:pointer;border-bottom:2px solid transparent;min-height:48px;white-space:nowrap}
+.tabbar button.on{color:var(--violet);border-bottom-color:var(--violet)}
+.tabpane{padding:16px;color:var(--ink-dim);font-size:.92rem;display:none;animation:fade .25s}
+.tabpane.on{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.tabpane.on{animation:none}}
+
+/* SKELETON */
+.skl{display:flex;gap:12px;padding:14px;align-items:center}
+.skl .av{width:46px;height:46px;border-radius:50%;flex:0 0 auto}
+.skl .lines{flex:1}.skl .ln{height:11px;border-radius:6px;margin:7px 0}
+.shimmer{background:linear-gradient(100deg,#161b27 30%,#222a3d 50%,#161b27 70%);background-size:200% 100%;animation:sh 1.3s infinite}
+@keyframes sh{from{background-position:200% 0}to{background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.shimmer{animation:none}}
+.realrow{display:flex;gap:12px;padding:14px;align-items:center}
+.realrow .av{width:46px;height:46px;border-radius:50%;background:linear-gradient(150deg,#6c8cff,#bb9af7);flex:0 0 auto}
+.realrow .t1{color:#fff;font-weight:700}.realrow .t2{color:var(--ink-dim);font-size:.85rem}
+.btn{background:var(--violet);color:#0a0717;border:none;font-weight:700;padding:11px 18px;border-radius:10px;min-height:44px;cursor:pointer;font-size:.9rem}
+.btn.ghost{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
+.btn:active{transform:scale(.97)}
+
+/* LIKE optimistic */
+.likebtn{display:inline-flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:10px 18px;cursor:pointer;color:var(--ink);font-weight:600;min-height:44px}
+.likebtn .heart{font-size:1.1rem;transition:transform .2s}
+.likebtn.liked{color:#ff6b9d;border-color:rgba(255,107,157,.5)}
+.likebtn.liked .heart{transform:scale(1.25)}
+
+/* TOAST */
+.toastwrap{position:absolute;left:0;right:0;bottom:14px;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;z-index:5}
+.toast{background:#1c2333;color:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 16px;font-size:.86rem;display:flex;align-items:center;gap:12px;box-shadow:0 10px 30px rgba(0,0,0,.5);transform:translateY(20px);opacity:0;transition:.3s;max-width:90%}
+.toast.on{transform:translateY(0);opacity:1}
+.toast .act{color:var(--acc-2);font-weight:700;pointer-events:auto;cursor:pointer}
+
+/* STORIES */
+.stories{position:relative;height:330px;border-radius:24px;overflow:hidden;background:#111}
+.stories .slide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:1.3rem;font-weight:800;color:#fff;opacity:0;transition:opacity .3s}
+.stories .slide.on{opacity:1}
+.st1{background:linear-gradient(150deg,#6c8cff,#3a4fb0)}.st2{background:linear-gradient(150deg,#bb9af7,#6d4bb0)}.st3{background:linear-gradient(150deg,#3ddc97,#1f8f63)}
+.stbars{position:absolute;top:10px;left:10px;right:10px;display:flex;gap:5px;z-index:3}
+.stbars .b{flex:1;height:3px;border-radius:3px;background:rgba(255,255,255,.3);overflow:hidden}
+.stbars .b i{display:block;height:100%;width:0;background:#fff}
+.stbars .b.done i{width:100%}
+.sttap{position:absolute;inset:0;display:flex;z-index:2}
+.sttap .l,.sttap .r{flex:1}
+
+/* SWIPE list */
+.swlist{border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.swrow{position:relative;overflow:hidden;border-bottom:1px solid var(--line);background:var(--bad)}
+.swrow:last-child{border-bottom:none}
+.swrow .del{position:absolute;right:0;top:0;bottom:0;width:90px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.8rem}
+.swrow .front{position:relative;background:var(--panel);padding:16px 14px;display:flex;justify-content:space-between;align-items:center;transition:transform .25s;touch-action:pan-y;z-index:1}
+.swrow .front .h{color:#fff;font-weight:600}.swrow .front .s{color:var(--ink-faint);font-size:.8rem}
+.swhint{font-size:.78rem;color:var(--ink-faint);text-align:center;margin-top:8px}
+
+/* FAB */
+.fabdemo{position:relative;height:280px;border-radius:24px;overflow:hidden;background:#0a0d15}
+.fabdemo .content{padding:16px;color:var(--ink-dim);font-size:.88rem}
+.fab{position:absolute;right:16px;bottom:16px;width:56px;height:56px;border-radius:50%;background:var(--violet);color:#0a0717;border:none;font-size:1.7rem;cursor:pointer;box-shadow:0 8px 24px rgba(187,154,247,.4);display:flex;align-items:center;justify-content:center;transition:transform .25s;z-index:3}
+.fab.x{transform:rotate(45deg)}
+.fabmenu{position:absolute;right:22px;bottom:84px;display:flex;flex-direction:column;gap:10px;z-index:3}
+.fabmenu a{display:flex;align-items:center;gap:8px;justify-content:flex-end;opacity:0;transform:translateY(10px);transition:.25s;pointer-events:none}
+.fabmenu.on a{opacity:1;transform:none;pointer-events:auto}
+.fabmenu a .lab{background:#1c2333;color:#fff;font-size:.78rem;padding:5px 10px;border-radius:8px;border:1px solid var(--line)}
+.fabmenu a .ic{width:42px;height:42px;border-radius:50%;background:var(--panel);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:#fff}
+
+.check{list-style:none;padding:0;margin:1em 0}
+.check li{padding:10px 12px 10px 40px;position:relative;border:1px solid var(--line);border-radius:10px;margin:7px 0;background:var(--panel);font-size:.9rem}
+.check li::before{content:"";position:absolute;left:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;border-radius:4px;border:2px solid var(--violet)}
+.check li b{color:#fff}
+.support{display:inline-block;font-size:.72rem;font-weight:700;padding:3px 9px;border-radius:999px;margin-left:6px;vertical-align:middle}
+.support.base{background:rgba(61,220,151,.15);color:var(--good);border:1px solid rgba(61,220,151,.35)}
+.support.partial{background:rgba(255,180,84,.15);color:var(--warn);border:1px solid rgba(255,180,84,.35)}
+footer{color:var(--ink-faint);font-size:.8rem;margin-top:50px;padding-top:20px;border-top:1px solid var(--line)}
+footer a{color:var(--ink-dim)}
+.tochead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.toc-close{display:none}
+@media(max-width:880px){
+  .wrap{grid-template-columns:1fr}
+  nav.toc{position:fixed;z-index:50;width:min(86vw,320px);left:0;top:0;height:100vh;height:100dvh;
+    transform:translateX(-100%);transition:transform .28s ease;box-shadow:0 0 40px rgba(0,0,0,.6);
+    padding:0 0 calc(env(safe-area-inset-bottom) + 24px);overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+  nav.toc.open{transform:translateX(0)}
+  nav.toc .tochead{position:sticky;top:0;z-index:2;align-items:center;background:var(--panel);
+    border-bottom:1px solid var(--line);padding:calc(env(safe-area-inset-top) + 14px) 14px 12px}
+  .toc-close{display:flex;flex:0 0 auto;width:44px;height:44px;align-items:center;justify-content:center;
+    border-radius:12px;background:var(--panel-2);border:1px solid var(--line);color:var(--ink);font-size:1.2rem;cursor:pointer}
+  nav.toc a{min-height:44px;display:flex;align-items:center;padding:10px 16px;font-size:.95rem;margin:1px 8px;border-left:none;border-radius:10px}
+  nav.toc a.grp{min-height:0;padding:14px 16px 4px}
+  .mtoggle{display:flex;position:fixed;z-index:60;top:calc(env(safe-area-inset-top) + 12px);left:12px;width:48px;height:48px;border-radius:12px;background:var(--panel);border:1px solid var(--line);color:var(--ink);align-items:center;justify-content:center;cursor:pointer;font-size:1.3rem;box-shadow:0 4px 16px rgba(0,0,0,.45)}
+  main{padding-top:calc(env(safe-area-inset-top) + 76px)}
+  .scrim-nav{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:40;opacity:0;pointer-events:none;transition:opacity .25s}
+  .scrim-nav.on{opacity:1;pointer-events:auto}
+  .ptable .prow{grid-template-columns:1.3fr 1fr 1fr}
+  body.nav-open{overflow:hidden}
+}
+@media(max-width:880px) and (prefers-reduced-motion:reduce){
+  nav.toc{transition:none}.scrim-nav{transition:none}
+}
+</style>
+</head>
+<body>
+<button class="mtoggle" id="mtoggle" aria-label="Otwórz menu" aria-controls="toc" aria-expanded="false" type="button">☰</button>
+<div class="scrim-nav" id="scrimNav"></div>
+<div class="wrap">
+<nav class="toc" id="toc" aria-label="Spis treści">
+  <div class="tochead">
+    <div>
+      <div class="brand">App-Like Patterns</div>
+      <div class="sub">Specyfikacja · cz. 2</div>
+    </div>
+    <button class="toc-close" id="tocClose" aria-label="Zamknij menu" type="button">✕</button>
+  </div>
+  <a href="#filozofia">0 · Co znaczy „jak apka"</a>
+  <a class="grp">Layout, przestrzeń &amp; scroll</a>
+  <a href="#toggle">1 · Przełączniki &amp; tabele porównawcze</a>
+  <a href="#space">2 · Przestrzeń i oddech (ile masz miejsca)</a>
+  <a href="#scroll">3 · Skracanie scrolla (gęstość info)</a>
+  <a href="#desktop">4 · Duże elementy desktop → mobile</a>
+  <a href="#tabs">5 · Taby / segmented control</a>
+  <a class="grp">Ruch &amp; nawigacja</a>
+  <a href="#transitions">6 · Przejścia między widokami</a>
+  <a href="#appshell">7 · App shell &amp; nawigacja</a>
+  <a href="#scrolldriven">8 · Animacje sterowane scrollem</a>
+  <a class="grp">Czas &amp; feedback</a>
+  <a href="#skeleton">9 · Skeleton &amp; stany ładowania</a>
+  <a href="#optimistic">10 · Optimistic UI</a>
+  <a href="#toast">11 · Toast / snackbar</a>
+  <a href="#micro">12 · Microinteractions &amp; haptyka</a>
+  <a class="grp">Wzorce treści</a>
+  <a href="#stories">13 · Stories / pełny ekran</a>
+  <a href="#swipe">14 · Swipe actions</a>
+  <a href="#fab">15 · FAB &amp; pull-to-refresh</a>
+  <a class="grp">Bajery &amp; opakowanie</a>
+  <a href="#native">16 · Natywne API (share, pay, kamera…)</a>
+  <a href="#pwa">17 · PWA — instalacja jak apka</a>
+  <a class="grp">Jakość</a>
+  <a href="#verify">18 · Weryfikacja, testy i iteracja</a>
+  <a href="#checklist">19 · Checklist app-like</a>
+</nav>
+<main>
+<div class="hero">
+  <div class="eyebrow">agency-site · referencja cz. 2</div>
+  <h1>Strona, która działa jak aplikacja</h1>
+  <p>Wzorce prezentacji i interakcji, które sprawiają, że strona <b>czuje się jak apka</b>, a nie jak statyczny dokument: przełączniki przy tabelach, przejścia między widokami, skeletony zamiast spinnerów, optimistic UI, stories, swipe, FAB i PWA. Każdy wzorzec z <b>działającym demo</b> i kodem.</p>
+  <div class="kbar">
+    <span>🔀 Toggle &amp; taby</span><span>✨ View Transitions</span><span>💀 Skeletony</span>
+    <span>⚡ Optimistic UI</span><span>📲 PWA</span><span>👆 Gesty</span>
+  </div>
+</div>
+<p style="color:var(--ink-faint);font-size:.85rem;margin-top:14px">To kontynuacja „Specyfikacji Optymalizacji Mobile". Tam: fundamenty, wydajność, dostępność. Tu: wzorce, które dają <i>uczucie apki</i>. Otwórz na telefonie i testuj dotykiem.</p>
+
+<!-- ===== 0 ===== -->
+<section id="filozofia">
+<div class="eyebrow">Fundament</div>
+<h2>0 · Co odróżnia „apkę" od „strony"</h2>
+<p>Różnica nie leży w technologii, tylko w <b>odczuciu</b>. Strona-dokument: klikasz → biały ekran → przeładowanie → nowa strona. Apka: dotykasz → natychmiastowa reakcja → treść zmienia się płynnie w miejscu. Pięć zasad, które budują to uczucie:</p>
+<ul class="clean">
+  <li><b>Natychmiastowy feedback</b> — każde dotknięcie ma reakcję w &lt;100ms (stan <code>:active</code>, podświetlenie, skala)</li>
+  <li><b>Brak „białych przeładowań"</b> — treść zmienia się w miejscu (przełączniki, taby, przejścia), nie przez reload całej strony</li>
+  <li><b>Ruch z sensem</b> — animacja pokazuje skąd-dokąd (element się przesuwa, panel wjeżdża), nie ozdabia</li>
+  <li><b>Stan jest zachowany</b> — wracasz tam, gdzie byłeś; scroll, filtr, zakładka pamiętane</li>
+  <li><b>Treść zanim dane</b> — skeleton/optimistic zamiast pustego spinnera; interfejs „wyprzedza" serwer</li>
+</ul>
+<div class="note violet"><b>Klucz psychologiczny:</b> chodzi o <i>perceived performance</i> — postrzeganą szybkość. Apka nie jest szybsza technicznie; po prostu <b>nigdy nie zostawia użytkownika z pustym ekranem</b> bez reakcji.</div>
+</section>
+
+<!-- ===== 1 — TOGGLE / COMPARISON TABLE (user's request) ===== -->
+<section id="toggle">
+<div class="eyebrow">Przełączanie treści · to o to pytałeś</div>
+<h2>1 · Przełączniki przy tabelach porównawczych</h2>
+<p>Najbardziej praktyczny app-like wzorzec na stronach ofertowych: <b>jeden przełącznik zmienia całą tabelę</b> bez przeładowania. Klasyk: cennik miesięczny ↔ roczny, gdzie ceny i oszczędności aktualizują się natychmiast. Idealne dla cenników, porównań pakietów, specyfikacji.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo A — przełącz okres, ceny zmieniają się natychmiast</div>
+  <div class="phone"><div class="screen"><div style="padding:16px">
+    <div style="display:flex;justify-content:center;margin-bottom:6px">
+      <div class="seg" id="billseg" role="tablist">
+        <span class="pill" id="billpill"></span>
+        <button class="on" data-mode="m" role="tab">Miesięcznie</button>
+        <button data-mode="y" role="tab">Rocznie <span style="font-size:.7rem">−20%</span></button>
+      </div>
+    </div>
+    <div style="text-align:center"><span class="save-badge" id="saveBadge">Oszczędzasz 2 mies. w roku</span></div>
+    <div class="ptable">
+      <div class="prow head"><div class="cell pl">Pakiet</div><div class="cell">Start</div><div class="cell">Pro</div></div>
+      <div class="prow"><div class="cell feat">Cena</div>
+        <div class="cell price" data-m="99 zł" data-y="79 zł">99 zł<span class="per">/mc</span></div>
+        <div class="cell price" data-m="199 zł" data-y="159 zł">199 zł<span class="per">/mc</span></div></div>
+      <div class="prow"><div class="cell feat">Strony</div><div class="cell">5</div><div class="cell">∞</div></div>
+      <div class="prow"><div class="cell feat">Wsparcie 24/7</div><div class="cell no">—</div><div class="cell yes">✓</div></div>
+    </div>
+  </div></div></div>
+</div>
+
+<h4>Demo B — segmented control zmienia dane w tabeli</h4>
+<div class="demo">
+  <div class="dlabel">Demo B — wybierz urządzenie, specyfikacja się przełącza</div>
+  <div class="phone"><div class="screen"><div style="padding:16px">
+    <div style="display:flex;justify-content:center;margin-bottom:14px">
+      <div class="seg" id="devseg">
+        <span class="pill" id="devpill"></span>
+        <button class="on" data-i="0">📱 Telefon</button>
+        <button data-i="1">📟 Tablet</button>
+        <button data-i="2">💻 Desktop</button>
+      </div>
+    </div>
+    <table style="margin:0">
+      <tr><th>Parametr</th><th id="devName">Telefon</th></tr>
+      <tr><td>Ekran</td><td id="r0" class="t1">6,1"</td></tr>
+      <tr><td>Rozdzielczość</td><td id="r1">1170×2532</td></tr>
+      <tr><td>Waga</td><td id="r2">174 g</td></tr>
+    </table>
+  </div></div></div>
+</div>
+
+<h4>Demo C — switch (on/off) filtruje tabelę</h4>
+<div class="demo">
+  <div class="dlabel">Demo C — przełącznik pokazuje tylko różnice</div>
+  <div class="phone"><div class="screen"><div style="padding:16px">
+    <label class="switch" style="margin-bottom:12px">
+      <input type="checkbox" id="diffSwitch">
+      <span class="track"><span class="knob"></span></span>
+      Pokaż tylko różnice
+    </label>
+    <table style="margin:0" id="diffTable">
+      <tr><th>Funkcja</th><th>A</th><th>B</th></tr>
+      <tr data-diff="0"><td>Hosting</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+      <tr data-diff="1"><td>Sklep online</td><td class="no">—</td><td class="yes">✓</td></tr>
+      <tr data-diff="0"><td>SSL</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+      <tr data-diff="1"><td>Wielojęzyczność</td><td class="no">—</td><td class="yes">✓</td></tr>
+    </table>
+  </div></div></div>
+</div>
+
+<h4>Kod — segmented control z animowaną „pigułką"</h4>
+<pre><code><span class="tok-p">&lt;div</span> <span class="tok-a">class</span>=<span class="tok-v">"seg"</span> <span class="tok-a">id</span>=<span class="tok-v">"seg"</span><span class="tok-p">&gt;</span>
+  <span class="tok-p">&lt;span</span> <span class="tok-a">class</span>=<span class="tok-v">"pill"</span><span class="tok-p">&gt;&lt;/span&gt;</span>
+  <span class="tok-p">&lt;button</span> <span class="tok-a">class</span>=<span class="tok-v">"on"</span> <span class="tok-a">data-mode</span>=<span class="tok-v">"m"</span><span class="tok-p">&gt;</span>Miesięcznie<span class="tok-p">&lt;/button&gt;</span>
+  <span class="tok-p">&lt;button</span> <span class="tok-a">data-mode</span>=<span class="tok-v">"y"</span><span class="tok-p">&gt;</span>Rocznie<span class="tok-p">&lt;/button&gt;</span>
+<span class="tok-p">&lt;/div&gt;</span></code></pre>
+<pre><code><span class="tok-k">const</span> seg = document.<span class="tok-a">getElementById</span>(<span class="tok-v">'seg'</span>);
+<span class="tok-k">const</span> pill = seg.<span class="tok-a">querySelector</span>(<span class="tok-v">'.pill'</span>);
+<span class="tok-k">function</span> <span class="tok-a">move</span>(btn){                          <span class="tok-c">// przesuń pigułkę pod aktywny</span>
+  pill.style.left = btn.offsetLeft + <span class="tok-v">'px'</span>;
+  pill.style.width = btn.offsetWidth + <span class="tok-v">'px'</span>;
+}
+seg.<span class="tok-a">querySelectorAll</span>(<span class="tok-v">'button'</span>).forEach(b =&gt; b.<span class="tok-a">onclick</span> = () =&gt; {
+  seg.<span class="tok-a">querySelectorAll</span>(<span class="tok-v">'button'</span>).forEach(x =&gt; x.classList.<span class="tok-a">remove</span>(<span class="tok-v">'on'</span>));
+  b.classList.<span class="tok-a">add</span>(<span class="tok-v">'on'</span>); <span class="tok-a">move</span>(b);
+  <span class="tok-a">updateTable</span>(b.dataset.mode);            <span class="tok-c">// podmień dane w miejscu — bez reloadu</span>
+});</code></pre>
+
+<div class="do-dont">
+  <div class="do"><h5>✓ Rób</h5><ul>
+    <li>Animowana „pigułka" pod aktywnym — pokazuje przejście</li>
+    <li>Zmiana treści <b>w miejscu</b>, bez przeładowania strony</li>
+    <li>Pamiętaj wybór (localStorage / URL <code>?plan=y</code>)</li>
+    <li>Pokaż korzyść przy przełączeniu (badge „−20%", „oszczędzasz")</li>
+    <li>Cel ≥ 44px, czytelny stan aktywny</li>
+  </ul></div>
+  <div class="dont"><h5>✕ Unikaj</h5><ul>
+    <li>Więcej niż 3–4 opcji w segmented control (wtedy → dropdown/taby)</li>
+    <li>Przeładowania strony przy każdym przełączeniu</li>
+    <li>Niejasnego stanu — który wariant jest aktywny?</li>
+    <li>Skoków layoutu gdy zmienia się długość treści</li>
+  </ul></div>
+</div>
+<div class="note"><b>Dostępność:</b> dla przełącznika treści użyj <code>role="tablist"</code> + <code>role="tab"</code> + <code>aria-selected</code>; dla switcha on/off — natywny <code>&lt;input type="checkbox"&gt;</code> (działa z klawiaturą i czytnikiem).</div>
+</section>
+<!-- ===== 2 — REAL SPACE / BREATHING ===== -->
+<section id="space">
+<div class="eyebrow">Layout · to o to pytałeś</div>
+<h2>2 · Przestrzeń i oddech — ile realnie masz miejsca</h2>
+<p>Telefon ma dużo mniej użytecznej przestrzeni, niż mówi przekątna. Z ekranu zjada pasek przeglądarki, safe area (notch, pasek gestów), a przy formularzu — klawiatura. Trzeba projektować pod <b>realną</b> wysokość, nie teoretyczną.</p>
+
+<h4>Budżet przestrzeni — typowy telefon (≈390×844 px CSS)</h4>
+<div style="border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:1em 0;font-size:.8rem">
+  <div style="display:flex;align-items:center;background:#2a2030;color:#ffb454;padding:8px 12px"><span style="width:54px;font-weight:700">~59px</span> Pasek statusu + notch / Dynamic Island (safe area top)</div>
+  <div style="display:flex;align-items:center;background:#23283a;color:var(--ink-dim);padding:8px 12px"><span style="width:54px;font-weight:700">~56px</span> Pasek adresu przeglądarki (chowa się przy scrollu w dół)</div>
+  <div style="display:flex;align-items:center;background:#15233a;color:#7dcfff;padding:30px 12px"><span style="width:54px;font-weight:700;color:#3ddc97">~661px</span> <b style="color:#3ddc97">Realna treść — to masz do dyspozycji</b></div>
+  <div style="display:flex;align-items:center;background:#23283a;color:var(--ink-dim);padding:8px 12px"><span style="width:54px;font-weight:700">~34px</span> Pasek gestów / home indicator (safe area bottom)</div>
+  <div style="display:flex;align-items:center;background:#2a2030;color:#ffb454;padding:8px 12px"><span style="width:54px;font-weight:700">~34px</span> + sticky CTA jeśli jest</div>
+</div>
+<div class="spec">
+  <div class="card"><div class="num">~660px</div><div class="lbl">Realna wysokość treści (z widocznym paskiem)</div></div>
+  <div class="card good"><div class="num">~750px</div><div class="lbl">Po schowaniu paska adresu (scroll)</div></div>
+  <div class="card violet"><div class="num">~360px</div><div class="lbl">Gdy otwarta klawiatura (formularz!)</div></div>
+</div>
+<div class="note warn"><b>Klawiatura zjada ~połowę ekranu.</b> Przy formularzu realnie widać ~360px. Dlatego ważne pole + przycisk muszą zmieścić się <i>nad</i> klawiaturą — testuj formularze z otwartą klawiaturą.</div>
+
+<h4>System odstępów: skala 8pt</h4>
+<p>Nie dobieraj marginesów „na oko". Używaj skali opartej na 8 (z 4 jako półkrokiem) — spójny rytm, mniej decyzji, czysty layout. Standard Material, IBM Carbon, Apple.</p>
+<pre><code><span class="tok-c">/* skala odstępów — wielokrotności 8 */</span>
+<span class="tok-k">--space-1</span>: <span class="tok-v">4px</span>;   <span class="tok-k">--space-2</span>: <span class="tok-v">8px</span>;   <span class="tok-k">--space-3</span>: <span class="tok-v">12px</span>;
+<span class="tok-k">--space-4</span>: <span class="tok-v">16px</span>;  <span class="tok-k">--space-6</span>: <span class="tok-v">24px</span>;  <span class="tok-k">--space-8</span>: <span class="tok-v">32px</span>;
+<span class="tok-k">--space-12</span>: <span class="tok-v">48px</span>; <span class="tok-k">--space-16</span>: <span class="tok-v">64px</span>;</code></pre>
+<table>
+<tr><th>Element</th><th>Zalecany odstęp</th></tr>
+<tr><td>Margines boczny strony (gutter)</td><td><b>16–24px</b> (nie 0 — treść nie może dotykać krawędzi)</td></tr>
+<tr><td>Padding wewnątrz karty</td><td>16–20px</td></tr>
+<tr><td>Odstęp między kartami na liście</td><td>12–16px (komfort przy scrollu)</td></tr>
+<tr><td>Odstęp między sekcjami strony</td><td>32–64px (wyraźny podział)</td></tr>
+<tr><td>Między klikalnymi elementami</td><td>min. 8px (anty-mis-tap)</td></tr>
+</table>
+
+<div class="demo">
+  <div class="dlabel">Demo — ciasno vs oddech (ta sama treść)</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div>
+      <div style="font-size:.72rem;color:var(--bad);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;font-weight:700">✕ Za ciasno</div>
+      <div style="background:#0a0d15;border-radius:14px;padding:6px">
+        <div style="background:var(--panel);padding:6px 8px;border-radius:6px;margin-bottom:3px;font-size:.78rem;line-height:1.2">Pakiet Start<br><span style="color:var(--ink-faint);font-size:.7rem">Opis usługi tutaj zbity</span></div>
+        <div style="background:var(--panel);padding:6px 8px;border-radius:6px;margin-bottom:3px;font-size:.78rem;line-height:1.2">Pakiet Pro<br><span style="color:var(--ink-faint);font-size:.7rem">Opis usługi tutaj zbity</span></div>
+        <div style="background:var(--panel);padding:6px 8px;border-radius:6px;font-size:.78rem;line-height:1.2">Pakiet Max<br><span style="color:var(--ink-faint);font-size:.7rem">Opis usługi tutaj zbity</span></div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:.72rem;color:var(--good);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;font-weight:700">✓ Z oddechem</div>
+      <div style="background:#0a0d15;border-radius:14px;padding:12px">
+        <div style="background:var(--panel);padding:14px;border-radius:10px;margin-bottom:12px;font-size:.82rem">Pakiet Start<br><span style="color:var(--ink-faint);font-size:.74rem">Opis usługi z miejscem</span></div>
+        <div style="background:var(--panel);padding:14px;border-radius:10px;font-size:.82rem">Pakiet Pro<br><span style="color:var(--ink-faint);font-size:.74rem">Opis usługi z miejscem</span></div>
+      </div>
+    </div>
+  </div>
+  <p style="color:var(--ink-faint);font-size:.82rem;margin:10px 0 0">Po lewej zmieścisz więcej, ale wszystko „krzyczy" i łatwo o pomyłkę. Po prawej skanuje się bez wysiłku. <b>Biała przestrzeń to nie marnotrawstwo</b> — to czytelność.</p>
+</div>
+
+<ul class="clean">
+  <li><b>Reguła „wnętrze ≤ otoczenie"</b> — odstęp wokół grupy ≥ odstępu w środku, żeby grupy były wyraźne</li>
+  <li><b>45–75 znaków na linię</b> — dłuższe męczą, krótsze rwą rytm</li>
+  <li><b>Nie upychaj</b> — lepiej krótsza, czytelna sekcja niż gęsta ściana, którą się przewija na ślepo</li>
+  <li><b>Safe area</b> — <code>padding: env(safe-area-inset-bottom)</code> żeby treść/CTA nie wpadały pod pasek gestów</li>
+</ul>
+</section>
+
+<!-- ===== 3 — SHORTEN SCROLL / DENSITY ===== -->
+<section id="scroll">
+<div class="eyebrow">Layout · to o to pytałeś</div>
+<h2>3 · Skracanie scrolla — żeby nie przewijać „5 minut"</h2>
+<p>Oddech tak, ale nie kosztem 10-ekranowej ściany. Cel: <b>użytkownik dociera do tego, czego szuka, w 2–3 ruchach kciuka</b>, a nie po minucie scrollowania. Sztuka to <i>gęstość sterowana</i> — pokazuj mało, ale daj szybki dostęp do reszty. To samo serce co „app-like": treść na żądanie, nie wszystko naraz.</p>
+
+<h4>5 technik, które tną długość strony</h4>
+<table>
+<tr><th>Technika</th><th>Co robi</th><th>Kiedy</th></tr>
+<tr><td><b>Accordion / „Pokaż więcej"</b></td><td>Zwija szczegóły do nagłówków</td><td>FAQ, opisy, specyfikacje</td></tr>
+<tr><td><b>Taby / segmented</b></td><td>Kilka „ekranów" w jednym miejscu</td><td>Opis / Parametry / Opinie</td></tr>
+<tr><td><b>Carousel poziomy</b></td><td>Wiele kart bez pionowej długości</td><td>Galerie, powiązane produkty</td></tr>
+<tr><td><b>Bottom sheet / modal</b></td><td>Szczegóły bez opuszczania miejsca</td><td>Detale, filtry, opcje</td></tr>
+<tr><td><b>Jump-nav / spis</b></td><td>Skok do sekcji bez przewijania</td><td>Długie treści, regulaminy</td></tr>
+</table>
+
+<div class="note violet"><b>Zasada odwróconej piramidy:</b> najważniejsze (oferta, CTA, dowód) w pierwszych 1–2 ekranach. Reszta — głębiej lub zwinięta. Ktoś, kto chce kupić, nie powinien szukać przycisku przez minutę.</div>
+
+<h4>„Above the fold" na mobile — pierwszy ekran (~660px)</h4>
+<ul class="clean">
+  <li><b>Co robisz + dla kogo</b> (nagłówek), <b>jedno CTA</b>, sygnał zaufania — w pierwszym ekranie</li>
+  <li><b>Nie upychaj wszystkiego</b> nad „foldem" — ludzie scrollują; chodzi o <i>priorytet</i>, nie o wciśnięcie całości</li>
+  <li><b>Sticky CTA</b> — żeby po dowolnym scrollu akcja była pod kciukiem (patrz cz. 1)</li>
+  <li><b>„Skip to"</b> / kotwice — długi content z linkami skoku zamiast liniowego przewijania</li>
+</ul>
+
+<div class="do-dont">
+  <div class="do"><h5>✓ Skracaj mądrze</h5><ul>
+    <li>Zwijaj drugorzędne, eksponuj kluczowe</li>
+    <li>Grupuj w taby/akordeony zamiast listy 12 sekcji</li>
+    <li>Podsumowanie u góry, detale na żądanie</li>
+    <li>Infinite scroll TYLKO dla feedów (nie dla strony ofertowej)</li>
+  </ul></div>
+  <div class="dont"><h5>✕ Nie rób</h5><ul>
+    <li>10 pełnoekranowych sekcji hero jedna pod drugą</li>
+    <li>Chowania ceny/CTA tak głęboko, że trzeba szukać</li>
+    <li>Ściany tekstu bez podziału i kotwic</li>
+    <li>Auto-odtwarzanych, ciężkich sekcji wydłużających stronę</li>
+  </ul></div>
+</div>
+</section>
+
+<!-- ===== 4 — DESKTOP → MOBILE ===== -->
+<section id="desktop">
+<div class="eyebrow">Layout · to o to pytałeś</div>
+<h2>4 · Duże elementy desktopowe → mobile</h2>
+<p>Najtrudniejsze w RWD to nie tekst, tylko „ciężkie" komponenty desktopowe: mega-menu, szerokie tabele, wielokolumnowe sekcje, sidebary, najazdy hover. Nie skaluj ich w dół — <b>przekształć w mobilny odpowiednik</b>.</p>
+
+<table>
+<tr><th>Desktop</th><th>→ Mobile</th></tr>
+<tr><td><b>Mega-menu / pasek nav</b></td><td>Hamburger + drawer, lub bottom nav (3–5) + „Więcej"; podkategorie jako accordion</td></tr>
+<tr><td><b>Szeroka tabela danych</b></td><td>Karty (wiersz → karta z etykietami) albo scroll poziomy z przyklejoną 1. kolumną</td></tr>
+<tr><td><b>3–4 kolumny</b></td><td>Stack do 1 kolumny; kolejność wg priorytetu (najważniejsze pierwsze)</td></tr>
+<tr><td><b>Sidebar / filtry</b></td><td>Bottom sheet lub pełnoekranowy panel filtrów otwierany przyciskiem</td></tr>
+<tr><td><b>Hover dropdown / tooltip</b></td><td>Tap → accordion/sheet (na dotyku nie ma hover); tooltip → tap-to-reveal</td></tr>
+<tr><td><b>Wielki hero z animacją</b></td><td>Lżejszy obraz, krótszy nagłówek, CTA nad foldem; ciężkie efekty tylko desktop</td></tr>
+<tr><td><b>Rozbudowany footer</b></td><td>Kolumny linków jako akordeony; najważniejsze kontakty na wierzchu</td></tr>
+<tr><td><b>Krok-po-kroku formularz</b></td><td>Jedna kolumna, podział na kroki, progres na górze, klawiatura kontekstowa</td></tr>
+</table>
+
+<h4>Szeroka tabela → karty (najczęstszy problem)</h4>
+<div class="demo">
+  <div class="dlabel">Demo — wiersz tabeli zamienia się w kartę z etykietami</div>
+  <div class="phone"><div class="screen"><div style="padding:14px">
+    <div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px">
+      <div style="font-weight:700;color:#fff;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--line)">Zamówienie #1042</div>
+      <div style="display:flex;justify-content:space-between;font-size:.84rem;padding:3px 0"><span style="color:var(--ink-faint)">Klient</span><span>Anna K.</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:.84rem;padding:3px 0"><span style="color:var(--ink-faint)">Kwota</span><span>1 290 zł</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:.84rem;padding:3px 0"><span style="color:var(--ink-faint)">Status</span><span class="yes" style="color:var(--good)">Opłacone</span></div>
+    </div>
+    <div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px">
+      <div style="font-weight:700;color:#fff;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--line)">Zamówienie #1043</div>
+      <div style="display:flex;justify-content:space-between;font-size:.84rem;padding:3px 0"><span style="color:var(--ink-faint)">Klient</span><span>Piotr M.</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:.84rem;padding:3px 0"><span style="color:var(--ink-faint)">Kwota</span><span>540 zł</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:.84rem;padding:3px 0"><span style="color:var(--ink-faint)">Status</span><span style="color:var(--warn)">Oczekuje</span></div>
+    </div>
+  </div></div></div>
+  <p style="color:var(--ink-faint);font-size:.82rem;margin:10px 0 0;text-align:center">Zamiast ściskać 6 kolumn — każdy wiersz to karta, a nagłówki kolumn stają się etykietami przy wartościach.</p>
+</div>
+<pre><code><span class="tok-c">/* tabela → karty poniżej 600px */</span>
+<span class="tok-a">@media (max-width: 600px)</span>{
+  <span class="tok-a">table, thead, tbody, tr, td</span>{ <span class="tok-k">display</span>:<span class="tok-v">block</span>; }
+  <span class="tok-a">thead</span>{ <span class="tok-k">position</span>:<span class="tok-v">absolute</span>; <span class="tok-k">left</span>:<span class="tok-v">-9999px</span>; }   <span class="tok-c">/* ukryj nagłówek wiersza */</span>
+  <span class="tok-a">tr</span>{ <span class="tok-k">border</span>:<span class="tok-v">1px solid #ddd</span>; <span class="tok-k">border-radius</span>:<span class="tok-v">12px</span>; <span class="tok-k">margin-bottom</span>:<span class="tok-v">12px</span>; <span class="tok-k">padding</span>:<span class="tok-v">8px</span>; }
+  <span class="tok-a">td</span>{ <span class="tok-k">display</span>:<span class="tok-v">flex</span>; <span class="tok-k">justify-content</span>:<span class="tok-v">space-between</span>; <span class="tok-k">border</span>:<span class="tok-v">none</span>; }
+  <span class="tok-a">td::before</span>{ <span class="tok-k">content</span>:<span class="tok-v">attr(data-label)</span>; <span class="tok-k">color</span>:<span class="tok-v">#888</span>; <span class="tok-k">font-weight</span>:<span class="tok-v">600</span>; }
+}</code></pre>
+<div class="note"><b>Alternatywa dla tabel porównawczych:</b> gdy <i>musisz</i> porównać kolumny obok siebie — zostaw poziomy scroll z <code>position:sticky</code> na pierwszej kolumnie (nazwy wierszy zostają, wartości się przewijają). Plus segmented control z sekcji 1, żeby przełączać które kolumny widać.</div>
+</section>
+
+<!-- ===== 5 — TABS ===== -->
+<section id="tabs">
+<div class="eyebrow">Przełączanie treści</div>
+<h2>5 · Taby / segmented control</h2>
+<p>Taby trzymają kilka „ekranów" treści w jednym miejscu — bez scrolla i bez przeładowania. Najlepsze do równorzędnych widoków tego samego obiektu: <i>Opis · Parametry · Opinie</i> na karcie produktu.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — przełącz zakładkę, treść zmienia się w miejscu</div>
+  <div class="phone"><div class="screen">
+    <div class="tabs" id="tabs">
+      <div class="tabbar">
+        <button class="on" data-t="0">Opis</button>
+        <button data-t="1">Parametry</button>
+        <button data-t="2">Opinie</button>
+      </div>
+      <div class="tabpane on" data-p="0">Nowoczesna strona dopasowana do Twojej marki. Szybka, mobilna, gotowa na klientów.</div>
+      <div class="tabpane" data-p="1">Ładowanie &lt; 2,5s · 100% responsywna · SEO-ready · hosting w cenie.</div>
+      <div class="tabpane" data-p="2">★★★★★ „Realizacja w tydzień, świetny kontakt." — Magda, Reykjavík</div>
+    </div>
+  </div></div>
+</div>
+
+<table>
+<tr><th>Taby</th><th>Segmented control</th></tr>
+<tr><td>Różne <b>kategorie</b> treści</td><td>Różne <b>warianty/widoki</b> tej samej rzeczy</td></tr>
+<tr><td>Opis / Parametry / Opinie</td><td>Miesięcznie / Rocznie · Lista / Siatka</td></tr>
+<tr><td>Zwykle 2–5, mogą się przewijać</td><td>2–4, równa szerokość, „pigułka"</td></tr>
+</table>
+<ul class="clean">
+  <li><b>Aktywny stan wyraźny</b> — kolor + podkreślenie/pigułka, nie samym odcieniem</li>
+  <li><b>Scrollowalny pasek</b> tabów gdy nie mieszczą się w szerokości (nie zawijaj do 2 rzędów)</li>
+  <li><b>ARIA</b> — <code>role="tab"</code>, <code>aria-selected</code>, strzałki klawiatury</li>
+  <li><b>Nie chowaj CTA</b> w nieaktywnej zakładce — kluczowa akcja zawsze widoczna</li>
+</ul>
+</section>
+
+<!-- ===== 6 — VIEW TRANSITIONS ===== -->
+<section id="transitions">
+<div class="eyebrow">Ruch &amp; nawigacja</div>
+<h2>6 · Przejścia między widokami <span class="support base">Baseline 2025</span></h2>
+<p>Największy „przeskok" z dokumentu do apki: zamiast białego mignięcia przy zmianie treści/strony — <b>płynna animacja</b>, w której elementy się przesuwają, a obraz produktu „rośnie" w widok szczegółów. Robi to <b>View Transitions API</b> — natywnie, bez bibliotek.</p>
+<ul class="clean">
+  <li><b>Same-document</b> (zmiana treści w SPA) — <b>Baseline</b> od października 2025, działa we wszystkich silnikach</li>
+  <li><b>Cross-document</b> (między stronami MPA) — Chrome/Edge 126+ i Safari 18.2+; Firefox jeszcze nie</li>
+  <li><b>Progresywnie</b> — gdy brak wsparcia, treść po prostu zmienia się bez animacji (nic się nie psuje)</li>
+</ul>
+
+<div class="demo">
+  <div class="dlabel">Demo — kliknij, treść zmieni się z animacją (jeśli przeglądarka wspiera)</div>
+  <div class="phone"><div class="screen"><div style="padding:18px;min-height:200px" id="vtbox">
+    <div id="vtcontent">
+      <h4 style="margin:.2em 0">Widok: Lista</h4>
+      <p style="color:var(--ink-dim);font-size:.9rem">To jest pierwszy widok. Kliknij przycisk, żeby przejść do szczegółów — z płynnym przejściem.</p>
+      <button class="btn" id="vtbtn">Otwórz szczegóły →</button>
+    </div>
+  </div></div></div>
+</div>
+
+<h4>Kod — same-document, z bezpiecznym fallbackiem</h4>
+<pre><code><span class="tok-k">function</span> <span class="tok-a">swap</span>(updateDOM){
+  <span class="tok-c">// jeśli brak wsparcia — po prostu zmień DOM, bez animacji</span>
+  <span class="tok-k">if</span>(!document.<span class="tok-a">startViewTransition</span>){ <span class="tok-a">updateDOM</span>(); <span class="tok-k">return</span>; }
+  document.<span class="tok-a">startViewTransition</span>(updateDOM);   <span class="tok-c">// animowane przejście</span>
+}</code></pre>
+<pre><code><span class="tok-c">/* „shared element" — ten sam obraz płynnie łączy dwa widoki */</span>
+<span class="tok-a">.product-img</span>{ <span class="tok-k">view-transition-name</span>: <span class="tok-v">hero-photo</span>; }
+<span class="tok-c">/* dla MPA wystarczy jedna reguła w CSS: */</span>
+<span class="tok-a">@view-transition</span>{ <span class="tok-k">navigation</span>: <span class="tok-v">auto</span>; }</code></pre>
+<div class="note"><b>Z umiarem:</b> przejścia mają komunikować nawigację (skąd-dokąd), nie efekciarstwo. Trzymaj 200–300ms i respektuj <code>prefers-reduced-motion</code>.</div>
+</section>
+
+<!-- ===== 7 — APP SHELL ===== -->
+<section id="appshell">
+<div class="eyebrow">Ruch &amp; nawigacja</div>
+<h2>7 · App shell — stała „rama", zmienna treść</h2>
+<p>Sekret natywnego uczucia: <b>nagłówek i dolna nawigacja zostają na miejscu</b>, a przewija/zmienia się tylko obszar treści. Nie ma efektu „cała strona zniknęła i wczytała się od nowa". To wzorzec <i>app shell</i>.</p>
+
+<div class="demo">
+  <div class="dlabel">Schemat — co zostaje, co się zmienia</div>
+  <div class="phone"><div class="screen"><div style="height:300px;display:flex;flex-direction:column">
+    <div style="padding:12px 14px;border-bottom:1px solid var(--line);background:var(--panel);display:flex;justify-content:space-between;align-items:center">
+      <b style="font-size:.85rem">Marka</b><span style="font-size:.7rem;color:var(--violet);border:1px solid var(--violet);padding:2px 8px;border-radius:999px">stałe</span>
+    </div>
+    <div style="flex:1;padding:14px;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--ink-dim);font-size:.85rem">
+      <div><span style="font-size:.7rem;color:var(--good);border:1px solid var(--good);padding:2px 8px;border-radius:999px">zmienna treść</span><br><br>Tu wjeżdża/wyjeżdża widok<br>(z View Transitions)</div>
+    </div>
+    <div class="botnav" style="margin:0">
+      <a class="on" onclick="return false"><span class="ic">🏠</span>Start</a>
+      <a onclick="return false"><span class="ic">🔍</span>Szukaj</a>
+      <a onclick="return false"><span class="ic">🛒</span>Koszyk</a>
+      <a onclick="return false"><span class="ic">👤</span>Konto</a>
+    </div>
+  </div></div></div>
+</div>
+<ul class="clean">
+  <li><b>Bottom nav zawsze widoczny</b> — badania (Hoober) potwierdzają: ~75% obsługi to jeden kciuk, dół ekranu wygrywa</li>
+  <li><b>3–5 głównych sekcji</b> max — reszta pod „Więcej"</li>
+  <li><b>Stan zachowany</b> — wracasz do zakładki tam, gdzie ją zostawiłeś (scroll, filtr)</li>
+  <li><b>Shell ładuje się natychmiast</b> (cache), treść dociąga się w środku — stąd PWA + skeletony</li>
+</ul>
+</section>
+
+<!-- ===== 8 — SCROLL-DRIVEN ===== -->
+<section id="scrolldriven">
+<div class="eyebrow">Ruch &amp; nawigacja</div>
+<h2>8 · Animacje sterowane scrollem <span class="support partial">~85% wsparcia</span></h2>
+<p>Elementy pojawiają się/poruszają wraz z przewijaniem — pasek postępu czytania, „wjeżdżające" sekcje, parallax. Nowość: robi to <b>czysty CSS</b> (<code>animation-timeline</code>), bez JS i bez kosztu wydajności scrolla. Wsparcie ~85% (Chromium + Safari; Firefox za flagą) — używaj jako <i>progressive enhancement</i>.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — pasek postępu u góry rośnie wraz ze scrollem strony</div>
+  <p style="color:var(--ink-dim);font-size:.88rem">Spójrz na samą górę tej strony podczas przewijania — fioletowy pasek pokazuje postęp czytania (zbudowany techniką poniżej).</p>
+</div>
+
+<h4>Kod — pasek postępu czytania (zero JS)</h4>
+<pre><code><span class="tok-a">.progress</span>{
+  <span class="tok-k">position</span>: <span class="tok-v">fixed</span>; <span class="tok-k">top</span>:<span class="tok-v">0</span>; <span class="tok-k">left</span>:<span class="tok-v">0</span>; <span class="tok-k">height</span>:<span class="tok-v">3px</span>; <span class="tok-k">width</span>:<span class="tok-v">100%</span>;
+  <span class="tok-k">transform-origin</span>: <span class="tok-v">left</span>;
+  <span class="tok-k">animation</span>: <span class="tok-v">grow</span> <span class="tok-v">linear</span>;
+  <span class="tok-k">animation-timeline</span>: <span class="tok-v">scroll(root)</span>;   <span class="tok-c">/* oś = scroll strony */</span>
+}
+<span class="tok-a">@keyframes grow</span>{ <span class="tok-k">from</span>{ <span class="tok-k">transform</span>:<span class="tok-v">scaleX(0)</span>; } <span class="tok-k">to</span>{ <span class="tok-k">transform</span>:<span class="tok-v">scaleX(1)</span>; } }</code></pre>
+<pre><code><span class="tok-c">/* „wjazd" sekcji gdy wchodzi w ekran */</span>
+<span class="tok-a">.reveal</span>{
+  <span class="tok-k">animation</span>: <span class="tok-v">fadeUp</span> <span class="tok-v">linear both</span>;
+  <span class="tok-k">animation-timeline</span>: <span class="tok-v">view()</span>;            <span class="tok-c">/* oś = widoczność elementu */</span>
+  <span class="tok-k">animation-range</span>: <span class="tok-v">entry 0% cover 30%</span>;
+}</code></pre>
+<div class="note warn"><b>Progressive enhancement:</b> zawsze projektuj tak, by bez wsparcia treść była widoczna (animacja tylko „dodaje"). Nie ukrywaj treści, którą pokazuje dopiero animacja — w Firefoksie zniknie.</div>
+</section>
+
+<!-- ===== 9 — SKELETON ===== -->
+<section id="skeleton">
+<div class="eyebrow">Czas &amp; feedback</div>
+<h2>9 · Skeleton &amp; stany ładowania</h2>
+<p>Pusty ekran ze spinnerem = „czekaj, nie wiem co się dzieje". Skeleton (szary zarys układu) = „treść już się buduje". Badania: użytkownicy odbierają strony ze skeletonem jako <b>~30% szybsze</b> przy tym samym realnym czasie. Pokaż go w &lt;300ms od akcji.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — kliknij „Wczytaj", zobacz skeleton → treść</div>
+  <div class="phone"><div class="screen"><div style="padding:14px">
+    <button class="btn" id="sklBtn" style="width:100%;margin-bottom:12px">Wczytaj profil</button>
+    <div id="sklBox" style="border:1px solid var(--line);border-radius:12px;min-height:74px"></div>
+  </div></div></div>
+</div>
+
+<table>
+<tr><th>Sytuacja</th><th>Wskaźnik</th></tr>
+<tr><td>Pobieranie treści (feed, lista, karta)</td><td><b>Skeleton</b> — odwzorowuje układ</td></tr>
+<tr><td>Krótka akcja blokująca (zapis, login, płatność)</td><td><b>Spinner</b> na przycisku</td></tr>
+<tr><td>Operacja z mierzalnym postępem (upload)</td><td><b>Progress bar</b> z %</td></tr>
+<tr><td>Częsta, niskie ryzyko (like, toggle)</td><td><b>Optimistic UI</b> — bez czekania (↓ sekcja 10)</td></tr>
+</table>
+<ul class="clean">
+  <li><b>Skeleton ≈ realny układ</b> — te same kształty/rozmiary, żeby nie było skoku przy podmianie</li>
+  <li><b>Dostępność</b> — <code>aria-busy="true"</code> na kontenerze, <code>prefers-reduced-motion</code> wyłącza shimmer</li>
+  <li><b>Nie nadużywaj</b> — dla &lt;300ms operacji lepiej nic nie pokazywać niż migać skeletonem</li>
+</ul>
+</section>
+
+<!-- ===== 10 — OPTIMISTIC ===== -->
+<section id="optimistic">
+<div class="eyebrow">Czas &amp; feedback</div>
+<h2>10 · Optimistic UI — interfejs „wyprzedza" serwer</h2>
+<p>Najbardziej „apkowe" odczucie: tapiesz serduszko i ono <b>od razu</b> jest czerwone — interfejs nie czeka na serwer, zakłada sukces i tylko cofa zmianę, jeśli coś padnie. Idealne do częstych, niskiego ryzyka akcji: like, zapis, zaznacz, przełącz, dodaj do ulubionych.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — kliknij, reakcja jest natychmiastowa (0ms czekania)</div>
+  <div class="phone"><div class="screen"><div style="padding:18px;display:flex;flex-direction:column;align-items:center;gap:12px">
+    <button class="likebtn" id="likeBtn"><span class="heart">🤍</span> <span id="likeTxt">Polub</span> · <span id="likeCnt">128</span></button>
+    <p style="color:var(--ink-faint);font-size:.8rem;text-align:center;margin:0">Stan zmienia się od razu. W realu w tle leci zapis; gdyby się nie udał — cofamy i pokazujemy toast „nie udało się".</p>
+  </div></div></div>
+</div>
+
+<h4>Wzorzec</h4>
+<pre><code><span class="tok-k">async function</span> <span class="tok-a">toggleLike</span>(){
+  <span class="tok-k">const</span> prev = state.liked;
+  <span class="tok-a">render</span>(!prev);                 <span class="tok-c">// 1. ZMIEŃ UI OD RAZU (optymistycznie)</span>
+  <span class="tok-k">try</span>{
+    <span class="tok-k">await</span> api.<span class="tok-a">setLike</span>(!prev);     <span class="tok-c">// 2. wyślij w tle</span>
+  }<span class="tok-k">catch</span>(e){
+    <span class="tok-a">render</span>(prev);               <span class="tok-c">// 3. błąd → cofnij</span>
+    <span class="tok-a">toast</span>(<span class="tok-v">'Nie udało się — spróbuj ponownie'</span>);
+  }
+}</code></pre>
+<div class="note bad"><b>Tylko niskie ryzyko.</b> Nie rób optymistycznie płatności, usuwania konta ani rzeczy, których cofnięcie jest mylące. Tam: spinner + jasne potwierdzenie.</div>
+</section>
+
+<!-- ===== 11 — TOAST ===== -->
+<section id="toast">
+<div class="eyebrow">Czas &amp; feedback</div>
+<h2>11 · Toast / snackbar — feedback bez blokowania</h2>
+<p>Krótki komunikat u dołu, który nie zatrzymuje pracy i sam znika. Zastępuje natrętne <code>alert()</code> i przeładowania „zapisano". <b>Toast</b> = sama informacja; <b>snackbar</b> = informacja + akcja (np. „Cofnij").</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — kliknij, pojawi się snackbar z akcją „Cofnij"</div>
+  <div class="phone"><div class="screen"><div style="position:relative;height:240px">
+    <div style="padding:18px"><button class="btn" id="toastBtn" style="width:100%">Usuń element</button></div>
+    <div class="toastwrap" id="toastWrap"></div>
+  </div></div></div>
+</div>
+<ul class="clean">
+  <li><b>Pozycja</b> — dół ekranu (strefa kciuka, nie zasłania treści u góry)</li>
+  <li><b>Czas</b> — 4–6s auto-znikanie; z akcją dłużej; krytyczne błędy NIE jako toast</li>
+  <li><b>Jeden na raz</b> — kolejkuj, nie zasypuj; wejście ≤300ms</li>
+  <li><b>Dostępność</b> — <code>role="status"</code> / <code>aria-live="polite"</code>, akcja osiągalna z klawiatury</li>
+</ul>
+</section>
+
+<!-- ===== 12 — MICROINTERACTIONS ===== -->
+<section id="micro">
+<div class="eyebrow">Czas &amp; feedback</div>
+<h2>12 · Microinteractions &amp; haptyka</h2>
+<p>Drobne reakcje, które potwierdzają „zadziałało": przycisk lekko się wciska, ikona pulsuje, telefon delikatnie wibruje. Pojedynczo niewidoczne, razem dają wrażenie „żywego", responsywnego interfejsu. Reguła: <b>≤300ms</b>, zawsze z sensem.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — wciśnij (skala + wibracja na Androidzie, jeśli wspiera)</div>
+  <div class="phone"><div class="screen"><div style="padding:24px;display:flex;justify-content:center">
+    <button class="btn" id="hapBtn" style="font-size:1rem;padding:16px 28px">Dotknij mnie</button>
+  </div></div></div>
+</div>
+
+<h4>Feedback dotyku + opcjonalna wibracja</h4>
+<pre><code><span class="tok-a">.btn:active</span>{ <span class="tok-k">transform</span>: <span class="tok-v">scale(.97)</span>; }   <span class="tok-c">/* wizualny feedback — zawsze */</span></code></pre>
+<pre><code><span class="tok-c">// haptyka — Vibration API (Android; iOS Safari nie wspiera — degraduje cicho)</span>
+<span class="tok-k">if</span>(navigator.vibrate) navigator.<span class="tok-a">vibrate</span>(<span class="tok-v">10</span>);   <span class="tok-c">// krótki „tick"</span></code></pre>
+<table>
+<tr><th>Gdzie</th><th>Mikrointerakcja</th></tr>
+<tr><td>Przycisk / tap</td><td><code>:active</code> scale, zmiana koloru, ripple</td></tr>
+<tr><td>Sukces akcji</td><td>Ikona ✓ z pulsem, krótka wibracja</td></tr>
+<tr><td>Błąd / walidacja</td><td>„Shake" pola, czerwona obwódka, wibracja error</td></tr>
+<tr><td>Przełącznik</td><td>Płynny ruch knoba (sekcja 1)</td></tr>
+<tr><td>Pull-to-refresh</td><td>Spinner napina się z gestem (sekcja 15)</td></tr>
+</table>
+<div class="note warn"><b>Umiar:</b> za dużo ruchu spowalnia i rozprasza. Animuj to, co niesie znaczenie (potwierdzenie, kierunek), resztę zostaw w spokoju. Respektuj <code>prefers-reduced-motion</code>.</div>
+</section>
+
+<!-- ===== 13 — STORIES ===== -->
+<section id="stories">
+<div class="eyebrow">Wzorce treści</div>
+<h2>13 · Stories / sekcje pełnoekranowe</h2>
+<p>Format z Instagrama: pełnoekranowe „kafle", paski postępu u góry, tap w prawo/lewo = dalej/wstecz. Świetne do onboardingu, prezentacji oferty krok-po-kroku, krótkich „how-to". Skupia uwagę na jednej rzeczy naraz — antidotum na nieskończony scroll.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — tapnij prawą/lewą połowę, żeby przejść dalej/wstecz</div>
+  <div class="phone"><div class="screen">
+    <div class="stories" id="stories">
+      <div class="stbars" id="stbars">
+        <div class="b"><i></i></div><div class="b"><i></i></div><div class="b"><i></i></div>
+      </div>
+      <div class="slide st1 on">1 · Poznaj ofertę</div>
+      <div class="slide st2">2 · Wybierz pakiet</div>
+      <div class="slide st3">3 · Startujemy 🚀</div>
+      <div class="sttap"><div class="l" id="stPrev"></div><div class="r" id="stNext"></div></div>
+    </div>
+  </div></div>
+</div>
+<ul class="clean">
+  <li><b>Paski postępu</b> u góry — ile kafli, gdzie jesteś</li>
+  <li><b>Tap prawo/lewo</b> + opcjonalnie auto-advance z pauzą na przytrzymanie</li>
+  <li><b>Krótko</b> — 1 myśl na kafel, kilka kafli; to nie miejsce na akapity</li>
+  <li><b>Wyjście</b> zawsze widoczne (X), nie więź użytkownika</li>
+</ul>
+</section>
+
+<!-- ===== 14 — SWIPE ACTIONS ===== -->
+<section id="swipe">
+<div class="eyebrow">Wzorce treści</div>
+<h2>14 · Swipe actions — gest na elemencie listy</h2>
+<p>Przesuń wiersz w lewo → odsłania się akcja (usuń, archiwizuj). Szybkie i „apkowe", jak w mailu czy liście zadań. Zasada bezpieczeństwa: gest to skrót, ale <b>musi być też zwykły przycisk</b> (gest jest niewidoczny).</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — przesuń wiersz w lewo, by odsłonić „Usuń"</div>
+  <div class="phone"><div class="screen"><div style="padding:14px">
+    <div class="swlist" id="swlist">
+      <div class="swrow"><div class="del">Usuń</div><div class="front"><div><div class="h">Zadanie 1</div><div class="s">Przesuń mnie w lewo ←</div></div><span style="color:var(--ink-faint)">⋯</span></div></div>
+      <div class="swrow"><div class="del">Usuń</div><div class="front"><div><div class="h">Zadanie 2</div><div class="s">…albo mnie</div></div><span style="color:var(--ink-faint)">⋯</span></div></div>
+      <div class="swrow"><div class="del">Usuń</div><div class="front"><div><div class="h">Zadanie 3</div><div class="s">gest = skrót</div></div><span style="color:var(--ink-faint)">⋯</span></div></div>
+    </div>
+    <p class="swhint">Po odsłonięciu tapnij „Usuń". Wróć przesuwając w prawo.</p>
+  </div></div></div>
+</div>
+<ul class="clean">
+  <li><b>Zawsze alternatywa</b> — menu „⋯" lub przycisk robi to samo co swipe</li>
+  <li><b>Kolor = znaczenie</b> — czerwień dla usuwania, inny dla archiwum</li>
+  <li><b>Próg + sprężystość</b> — odsłoń po ~30–40% szerokości, reszta „odbija"</li>
+  <li><b>Destrukcyjne z potwierdzeniem</b> lub z „Cofnij" w snackbarze</li>
+</ul>
+</section>
+
+<!-- ===== 15 — FAB ===== -->
+<section id="fab">
+<div class="eyebrow">Wzorce treści</div>
+<h2>15 · FAB &amp; pull-to-refresh</h2>
+<p><b>FAB</b> (floating action button) — okrągły przycisk głównej akcji, „pływający" nad treścią w zasięgu kciuka. Jedna, najważniejsza akcja ekranu (napisz, dodaj, +). Może rozwijać 2–4 akcje.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — tapnij „+", rozwiną się akcje</div>
+  <div class="phone"><div class="screen">
+    <div class="fabdemo">
+      <div class="content">Lista / feed treści… FAB pływa w prawym dolnym rogu, zawsze pod kciukiem.</div>
+      <div class="fabmenu" id="fabmenu">
+        <a onclick="return false"><span class="lab">Nowy projekt</span><span class="ic">📁</span></a>
+        <a onclick="return false"><span class="lab">Zaproś</span><span class="ic">✉️</span></a>
+        <a onclick="return false"><span class="lab">Notatka</span><span class="ic">📝</span></a>
+      </div>
+      <button class="fab" id="fabBtn" aria-label="Dodaj">+</button>
+    </div>
+  </div></div>
+</div>
+
+<h4>Pull-to-refresh — odświeżanie gestem</h4>
+<p>Pociągnięcie listy w dół = odśwież. Oczekiwane w feedach (maile, social, powiadomienia). Daje poczucie kontroli i świeżości treści.</p>
+<ul class="clean">
+  <li><b>FAB: jedna akcja</b> — najważniejsza na ekranie; nie rób z niego śmietnika opcji</li>
+  <li><b>Nie zasłaniaj</b> nim treści ani innych CTA; trzymaj nad bottom nav</li>
+  <li><b>Pull-to-refresh</b> z feedbackiem (spinner napina się z gestem) i lekką wibracją na wyzwoleniu</li>
+  <li><b>Tylko dla feedów</b> — nie podpinaj go pod statyczne strony ofertowe</li>
+</ul>
+</section>
+
+<!-- ===== 16 — NATIVE APIS ===== -->
+<section id="native">
+<div class="eyebrow">Bajery</div>
+<h2>16 · Natywne API — możliwości jak w apce</h2>
+<p>Przeglądarka mobilna ma dostęp do funkcji systemu, które dają „apkowe" możliwości. Zasada: <b>feature detection + graceful degradation</b> — sprawdź czy API istnieje, a jak nie, daj fallback. Nic się nie psuje na niewspieranych urządzeniach.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — natywny arkusz udostępniania (Web Share API)</div>
+  <div class="phone"><div class="screen"><div style="padding:20px;display:flex;flex-direction:column;align-items:center;gap:10px">
+    <button class="btn" id="shareBtn" style="width:100%">📤 Udostępnij</button>
+    <p style="color:var(--ink-faint);font-size:.8rem;text-align:center;margin:0" id="shareMsg">Na telefonie otworzy systemowy share sheet. Na desktopie — skopiuje link.</p>
+  </div></div></div>
+</div>
+
+<table>
+<tr><th>API</th><th>Co daje</th><th>Wsparcie</th></tr>
+<tr><td><b>Web Share</b></td><td>Natywny arkusz „Udostępnij"</td><td>Mobile (Android, iOS Safari) ✓</td></tr>
+<tr><td><b>Screen Wake Lock</b></td><td>Ekran nie gaśnie (przepis, mapa, QR)</td><td><span class="support base">Wszystkie 2025</span></td></tr>
+<tr><td><b>Vibration</b></td><td>Haptyczny „tick"</td><td>Android ✓ · iOS ✗</td></tr>
+<tr><td><b>Geolocation</b></td><td>Lokalizacja (najbliższy punkt)</td><td>Uniwersalne ✓</td></tr>
+<tr><td><b>Kamera / plik</b></td><td><code>capture</code> — zdjęcie/skan z aparatu</td><td>Mobile ✓</td></tr>
+<tr><td><b>Payment Request</b></td><td>Apple Pay / Google Pay 1 tapnięciem</td><td>Mobile ✓ (z konfiguracją)</td></tr>
+<tr><td><b>WebAuthn / passkeys</b></td><td>Logowanie biometrią (Face/Touch ID)</td><td>Szerokie ✓</td></tr>
+<tr><td><b>Web Push</b></td><td>Powiadomienia push</td><td>Android ✓ · iOS 16.4+ (jako PWA)</td></tr>
+<tr><td><b>prefers-color-scheme</b></td><td>Auto dark mode pod system</td><td>Uniwersalne ✓</td></tr>
+</table>
+
+<pre><code><span class="tok-c">// Web Share — natywny share sheet, z fallbackiem</span>
+<span class="tok-k">if</span>(navigator.share){
+  navigator.<span class="tok-a">share</span>({ title: document.title, url: location.href });
+}<span class="tok-k">else</span>{
+  navigator.clipboard.<span class="tok-a">writeText</span>(location.href);   <span class="tok-c">// fallback: kopiuj link</span>
+}</code></pre>
+<pre><code><span class="tok-c">// aparat bez JS — od razu z input</span>
+<span class="tok-p">&lt;input</span> <span class="tok-a">type</span>=<span class="tok-v">"file"</span> <span class="tok-a">accept</span>=<span class="tok-v">"image/*"</span> <span class="tok-a">capture</span>=<span class="tok-v">"environment"</span><span class="tok-p">&gt;</span>
+<span class="tok-c">/* auto dark mode */</span>
+<span class="tok-a">@media (prefers-color-scheme: dark)</span>{ <span class="tok-a">:root</span>{ <span class="tok-k">--bg</span>:<span class="tok-v">#0b0e14</span>; } }</code></pre>
+<div class="note good"><b>Praktyczne dla Twoich stron:</b> Web Share (udostępnij ofertę), <code>capture</code> (klient robi zdjęcie usterki dla project-c), Geolocation (najbliższy serwis), Apple/Google Pay (szybka płatność), passkeys (logowanie bez hasła).</div>
+</section>
+
+<!-- ===== 17 — PWA ===== -->
+<section id="pwa">
+<div class="eyebrow">Bajery &amp; opakowanie</div>
+<h2>17 · PWA — strona instalowalna jak apka</h2>
+<p>Progressive Web App to strona, którą można <b>dodać do ekranu głównego</b>: własna ikona, uruchamia się pełnoekranowo (bez paska przeglądarki), działa offline. Wygląda i otwiera się jak natywna apka — bez App Store. Wymaga HTTPS, manifestu i service workera.</p>
+
+<h4>1 · Manifest (jak apka ma wyglądać)</h4>
+<pre><code><span class="tok-c">// manifest.webmanifest</span>
+{
+  <span class="tok-a">"name"</span>: <span class="tok-v">"agency-site"</span>,
+  <span class="tok-a">"short_name"</span>: <span class="tok-v">"agency-site"</span>,
+  <span class="tok-a">"start_url"</span>: <span class="tok-v">"/"</span>,
+  <span class="tok-a">"display"</span>: <span class="tok-v">"standalone"</span>,        <span class="tok-c">// pełny ekran, bez UI przeglądarki</span>
+  <span class="tok-a">"background_color"</span>: <span class="tok-v">"#0b0e14"</span>,
+  <span class="tok-a">"theme_color"</span>: <span class="tok-v">"#6c8cff"</span>,
+  <span class="tok-a">"icons"</span>: [{ <span class="tok-a">"src"</span>:<span class="tok-v">"/icon-512.png"</span>, <span class="tok-a">"sizes"</span>:<span class="tok-v">"512x512"</span>, <span class="tok-a">"type"</span>:<span class="tok-v">"image/png"</span> }]
+}</code></pre>
+<h4>2 · Service worker (offline + szybki start)</h4>
+<pre><code><span class="tok-c">// rejestracja w stronie</span>
+<span class="tok-k">if</span>(<span class="tok-v">'serviceWorker'</span> <span class="tok-k">in</span> navigator) navigator.serviceWorker.<span class="tok-a">register</span>(<span class="tok-v">'/sw.js'</span>);
+<span class="tok-c">// sw.js — cache podstaw, by działało offline</span>
+self.<span class="tok-a">addEventListener</span>(<span class="tok-v">'fetch'</span>, e =&gt; {
+  e.<span class="tok-a">respondWith</span>(caches.<span class="tok-a">match</span>(e.request).<span class="tok-a">then</span>(r =&gt; r || fetch(e.request)));
+});</code></pre>
+
+<div class="do-dont">
+  <div class="do"><h5>✓ Rób</h5><ul>
+    <li><code>display: standalone</code> + ikona + theme color = natywny wygląd</li>
+    <li>Cache app shell — natychmiastowy start, offline fallback</li>
+    <li>Audyt w <b>Lighthouse</b> (zakładka PWA / installability)</li>
+  </ul></div>
+  <div class="dont"><h5>✕ Pamiętaj</h5><ul>
+    <li>iOS nie ma auto-promptu — pokaż własny baner „Dodaj do ekranu" z instrukcją</li>
+    <li>Bez HTTPS PWA nie zadziała</li>
+    <li>Web Push na iOS tylko po instalacji jako PWA (16.4+)</li>
+  </ul></div>
+</div>
+<div class="note"><b>Android</b> potrafi sam zaproponować instalację (zdarzenie <code>beforeinstallprompt</code> — możesz pokazać własny przycisk). <b>iOS</b> wymaga ręcznego „Udostępnij → Do ekranu początkowego", więc dodaj edukacyjną podpowiedź tylko dla Safari iOS.</div>
+</section>
+
+<!-- ===== 18 — VERIFY ===== -->
+<section id="verify">
+<div class="eyebrow">Jakość · to o to pytałeś</div>
+<h2>18 · Jak weryfikować, testować i zmieniać</h2>
+<p>Nie zgaduj — mierz. Pętla: <b>zmierz → postaw hipotezę → zmień jedną rzecz → zmierz ponownie</b>. Lab (Lighthouse) pokazuje potencjał, ale prawdę mówi <b>realny ruch</b> (field data) i <b>realne urządzenie</b>.</p>
+
+<h4>Narzędzia — od szybkich do prawdziwych</h4>
+<table>
+<tr><th>Narzędzie</th><th>Do czego</th><th>Typ</th></tr>
+<tr><td><b>Chrome DevTools — Device Mode</b></td><td>Podgląd responsywności, throttling sieci/CPU (symulacja słabego telefonu)</td><td>Lab, darmowe</td></tr>
+<tr><td><b>Lighthouse</b></td><td>Audyt: wydajność, dostępność, SEO, PWA, best practices — z oceną i listą napraw</td><td>Lab, darmowe</td></tr>
+<tr><td><b>PageSpeed Insights</b></td><td>Lighthouse + <b>realne dane CrUX</b> (prawdziwi użytkownicy, 28 dni)</td><td>Lab + Field</td></tr>
+<tr><td><b>Search Console — CWV</b></td><td>Raport Core Web Vitals z całej witryny, mobile osobno</td><td>Field, darmowe</td></tr>
+<tr><td><b>Realne urządzenie</b></td><td>Jedyny pewny test dotyku, gestów, klawiatury, safe area</td><td>Najważniejsze</td></tr>
+<tr><td><b>BrowserStack</b></td><td>3000+ realnych urządzeń zdalnie (gdy nie masz fizycznie)</td><td>Płatne</td></tr>
+<tr><td><b>Microsoft Clarity</b></td><td>Heatmapy, scroll-depth, nagrania sesji — <b>za darmo</b></td><td>Field, darmowe</td></tr>
+<tr><td><b>Hotjar</b></td><td>Heatmapy + nagrania + ankiety</td><td>Field</td></tr>
+<tr><td><b>axe DevTools</b></td><td>Automatyczny audyt dostępności</td><td>Lab</td></tr>
+</table>
+
+<h4>Co realnie sprawdzać na mobile</h4>
+<ul class="clean">
+  <li><b>Scroll-depth (heatmapa)</b> — jak głęboko ludzie docierają? Jeśli 80% nie widzi CTA → skróć/przenieś wyżej (sekcja 3)</li>
+  <li><b>Tap heatmapa</b> — gdzie klikają? Mis-tapy = za małe/za blisko cele (sprawdź 44–48px)</li>
+  <li><b>Nagrania sesji</b> — gdzie się gubią, gdzie „rage taps" (wściekłe wielokrotne tapnięcia)</li>
+  <li><b>Throttling</b> — testuj na „Slow 4G" + CPU 4× slowdown; to realność, nie WiFi na MacBooku</li>
+  <li><b>Formularz z klawiaturą</b> — czy pole i przycisk mieszczą się nad klawiaturą (sekcja 2)</li>
+  <li><b>A/B test</b> jednej zmiany naraz — inaczej nie wiesz, co zadziałało</li>
+</ul>
+<div class="note violet"><b>Pętla iteracji:</b> heatmapa/nagranie pokazuje <i>problem</i> → stawiasz hipotezę → zmieniasz <b>jedną</b> rzecz → A/B lub kolejny pomiar potwierdza. Małe, mierzone kroki biją wielki redesign „na czuja".</div>
+</section>
+
+<!-- ===== 19 — CHECKLIST ===== -->
+<section id="checklist">
+<div class="eyebrow">Jakość</div>
+<h2>19 · Checklist „app-like"</h2>
+<h4>Uczucie apki</h4>
+<ul class="check">
+  <li>Każde tapnięcie ma <b>feedback &lt;100ms</b> (<code>:active</code>, podświetlenie)</li>
+  <li>Zmiany treści <b>w miejscu</b> (toggle/taby/View Transitions), nie przez reload</li>
+  <li><b>Skeleton</b> dla ładowania treści, <b>optimistic UI</b> dla like/zapis</li>
+  <li>Feedback przez <b>toast/snackbar</b>, nie <code>alert()</code></li>
+  <li>Stały <b>app shell</b> (nagłówek + bottom nav), stan zachowany</li>
+</ul>
+<h4>Przestrzeń &amp; scroll</h4>
+<ul class="check">
+  <li>Projekt pod <b>realną</b> wysokość (~660px), formularz testowany z klawiaturą</li>
+  <li>Odstępy w <b>skali 8pt</b>, gutter 16–24px, nic nie dotyka krawędzi</li>
+  <li>Kluczowa treść + CTA w <b>pierwszych 1–2 ekranach</b></li>
+  <li>Długie treści zwinięte (akordeon/taby) — <b>bez „5-minutowego scrolla"</b></li>
+</ul>
+<h4>Adaptacja desktopu</h4>
+<ul class="check">
+  <li>Mega-menu → hamburger/bottom nav; sidebar → bottom sheet</li>
+  <li>Szerokie tabele → <b>karty</b> lub scroll z przyklejoną kolumną</li>
+  <li>Hover → tap (na dotyku nie ma hover); wielokolumny → stack wg priorytetu</li>
+</ul>
+<h4>Bajery &amp; jakość</h4>
+<ul class="check">
+  <li>Natywne API z <b>feature detection</b> (Web Share, capture, Pay, wake lock)</li>
+  <li>PWA: manifest + service worker + HTTPS, audyt Lighthouse</li>
+  <li>Wszystkie animacje respektują <b>prefers-reduced-motion</b></li>
+  <li>Przetestowane na <b>realnym telefonie</b> + throttling + heatmapa scroll-depth</li>
+</ul>
+</section>
+
+<footer>
+  <p><b>Wzorce App-Like</b> · cz. 2 specyfikacji · referencja produkcyjna dla agency-site. Łączy się z cz. 1 „Specyfikacja Optymalizacji Mobile".</p>
+  <p>Źródła: MDN Web Docs (View Transitions, Wake Lock, Vibration, Web Share, PWA), web.dev / Chrome for Developers, Nielsen Norman Group (bottom sheets, loading), Material Design 3, caniuse.com, LogRocket, CSS-Tricks. Stan wsparcia API: 2025/2026.</p>
+</footer>
+</main>
+</div>
+
+<style>
+.progress{position:fixed;top:0;left:0;height:3px;width:100%;background:linear-gradient(90deg,var(--violet),var(--acc-2));transform:scaleX(0);transform-origin:left;z-index:80;animation:growbar linear;animation-timeline:scroll(root)}
+@keyframes growbar{to{transform:scaleX(1)}}
+@media(prefers-reduced-motion:reduce){.progress{display:none}}
+</style>
+<div class="progress" aria-hidden="true"></div>
+
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  // mobile nav
+  var t=$('mtoggle'),toc=$('toc'),sn=$('scrimNav'),tc=$('tocClose');
+  function openNav(){toc.classList.add('open');sn.classList.add('on');document.body.classList.add('nav-open');if(t)t.setAttribute('aria-expanded','true');var f=toc.querySelector('a[href^="#"]');if(f)f.focus();}
+  function closeNav(){toc.classList.remove('open');sn.classList.remove('on');document.body.classList.remove('nav-open');if(t)t.setAttribute('aria-expanded','false');}
+  if(t)t.addEventListener('click',function(){toc.classList.contains('open')?closeNav():openNav();});
+  if(sn)sn.addEventListener('click',closeNav);
+  if(tc)tc.addEventListener('click',closeNav);
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')closeNav();});
+  toc.querySelectorAll('a[href^="#"]').forEach(function(a){a.addEventListener('click',closeNav);});
+
+  // scrollspy
+  var links=[].slice.call(toc.querySelectorAll('a[href^="#"]')),map={};
+  links.forEach(function(l){var id=l.getAttribute('href').slice(1),s=$(id);if(s)map[id]=l;});
+  if('IntersectionObserver' in window){
+    var obs=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){
+      links.forEach(function(l){l.style.background='';l.style.color='';l.style.borderLeftColor='transparent';});
+      var l=map[e.target.id];if(l){l.style.background='var(--panel-2)';l.style.color='var(--ink)';l.style.borderLeftColor='var(--violet)';}
+    }});},{rootMargin:'-10% 0px -80% 0px'});
+    Object.keys(map).forEach(function(id){obs.observe($(id));});
+  }
+
+  // segmented pill positioning
+  function posPill(seg,pill){var on=seg.querySelector('button.on');if(on&&pill){pill.style.left=on.offsetLeft+'px';pill.style.width=on.offsetWidth+'px';}}
+  // Demo A — billing toggle
+  var billseg=$('billseg'),billpill=$('billpill'),saveBadge=$('saveBadge');
+  if(billseg){
+    posPill(billseg,billpill);
+    billseg.querySelectorAll('button').forEach(function(b){b.addEventListener('click',function(){
+      billseg.querySelectorAll('button').forEach(function(x){x.classList.remove('on');});
+      b.classList.add('on');posPill(billseg,billpill);
+      var y=b.dataset.mode==='y';
+      document.querySelectorAll('#billseg').length;
+      document.querySelectorAll('.ptable .price').forEach(function(p){
+        var val=y?p.dataset.y:p.dataset.m;p.innerHTML=val+'<span class="per">/mc</span>';
+      });
+      if(saveBadge)saveBadge.classList.toggle('on',y);
+    });});
+  }
+  // Demo B — device segmented
+  var devseg=$('devseg'),devpill=$('devpill');
+  var DEV=[['6,1"','1170×2532','174 g','Telefon'],['11"','2360×1640','466 g','Tablet'],['27"','2560×1440','6,2 kg','Desktop']];
+  if(devseg){
+    posPill(devseg,devpill);
+    devseg.querySelectorAll('button').forEach(function(b){b.addEventListener('click',function(){
+      devseg.querySelectorAll('button').forEach(function(x){x.classList.remove('on');});
+      b.classList.add('on');posPill(devseg,devpill);
+      var d=DEV[+b.dataset.i];$('devName').textContent=d[3];$('r0').textContent=d[0];$('r1').textContent=d[1];$('r2').textContent=d[2];
+    });});
+  }
+  // Demo C — diff switch
+  var diffSwitch=$('diffSwitch');
+  if(diffSwitch)diffSwitch.addEventListener('change',function(){
+    document.querySelectorAll('#diffTable tr[data-diff="0"]').forEach(function(r){r.style.display=diffSwitch.checked?'none':'';});
+  });
+  window.addEventListener('resize',function(){posPill(billseg,billpill);posPill(devseg,devpill);});
+
+  // Tabs
+  var tabs=$('tabs');
+  if(tabs)tabs.querySelectorAll('.tabbar button').forEach(function(b){b.addEventListener('click',function(){
+    tabs.querySelectorAll('.tabbar button').forEach(function(x){x.classList.remove('on');});
+    tabs.querySelectorAll('.tabpane').forEach(function(p){p.classList.remove('on');});
+    b.classList.add('on');tabs.querySelector('.tabpane[data-p="'+b.dataset.t+'"]').classList.add('on');
+  });});
+
+  // View transition demo (delegated — robust because the button is recreated each swap)
+  document.addEventListener('click',function(e){
+    if(e.target&&e.target.id==='vtbtn'){
+      var c=$('vtcontent');if(!c)return;
+      var swap=function(){
+        var toDetail=c.getAttribute('data-v')!=='1';
+        c.setAttribute('data-v',toDetail?'1':'0');
+        c.innerHTML=toDetail
+          ?'<h4 style="margin:.2em 0">Widok: Szczegóły</h4><p style="color:var(--ink-dim);font-size:.9rem">Drugi widok wjechał płynnie (View Transitions, jeśli wspierane). Kliknij, by wrócić.</p><button class="btn" id="vtbtn">← Wróć do listy</button>'
+          :'<h4 style="margin:.2em 0">Widok: Lista</h4><p style="color:var(--ink-dim);font-size:.9rem">Pierwszy widok. Kliknij, by przejść do szczegółów.</p><button class="btn" id="vtbtn">Otwórz szczegóły →</button>';
+      };
+      if(document.startViewTransition)document.startViewTransition(swap);else swap();
+    }
+  });
+
+  // Skeleton demo
+  var sklBtn=$('sklBtn'),sklBox=$('sklBox');
+  if(sklBtn)sklBtn.addEventListener('click',function(){
+    sklBox.innerHTML='<div class="skl"><div class="av shimmer"></div><div class="lines"><div class="ln shimmer" style="width:60%"></div><div class="ln shimmer" style="width:90%"></div></div></div>';
+    sklBox.setAttribute('aria-busy','true');
+    setTimeout(function(){
+      sklBox.setAttribute('aria-busy','false');
+      sklBox.innerHTML='<div class="realrow"><div class="av"></div><div><div class="t1">Anna Kowalska</div><div class="t2">Klientka Premium · Reykjavík</div></div></div>';
+    },1500);
+  });
+
+  // Optimistic like
+  var likeBtn=$('likeBtn'),likeTxt=$('likeTxt'),likeCnt=$('likeCnt');
+  if(likeBtn)likeBtn.addEventListener('click',function(){
+    var liked=likeBtn.classList.toggle('liked');
+    likeBtn.querySelector('.heart').textContent=liked?'❤️':'🤍';
+    likeTxt.textContent=liked?'Polubione':'Polub';
+    likeCnt.textContent=(parseInt(likeCnt.textContent,10)+(liked?1:-1));
+    if(navigator.vibrate)navigator.vibrate(10);
+  });
+
+  // Toast / snackbar
+  var toastBtn=$('toastBtn'),toastWrap=$('toastWrap');
+  if(toastBtn)toastBtn.addEventListener('click',function(){
+    toastWrap.innerHTML='';
+    var el=document.createElement('div');el.className='toast';el.setAttribute('role','status');
+    el.innerHTML='Element usunięty <span class="act">Cofnij</span>';
+    toastWrap.appendChild(el);requestAnimationFrame(function(){el.classList.add('on');});
+    var to=setTimeout(close,4000);
+    function close(){el.classList.remove('on');setTimeout(function(){if(el.parentNode)el.parentNode.removeChild(el);},300);}
+    el.querySelector('.act').addEventListener('click',function(){clearTimeout(to);close();});
+  });
+
+  // Haptic button
+  var hapBtn=$('hapBtn');
+  if(hapBtn)hapBtn.addEventListener('click',function(){if(navigator.vibrate)navigator.vibrate(15);});
+
+  // Stories
+  var stories=$('stories');
+  if(stories){
+    var slides=stories.querySelectorAll('.slide'),bars=stories.querySelectorAll('.stbars .b'),idx=0;
+    function show(i){
+      idx=Math.max(0,Math.min(slides.length-1,i));
+      slides.forEach(function(s,n){s.classList.toggle('on',n===idx);});
+      bars.forEach(function(b,n){b.classList.toggle('done',n<idx);b.querySelector('i').style.width=n<idx?'100%':(n===idx?'100%':'0');});
+    }
+    $('stNext').addEventListener('click',function(){show(idx+1);});
+    $('stPrev').addEventListener('click',function(){show(idx-1);});
+    show(0);
+  }
+
+  // Swipe to delete
+  $('swlist')&&$('swlist').querySelectorAll('.swrow').forEach(function(row){
+    var front=row.querySelector('.front'),sx=0,cur=0,drag=false;
+    front.addEventListener('pointerdown',function(e){drag=true;sx=e.clientX;front.style.transition='none';front.setPointerCapture(e.pointerId);});
+    front.addEventListener('pointermove',function(e){if(!drag)return;var dx=Math.min(0,Math.max(-90,cur+(e.clientX-sx)));front.style.transform='translateX('+dx+'px)';});
+    front.addEventListener('pointerup',function(e){drag=false;front.style.transition='';var dx=cur+(e.clientX-sx);cur=dx<-45?-90:0;front.style.transform='translateX('+cur+'px)';});
+    row.querySelector('.del').addEventListener('click',function(){row.style.transition='.25s';row.style.height=row.offsetHeight+'px';requestAnimationFrame(function(){row.style.height='0';row.style.opacity='0';});setTimeout(function(){row.remove();},260);});
+  });
+
+  // FAB
+  var fabBtn=$('fabBtn'),fabmenu=$('fabmenu');
+  if(fabBtn)fabBtn.addEventListener('click',function(){fabBtn.classList.toggle('x');fabmenu.classList.toggle('on');});
+
+  // Web Share
+  var shareBtn=$('shareBtn'),shareMsg=$('shareMsg');
+  if(shareBtn)shareBtn.addEventListener('click',function(){
+    if(navigator.share){navigator.share({title:document.title,text:'Wzorce app-like',url:location.href}).catch(function(){});}
+    else if(navigator.clipboard){navigator.clipboard.writeText

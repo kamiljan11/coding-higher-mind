@@ -1,0 +1,256 @@
+{
+  "schema_version": 1,
+  "generated_by": "bin/pg-export-public.py",
+  "count": 18,
+  "skills": [
+    {
+      "name": "pg-review",
+      "category": "Review i jakosc",
+      "summary": "Recenzja „wielodzialowa\" diffu jak w software housie: tier ryzyka z diffu -> finderzy dzialowi RÓWNOLEGLE ze swiezym kontekstem (read-only, schemat JSON, komendy zamiast opinii) -> agregacja k-of-n w kodzie (0 tokenow) -> weryfikator…",
+      "description": "Recenzja „wielodzialowa\" diffu jak w software housie: tier ryzyka z diffu -> finderzy dzialowi RÓWNOLEGLE ze swiezym kontekstem (read-only, schemat JSON, komendy zamiast opinii) -> agregacja k-of-n w kodzie (0 tokenow) -> weryfikator obala/potwierdza -> fixer (sesja glowna) naprawia -> bramki. Zero czatu miedzy agentami (MAST). Uzyj, gdy stop-gate zglosi [review], przed PR/deployem T2+, albo na haslo: \"pg-review\", \"review dzialowy\", \"przepusc przez dzialy\", \"recenzja jak w korpo\".",
+      "plugin": false,
+      "path": "skills/pg-review",
+      "files": 1
+    },
+    {
+      "name": "pg-council",
+      "category": "Architektura i decyzje",
+      "summary": "Narada dzialow i wspolna decyzja jako PROTOKOL (nie czat): specyfikacja decyzji -> fakty i stanowiska dzialow NIEZALEZNIE (swiezy kontekst, read-only) -> pool faktow -> catfish (adwokat diabla) -> agregacja w kodzie (wagi, konflikty,…",
+      "description": "Narada dzialow i wspolna decyzja jako PROTOKOL (nie czat): specyfikacja decyzji -> fakty i stanowiska dzialow NIEZALEZNIE (swiezy kontekst, read-only) -> pool faktow -> catfish (adwokat diabla) -> agregacja w kodzie (wagi, konflikty, blockery, sentinel mniejszosci) -> max 1 runda korekty -> DACI + ADR z zapisanym sprzeciwem. Uzyj przed kodem dla T2+ (nowy modul/tabela/dostawca/auth/platnosci), przy go/no-go T3, przy wyborze action itemu po incydencie, albo na haslo: \"naradzcie sie\", \"ktora opcja\", \"zdecydujcie\", \"pg-council\", \"narada dzialow\". Podstawa: ~/.claude/pg/council.md (10 zrodel).",
+      "plugin": false,
+      "path": "skills/pg-council",
+      "files": 1
+    },
+    {
+      "name": "anti-sycophancy",
+      "category": "Review i jakosc",
+      "summary": "The verification counterweight to agreement bias — Claude verifies before agreeing, names false premises, never reports success without evidence, and hardens every scheduled task and subagent prompt against sycophancy and agentic…",
+      "description": "The verification counterweight to agreement bias — Claude verifies before agreeing, names false premises, never reports success without evidence, and hardens every scheduled task and subagent prompt against sycophancy and agentic overconfidence. Trigger on: literally everything. Especially when uzytkownik states a claim, belief, or \"fact\"; presents an idea, plan, or business decision for feedback; asks \"is this good\", \"will this work\", \"am I right\"; challenges a previous answer (\"are you sure\", \"I think you're wrong\", \"no, it's actually X\"); when Claude is about to report a task as done, working, fixed, or complete; when creating scheduled tasks, subagents, workflows, automations, or n8n pipelines; when summarizing research, data, or market findings; and at the end of any session before final claims are delivered.",
+      "plugin": true,
+      "path": "skills/anti-sycophancy",
+      "files": 1
+    },
+    {
+      "name": "verify-audit",
+      "category": "Review i jakosc",
+      "summary": "Adversarial verification protocol.",
+      "description": "Adversarial verification protocol. Use whenever uzytkownik asks to verify, double-check, confirm, or \"make sure\" a claim, bug report, audit finding, fact, spec, or piece of copy is actually true — ESPECIALLY before acting on it or shipping it. Defaults to assuming the claim is FALSE until proven true by reading the actual source. Replaces the ~200-line \"adversarially verify this finding\" prompt uzytkownik pastes by hand dozens of times a week. Trigger on: \"verify\", \"adversarially verify\", \"double-check this\", \"is this actually true\", \"confirm this bug\", \"check this claim\", \"REFUTE\", \"make sure\", \"sprawdź czy to prawda\", \"zweryfikuj\", \"potwierdź\", \"czy to na pewno działa\", \"verify this audit finding\", \"check the file yourself\", \"don't trust the report\". Also trigger proactively before asserting a fact about a client's offer, a spec, a price, or code behaviour that came from memory/notes rather than the live source. ALSO trigger proactively at agency-site/Lovable build session endings — before the output is sent to the client. Phrases that signal this: \"lovable build done\", \"site is ready\", \"ready to send to client\", \"pushed to GitHub\", \"wycena package complete\", \"export done\", \"build complete\", \"strona gotowa\", \"gotowe do wysłania\", \"send to client\", \"zakończone\", \"package ready\", \"gotowy do wysłania\", \"deliver to client\", \"wysyłamy klientowi\". After any wycena-agency-site or lovable-build completion, run one verify pass: spec vs. delivered output.",
+      "plugin": true,
+      "path": "skills/verify-audit",
+      "files": 1
+    },
+    {
+      "name": "ultra-loop",
+      "category": "Petle agentow",
+      "summary": "Autonomiczna metoda „poproś raz → zbiegnij do perfekcji\".",
+      "description": "Autonomiczna metoda „poproś raz → zbiegnij do perfekcji\". Użyj, gdy uzytkownik chce doprowadzić projekt/apkę do ukończenia lub poziomu komercyjnego przy minimum pytań — „skończ tę apkę\", „dojedź do końca\", „zrób to ultra / produkcyjnie\", „loop aż do perfekcji\", „jedź ultra\", „doprowadź do perfekcji\", „poproś mnie raz i skończ\", albo każda prośba o autonomiczne ulepszanie kodu do zdefiniowanego progu. Skill ustawia rubrykę „definicja ukończenia\", potem kręci cykle implementuj→weryfikuj→wdróż→oceń aż każdy wymiar osiągnie cel albo zostaną same blockery dla człowieka. Trigger też: „autonomiczna pętla\", „samo-looping\", „ile razy mam Cię poprosić żeby skończyć\".",
+      "plugin": true,
+      "path": "skills/ultra-loop",
+      "files": 1
+    },
+    {
+      "name": "gauntlet-build",
+      "category": "Petle agentow",
+      "summary": "Multiagentowa pętla budowy „spec → jednostki → builder/krytyk (świeży kontekst) → bramki deterministyczne → weryfikator → fix → aż do poprzeczki\".",
+      "description": "Multiagentowa pętla budowy „spec → jednostki → builder/krytyk (świeży kontekst) → bramki deterministyczne → weryfikator → fix → aż do poprzeczki\". Użyj, gdy uzytkownik chce zbudować lub dopracować system/moduł/apkę/dokument z istniejącej specyfikacji przy minimum promptów — „zbuduj to multiagentowo\", „gauntlet\", „loop budowy\", „buduj i krytykuj aż będzie dobrze\", „rozpisz na agentów z loopowaniem\", „jednym promptem\", „swarm build\", „ulepszaj i krytykuj 3×\", „loopuj i samokrytykuj\", „zrób to jak te gry z jednego prompta\". NIE gdy: chodzi o polerowanie gotowego produktu wieloma wymiarami bez specyfikacji (to `ultra-loop`), o jednorazowy review (`code-review`), o sam research (`Workflow` research) albo zadanie jednoplikowe (rób sam).",
+      "plugin": true,
+      "path": "skills/gauntlet-build",
+      "files": 5
+    },
+    {
+      "name": "architecture-advisor",
+      "category": "Architektura i decyzje",
+      "summary": "Master architecture-decision skill: choose the right architecture for a new project, audit an existing one, and propose changes — through trade-offs and real context, not hype.",
+      "description": "Master architecture-decision skill: choose the right architecture for a new project, audit an existing one, and propose changes — through trade-offs and real context, not hype. It forces the trade-off conversation instead of giving confident answers that ignore your context, and will say 'you don't need that yet'. Use whenever a system's structure is decided, reviewed, or changed: stack for a new site or app, monolith vs microservices, wiring an n8n / AI-agent pipeline, whether to add a queue / cache / event bus / RAG, whether a system is over- or under-engineered, or how it should evolve. Trigger on: 'what architecture', 'how should I build/structure this', 'monolith vs microservices', 'do I need a queue/cache/RAG', 'is this over-engineered', 'review/audit my architecture', 'tech stack for', 'how to scale', 'jaka architektura', 'jak zaprojektować', 'jaki stack', 'audyt architektury', 'jak to rozwijać'. Not for: drawing a diagram with no decision (diagrams) or a quick frontend fix (jack-vibe-coding).",
+      "plugin": true,
+      "path": "skills/architecture-advisor",
+      "files": 7
+    },
+    {
+      "name": "systematic-debugging",
+      "category": "Debug",
+      "summary": "Systematyczny 4-fazowy debugging root-cause zamiast zgadywania i latania objawow.",
+      "description": "Systematyczny 4-fazowy debugging root-cause zamiast zgadywania i latania objawow. Use whenever a bug, error, failing test, crash, regression or \"nie dziala\" appears. Trigger on: \"bug\", \"error\", \"nie dziala\", \"wykrzacza sie\", \"failing test\", \"crash\", \"regresja\", \"czemu to nie dziala\", \"debug\", stack trace pasted in conversation.",
+      "plugin": true,
+      "path": "skills/systematic-debugging",
+      "files": 1
+    },
+    {
+      "name": "caveman-code",
+      "category": "Petle agentow",
+      "summary": "Caveman mode for coding work: compresses responses and subagent prompts to minimum tokens without losing meaning.",
+      "description": "Caveman mode for coding work: compresses responses and subagent prompts to minimum tokens without losing meaning. Use whenever uzytkownik is working on code, debugging, reviewing scripts, writing automation, building agents, or doing anything dev/technical. Trigger on: \"debug this\", \"fix this\", \"write a script\", \"review my code\", \"build a pipeline\", \"spawn an agent\", \"write a function\", \"run this\", \"what's wrong with\", \"refactor\", \"automate this\", and any technical task involving code. Also applies when building multi-step agent workflows - compress subagent prompts to save tokens across the pipeline.",
+      "plugin": true,
+      "path": "skills/caveman-code",
+      "files": 1
+    },
+    {
+      "name": "divergent-thinking",
+      "category": "Architektura i decyzje",
+      "summary": "This skill fundamentally changes how Claude approaches every problem — instead of jumping to the first workable solution, Claude thinks broadly, explores multiple angles, looks for creative and free alternatives, and verifies its approach…",
+      "description": "This skill fundamentally changes how Claude approaches every problem — instead of jumping to the first workable solution, Claude thinks broadly, explores multiple angles, looks for creative and free alternatives, and verifies its approach against other possibilities before committing. This is not about slowing down — it's about squeezing maximum value from every task. Trigger on: literally everything. Any time Claude is about to propose a solution, execute a task, make a recommendation, or answer a question that has more than one possible approach, this skill should shape the thinking. Especially critical when: building something, choosing tools, designing systems, creating content, solving problems, making strategic decisions, or any task where the obvious answer might not be the best answer.",
+      "plugin": true,
+      "path": "skills/divergent-thinking",
+      "files": 1
+    },
+    {
+      "name": "model-router",
+      "category": "Petle agentow",
+      "summary": "Intelligently routes tasks to the right Claude model (Opus, Sonnet, or Haiku) to squeeze maximum value from rate limits without wasting capacity on tasks that don't need it.",
+      "description": "Intelligently routes tasks to the right Claude model (Opus, Sonnet, or Haiku) to squeeze maximum value from rate limits without wasting capacity on tasks that don't need it. Use this skill whenever creating scheduled tasks, spawning subagents, designing automations, or starting any multi-step workflow. ALWAYS consult this skill when building new automations or skills so that model selection is deliberate and efficient. Also use it proactively when the current task is clearly too heavy or too light for the default session model.",
+      "plugin": true,
+      "path": "skills/model-router",
+      "files": 1
+    },
+    {
+      "name": "diagrams",
+      "category": "Architektura i decyzje",
+      "summary": "Auto-generates and updates architecture diagrams whenever a system, flow, or structure is being designed, discussed, or built.",
+      "description": "Auto-generates and updates architecture diagrams whenever a system, flow, or structure is being designed, discussed, or built. Use this skill proactively in ANY context that involves system design - whether coding, building a client website, designing an MCP server, planning a tech stack, mapping an agent pipeline, or connecting services together. Trigger on: \"design a system\", \"how should this be structured\", \"architecture\", \"draw a diagram\", \"how does X connect to Y\", \"add a component\", \"system diagram\", \"flow diagram\", \"data model\", \"what's the architecture\", \"map this out\", \"visualize this\", \"how does this work together\", \"pipeline diagram\", \"update the diagram\", and any moment when the structure of a system becomes the topic. Also trigger proactively mid-session when a system grows complex enough that a picture would help - don't wait to be asked.",
+      "plugin": true,
+      "path": "skills/diagrams",
+      "files": 1
+    },
+    {
+      "name": "humanizer",
+      "category": "Pisanie",
+      "summary": "Every piece of writing that leaves the workshop (social posts, captions, emails, newsletters, video scripts, YouTube descriptions, articles and columns such as toRzeszów, portfolio and case studies, client documents, website copy, outreach…",
+      "description": "Every piece of writing that leaves the workshop (social posts, captions, emails, newsletters, video scripts, YouTube descriptions, articles and columns such as toRzeszów, portfolio and case studies, client documents, website copy, outreach messages) gets a humanizer pass so it reads like a person wrote it, not a model. Trigger on: writing or editing any post, caption, email, script, article, description, landing copy, DM, or client-facing doc; whenever content-repurpose, email-database-builder, youtube-video-brief, wycena-agency-site, or lovable-build produce text a human will read; and whenever uzytkownik says \"brzmi jak AI\", \"zrób to bardziej ludzkie\", \"humanize this\", \"sounds robotic\", \"za sztywne\", \"żeby nie było śladów AI\". NOT for: code, terminal output, technical reports, internal analysis, agent prompts; those go through caveman-code instead. Never both on the same text.",
+      "plugin": true,
+      "path": "skills/humanizer",
+      "files": 3
+    },
+    {
+      "name": "book-typesetting",
+      "category": "Pisanie",
+      "summary": "Turn raw text/markdown (including messy webpage captures) into a professionally typeset, navigable book PDF — without changing a word of the author's content.",
+      "description": "Turn raw text/markdown (including messy webpage captures) into a professionally typeset, navigable book PDF — without changing a word of the author's content. Use when building or fixing book/ebook/guide PDFs, \"złóż książkę\", \"napraw formatowanie PDF\", \"book layout\", \"typeset this\", \"PDF z nawigacją\", chapter/TOC/widow-orphan problems, or when a generated book \"rozsypuje się\". Covers: cleaning web-capture junk, structure detection, ReportLab implementation (keepWithNext, widows/orphans, hyphenation, clickable TOC + PDF outline), image placement, and a mandatory render-and-look QA loop. Content is untouchable: fix FORM only; if a content edit slipped in, revert to the original.",
+      "plugin": true,
+      "path": "skills/book-typesetting",
+      "files": 3
+    },
+    {
+      "name": "landing-design-patterns",
+      "category": "Frontend",
+      "summary": "Katalog sprawdzonych „bajerów” projektowych do landingów B2B (Next.js + Tailwind 4) z gotowym kodem: przycisk z wędrującym światłem po obrysie, skośne panele menu, lista 01-06 z panelem (ARIA tabs), talia kart sticky, karty procesu na tle…",
+      "description": "Katalog sprawdzonych „bajerów” projektowych do landingów B2B (Next.js + Tailwind 4) z gotowym kodem: przycisk z wędrującym światłem po obrysie, skośne panele menu, lista 01-06 z panelem (ARIA tabs), talia kart sticky, karty procesu na tle z kropek z rosnącym paskiem, hero jako karuzela ekranów aplikacji z krokami procesu, pełnoszerokie pasy, ukryty e-mail z licznikiem. Użyj PROAKTYWNIE gdy: budujesz albo dopieszczasz landing/stronę firmową, użytkownik mówi „dodaj bajer”, „coś kreatywnego”, „jak na a B2B agency landing / kamiljan.com”, „żeby to żyło”, „efekt przy przewijaniu”, „animacja przycisku”, „menu z charakterem”, „przełączanie treści”, „nakładanie kart”, „tło z kropkami”. Wersja mobilna tych wzorców: skill mobile-optimization (references/landing-mobile-patterns.md). NIE gdy: aplikacja/panel (nie landing).",
+      "plugin": true,
+      "path": "skills/landing-design-patterns",
+      "files": 1
+    },
+    {
+      "name": "mobile-optimization",
+      "category": "Frontend",
+      "summary": "Mobile optimization system — audits a site's mobile version with real measurements (touch targets, input font sizes, Core Web Vitals, overflow, images), diagnoses against current standards, and applies fixes plus app-like patterns (toggles…",
+      "description": "Mobile optimization system — audits a site's mobile version with real measurements (touch targets, input font sizes, Core Web Vitals, overflow, images), diagnoses against current standards, and applies fixes plus app-like patterns (toggles on comparison tables, carousels, accordions, bottom sheets, view transitions, skeletons, optimistic UI). Use whenever work touches how a site looks or behaves on a phone. PROAKTYWNIE gdy: użytkownik buduje, poprawia lub kończy stronę i wspomina mobile/telefon/responsywność, pyta „jak to wygląda na mobile\", „zoptymalizuj pod mobile\", „audyt mobilny\", „rozjeżdża się na telefonie\". Trigger on: \"mobile optimization\", \"optymalizacja mobile\", \"pod telefon\", \"audyt mobilny\", \"responsywność\", \"responsive\", \"mobile-first\", \"touch targets\", \"app-like\", \"jak apka\", \"PWA\", \"Core Web Vitals\", \"carousel\", \"accordion\", \"bottom sheet\", \"sticky CTA\", \"viewport\". NIE gdy: natywna apka iOS/Android (nie web).",
+      "plugin": true,
+      "path": "skills/mobile-optimization",
+      "files": 9
+    },
+    {
+      "name": "web-bajery",
+      "category": "Frontend",
+      "summary": "Encyklopedia ~230 efektow webowych (\"bajerow\"): nazwany katalog z fraza do googlowania, biblioteka i tagiem mobile dla kazdego.",
+      "description": "Encyklopedia ~230 efektow webowych (\"bajerow\"): nazwany katalog z fraza do googlowania, biblioteka i tagiem mobile dla kazdego. Uzyj, gdy uzytkownik buduje/poprawia strone i chce dodac efekt, ruch, animacje albo \"wow\", lub nie wie jak dany efekt sie nazywa. Pokrywa: tekst, scroll/parallax, kursor/hover, tla i gradienty/SVG, slidery i hero slideshow, przelaczniki, micro-interakcje (glow CTA, pulse, floating), przejscia/preloadery, 3D/WebGL, shadery, app-like (Cmd+K, bottom sheet, PWA, streaming UI), nowosci CSS-only i trendy 2026 (Liquid Glass, bento, AR, voice). Laczy sie z mobile-optimization. Triggery: bajer, efekt, jaki efekt, animacja, jak to sie nazywa, marquee, parallax, custom cursor, hover, slider, hero slideshow, toggle, animated gradient, SVG background, particles, page transition, glow button, WebGL, shader, command palette, PWA, generative UI, Liquid Glass, scroll-driven, flagi jezyka. NIE: audyt mobile, pelna budowa strony.",
+      "plugin": true,
+      "path": "skills/web-bajery",
+      "files": 16
+    },
+    {
+      "name": "rate-limit-auto-recovery-templates",
+      "category": "Petle agentow",
+      "summary": "Automatically inject rate-limit recovery templates into task prompts.",
+      "description": "Automatically inject rate-limit recovery templates into task prompts. Use this skill whenever uzytkownik is creating scheduled tasks, spawning subagents, or running any substantial work that might exceed the 5-hour rate limit window. The skill provides context-appropriate templates with checkpoint and resume logic already built in. Trigger on: \"schedule\", \"create task\", \"spawn subagent\", \"run this\", \"automate\", \"set up a task\", \"recurring\", \"long-running\", or any request to set up work that might take multiple hours. Include this skill proactively whenever uzytkownik is designing automations or multi-step workflows.",
+      "plugin": true,
+      "path": "skills/rate-limit-auto-recovery-templates",
+      "files": 1
+    }
+  ],
+  "agents_count": 10,
+  "agents": [
+    {
+      "name": "catfish",
+      "model": "sonnet",
+      "tools": "Read, Glob, Grep, Bash",
+      "summary": "Dzial DYSYDENT / adwokat diabla w naradzie pg-council (nie w review). Widzi zebrane fakty (pool.json) i opcje wiodaca — jego jedynym zadaniem jest najmocniejszy argument PRZECIW niej i przeciw status quo, plus fakty, ktorych nikt nie…",
+      "description": "Dzial DYSYDENT / adwokat diabla w naradzie pg-council (nie w review). Widzi zebrane fakty (pool.json) i opcje wiodaca — jego jedynym zadaniem jest najmocniejszy argument PRZECIW niej i przeciw status quo, plus fakty, ktorych nikt nie wniosl. Nie glosuje, nie proponuje kompromisu. Read-only. Uzyj przez skill pg-council krok 3. Powod: „cicha zgoda\" = 62-68 % porazek grup agentow; wstrzykniety dysydent obniza ja z 64 % do 17 % (Catfish, arXiv 2505.21503).",
+      "path": "agents/catfish.md"
+    },
+    {
+      "name": "code-reviewer",
+      "model": "sonnet",
+      "tools": "Read, Glob, Grep, Bash",
+      "summary": "Dzial ENGINEERING (finder). Recenzja czytelnosci, poprawnosci, testow i observability diffu — read-only, swiezy kontekst. Uzyj po kazdej istotnej zmianie kodu i zawsze, gdy stop-gate zglosi [review] (T1+). Trigger: \"review\", \"sprawdz kod\",…",
+      "description": "Dzial ENGINEERING (finder). Recenzja czytelnosci, poprawnosci, testow i observability diffu — read-only, swiezy kontekst. Uzyj po kazdej istotnej zmianie kodu i zawsze, gdy stop-gate zglosi [review] (T1+). Trigger: \"review\", \"sprawdz kod\", \"czy to czyste\", \"skonczone\", \"done\", pg-review.",
+      "path": "agents/code-reviewer.md"
+    },
+    {
+      "name": "data-reviewer",
+      "model": "sonnet",
+      "tools": "Read, Glob, Grep, Bash",
+      "summary": "Dzial DATA / DBA (finder). Migracje, schemat, indeksy, constrainty, RLS-kompletnosc nowych tabel, N+1, transakcje, kompatybilnosc wsteczna, restore. Read-only, swiezy kontekst. Uzyj przez pg-review gdy diff dotyka supabase/migrations,…",
+      "description": "Dzial DATA / DBA (finder). Migracje, schemat, indeksy, constrainty, RLS-kompletnosc nowych tabel, N+1, transakcje, kompatybilnosc wsteczna, restore. Read-only, swiezy kontekst. Uzyj przez pg-review gdy diff dotyka supabase/migrations, modeli, zapytan, schematu; T3 -> model opus (przekazuje orkiestrator).",
+      "path": "agents/data-reviewer.md"
+    },
+    {
+      "name": "landscape-reader",
+      "model": "sonnet",
+      "tools": "WebFetch",
+      "summary": "Czytelnik NIEZAUFANEJ tresci z obcych repo (diffy, README) dla routine pg-landscape-watch. Jedyne narzedzie: WebFetch — bez Read/Bash/zapisu, wiec wrogi diff albo README nie ma czym siegnac po lokalne sekrety ani niczego uruchomic. Zwraca…",
+      "description": "Czytelnik NIEZAUFANEJ tresci z obcych repo (diffy, README) dla routine pg-landscape-watch. Jedyne narzedzie: WebFetch — bez Read/Bash/zapisu, wiec wrogi diff albo README nie ma czym siegnac po lokalne sekrety ani niczego uruchomic. Zwraca WYLACZNIE JSON z wartosciami z zamknietych list. Uzyj tylko z kroku 4 scheduled taska pg-landscape-watch (nigdy general-purpose do tej roli — dziedziczy Bash i Read).",
+      "path": "agents/landscape-reader.md"
+    },
+    {
+      "name": "ops-reviewer",
+      "model": "sonnet",
+      "tools": "Read, Glob, Grep, Bash",
+      "summary": "Dzial SRE / OPS / RELEASE (finder). Sciezka deployu (Lovable vs Vercel), flagi srodowiska, timeouty i retry na zewnetrznych wywolaniach, logowanie z kontekstem bez PII, rollback, koszt, bramki CI naprawde uruchomione. Read-only, swiezy…",
+      "description": "Dzial SRE / OPS / RELEASE (finder). Sciezka deployu (Lovable vs Vercel), flagi srodowiska, timeouty i retry na zewnetrznych wywolaniach, logowanie z kontekstem bez PII, rollback, koszt, bramki CI naprawde uruchomione. Read-only, swiezy kontekst. Uzyj przez pg-review dla T2+ i przed deployem (PRR).",
+      "path": "agents/ops-reviewer.md"
+    },
+    {
+      "name": "product-reviewer",
+      "model": "sonnet",
+      "tools": "Read, Glob, Grep, Bash",
+      "summary": "Dzial PRODUCT / DOCS / HANDOVER (finder). Czy zmiana rozwiazuje NAZWANY problem, trzyma non-goals, ma metryke, jest przejmowalna przez obcego (README/ARCHITECTURE/ADR/GLOSSARY), a to, co klient bedzie zmieniac, jest DANYMI, nie kodem.…",
+      "description": "Dzial PRODUCT / DOCS / HANDOVER (finder). Czy zmiana rozwiazuje NAZWANY problem, trzyma non-goals, ma metryke, jest przejmowalna przez obcego (README/ARCHITECTURE/ADR/GLOSSARY), a to, co klient bedzie zmieniac, jest DANYMI, nie kodem. Read-only, swiezy kontekst. Uzyj przez pg-review na T3, na zadanie (\"czy to przejmowalne\", \"handover\", \"czy to rozwiazuje problem\") i przed release.",
+      "path": "agents/product-reviewer.md"
+    },
+    {
+      "name": "qa-reviewer",
+      "model": "sonnet",
+      "tools": "Read, Glob, Grep, Bash",
+      "summary": "Dzial QA / TESTER (finder, opcjonalny — na zadanie). Uruchamia APLIKACJE, nie czyta tylko diffu: kryterium akceptacji odtworzone klikiem, regresja sciezek krytycznych z docs/CRITICAL-PATHS.md na rownoleglych IZOLOWANYCH instancjach…",
+      "description": "Dzial QA / TESTER (finder, opcjonalny — na zadanie). Uruchamia APLIKACJE, nie czyta tylko diffu: kryterium akceptacji odtworzone klikiem, regresja sciezek krytycznych z docs/CRITICAL-PATHS.md na rownoleglych IZOLOWANYCH instancjach (persona x viewport x locale, osobne konteksty przegladarki, opcjonalnie kilka dev serwerow), stany pusto/blad/offline, raport w formacie 3-info ze screenshotami. Read-only w repo. Uzyj przez pg-review krok 1b, na haslo: \"przetestuj\", \"QA\", \"jako mechanik/klient\", \"na kilku instancjach\".",
+      "path": "agents/qa-reviewer.md"
+    },
+    {
+      "name": "security-reviewer",
+      "model": "opus",
+      "tools": "Read, Glob, Grep, Bash",
+      "summary": "Dzial SECURITY / AppSec (finder, T3; opcjonalnie T2 z API). STRIDE + OWASP ASVS L2-lite + blizny floty (RLS, IDOR, TOCTOU, sekrety). Read-only, swiezy kontekst. Uzyj przez pg-review gdy diff dotyka auth, RLS/multi-tenant, platnosci,…",
+      "description": "Dzial SECURITY / AppSec (finder, T3; opcjonalnie T2 z API). STRIDE + OWASP ASVS L2-lite + blizny floty (RLS, IDOR, TOCTOU, sekrety). Read-only, swiezy kontekst. Uzyj przez pg-review gdy diff dotyka auth, RLS/multi-tenant, platnosci, sekretow, migracji, webhookow, cron/edge fn.",
+      "path": "agents/security-reviewer.md"
+    },
+    {
+      "name": "ux-reviewer",
+      "model": "sonnet",
+      "tools": "Read, Glob, Grep, Bash",
+      "summary": "Dzial UX / FRONTEND / a11y / i18n (finder). Stany UI, slownik IS/PL/EN, waluty/daty, dostepnosc, mobile, potwierdzenia akcji nieodwracalnych, spojnosc z design systemem. Read-only, swiezy kontekst. Uzyj przez pg-review gdy diff dotyka…",
+      "description": "Dzial UX / FRONTEND / a11y / i18n (finder). Stany UI, slownik IS/PL/EN, waluty/daty, dostepnosc, mobile, potwierdzenia akcji nieodwracalnych, spojnosc z design systemem. Read-only, swiezy kontekst. Uzyj przez pg-review gdy diff dotyka .tsx/komponentow/stron (T1+ gdy UI).",
+      "path": "agents/ux-reviewer.md"
+    },
+    {
+      "name": "verifier",
+      "model": "sonnet",
+      "tools": "Read, Glob, Grep, Bash",
+      "summary": "WERYFIKATOR findings (po agregacji). Swiezy kontekst, nastawiony na OBALENIE: dla kazdego findingu o agreement == 1 albo severity blocker ponownie wykonuje `repro_cmd`, porownuje z `evidence` i wydaje verdict reproduced / not_reproduced /…",
+      "description": "WERYFIKATOR findings (po agregacji). Swiezy kontekst, nastawiony na OBALENIE: dla kazdego findingu o agreement == 1 albo severity blocker ponownie wykonuje `repro_cmd`, porownuje z `evidence` i wydaje verdict reproduced / not_reproduced / cannot_run. Nigdy nie edytuje. Uzyj przez pg-review po bin/pg-aggregate.js; T3 -> opus (orkiestrator przekazuje model).",
+      "path": "agents/verifier.md"
+    }
+  ],
+  "install": {
+    "plugin": "claude plugin marketplace add kamiljan11/coding-higher-mind && claude plugin install higher-mind-skills@coding-higher-mind",
+    "full_pg": "git clone https://github.com/kamiljan11/coding-higher-mind && cd coding-higher-mind && node install.mjs --dry-run"
+  }
+}

@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Specyfikacja Optymalizacji Mobile — kompletny przewodnik</title>
+<style>
+:root{
+  --bg:#0b0e14; --panel:#11151f; --panel-2:#161b27; --line:#232a3a;
+  --ink:#e7ecf5; --ink-dim:#9aa6bd; --ink-faint:#6b768e;
+  --acc:#6c8cff; --acc-2:#3ddc97; --warn:#ffb454; --bad:#ff6b6b; --good:#3ddc97;
+  --code-bg:#0d1019; --radius:14px; --maxw:920px;
+  --mono:"SFMono-Regular",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{
+  margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  line-height:1.65;font-size:17px;-webkit-font-smoothing:antialiased;
+}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+h1,h2,h3,h4{line-height:1.25;font-weight:700;letter-spacing:-.01em}
+h2{font-size:clamp(1.5rem,4vw,2.1rem);margin:0 0 .2em}
+h3{font-size:clamp(1.2rem,3vw,1.45rem);margin:2em 0 .4em;color:#fff}
+h4{font-size:1.05rem;margin:1.4em 0 .3em;color:var(--ink)}
+p{margin:.6em 0}
+code{font-family:var(--mono);font-size:.85em;background:var(--panel-2);
+  padding:.12em .4em;border-radius:6px;color:#d8e0f0;border:1px solid var(--line)}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;
+  padding:16px 18px;overflow-x:auto;margin:1em 0;font-size:.82rem;line-height:1.55}
+pre code{background:none;border:none;padding:0;font-size:inherit;color:#cdd6f4}
+.tok-c{color:#6b768e;font-style:italic}.tok-p{color:#ff9e64}.tok-a{color:#7dcfff}
+.tok-v{color:#9ece6a}.tok-s{color:#e0af68}.tok-k{color:#bb9af7}
+
+/* layout */
+.wrap{display:grid;grid-template-columns:280px 1fr;max-width:1240px;margin:0 auto;gap:0}
+nav.toc{position:sticky;top:0;align-self:start;height:100vh;height:100dvh;overflow-y:auto;
+  border-right:1px solid var(--line);padding:26px 18px 60px;background:var(--panel)}
+nav.toc .brand{font-weight:800;font-size:1.05rem;color:#fff;letter-spacing:-.02em;margin-bottom:2px}
+nav.toc .sub{color:var(--ink-faint);font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;margin-bottom:18px}
+nav.toc a{display:block;color:var(--ink-dim);font-size:.86rem;padding:6px 10px;border-radius:8px;margin:1px 0;border-left:2px solid transparent}
+nav.toc a:hover{background:var(--panel-2);color:var(--ink);text-decoration:none}
+nav.toc a.grp{margin-top:14px;color:var(--ink-faint);font-size:.7rem;text-transform:uppercase;letter-spacing:.1em;pointer-events:none;padding-bottom:2px}
+main{padding:48px clamp(20px,5vw,64px) 120px;max-width:var(--maxw);width:100%}
+.mtoggle{display:none}
+
+/* hero */
+.hero{border:1px solid var(--line);background:linear-gradient(160deg,#141a28,#0e1219);
+  border-radius:var(--radius);padding:30px 28px;margin-bottom:10px}
+.hero h1{font-size:clamp(1.9rem,5vw,2.7rem);margin:.1em 0 .25em;
+  background:linear-gradient(100deg,#fff,#8fa6ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--ink-dim);font-size:1.02rem;max-width:62ch}
+.kbar{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.kbar span{font-size:.74rem;color:var(--ink-dim);background:var(--panel-2);
+  border:1px solid var(--line);padding:5px 11px;border-radius:999px}
+
+/* spec callouts */
+.spec{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:1.2em 0}
+.spec .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.spec .num{font-size:1.7rem;font-weight:800;color:#fff;letter-spacing:-.02em}
+.spec .lbl{font-size:.78rem;color:var(--ink-dim);margin-top:2px}
+.spec .card.good .num{color:var(--good)} .spec .card.warn .num{color:var(--warn)} .spec .card.bad .num{color:var(--bad)}
+
+.note{border-left:3px solid var(--acc);background:var(--panel);padding:12px 16px;border-radius:0 10px 10px 0;margin:1.1em 0;font-size:.95rem;color:var(--ink-dim)}
+.note b{color:var(--ink)}
+.note.warn{border-color:var(--warn)} .note.bad{border-color:var(--bad)} .note.good{border-color:var(--good)}
+.do-dont{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:1.1em 0}
+@media(max-width:560px){.do-dont{grid-template-columns:1fr}}
+.do-dont div{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:var(--panel);font-size:.9rem}
+.do-dont .do{border-top:3px solid var(--good)} .do-dont .dont{border-top:3px solid var(--bad)}
+.do-dont h5{margin:.1em 0 .5em;font-size:.82rem;text-transform:uppercase;letter-spacing:.08em}
+.do-dont .do h5{color:var(--good)} .do-dont .dont h5{color:var(--bad)}
+.do-dont ul{margin:.2em 0;padding-left:18px;color:var(--ink-dim)} .do-dont li{margin:.25em 0}
+
+section{scroll-margin-top:20px;padding-top:34px;border-top:1px solid var(--line);margin-top:34px}
+section:first-of-type{border-top:none;margin-top:0}
+.eyebrow{font-size:.72rem;text-transform:uppercase;letter-spacing:.14em;color:var(--acc);font-weight:700;margin-bottom:2px}
+ul.clean{list-style:none;padding-left:0}
+ul.clean li{padding-left:26px;position:relative;margin:.45em 0;color:var(--ink-dim)}
+ul.clean li::before{content:"→";position:absolute;left:0;color:var(--acc);font-weight:700}
+ul.clean li b{color:var(--ink)}
+
+/* DEMO / phone frame */
+.demo{border:1px solid var(--line);border-radius:16px;background:var(--panel-2);padding:18px;margin:1.2em 0}
+.demo .dlabel{font-size:.7rem;text-transform:uppercase;letter-spacing:.12em;color:var(--ink-faint);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.demo .dlabel::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--acc-2);box-shadow:0 0 10px var(--acc-2)}
+.phone{max-width:340px;margin:0 auto;background:#05070c;border:8px solid #1c2333;border-radius:34px;
+  padding:10px;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+.phone .screen{background:#0a0d15;border-radius:24px;overflow:hidden;position:relative}
+
+/* carousel demo */
+.carousel{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;
+  -webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;padding:14px;scrollbar-width:none}
+.carousel::-webkit-scrollbar{display:none}
+.carousel .slide{scroll-snap-align:center;flex:0 0 78%;height:170px;border-radius:14px;
+  display:flex;align-items:flex-end;padding:14px;font-weight:700;color:#fff}
+.slide.s1{background:linear-gradient(150deg,#6c8cff,#3a4fb0)}
+.slide.s2{background:linear-gradient(150deg,#3ddc97,#1f8f63)}
+.slide.s3{background:linear-gradient(150deg,#ffb454,#c97a1f)}
+.slide.s4{background:linear-gradient(150deg,#ff6b9d,#b03a64)}
+.dots{display:flex;gap:6px;justify-content:center;padding:4px 0 12px}
+.dots i{width:7px;height:7px;border-radius:50%;background:var(--line);display:block}
+.dots i.on{background:var(--acc);width:18px;border-radius:4px}
+
+/* accordion demo (native details) */
+.acc details{border-bottom:1px solid var(--line)}
+.acc summary{list-style:none;cursor:pointer;padding:16px 14px;display:flex;justify-content:space-between;
+  align-items:center;font-weight:600;min-height:48px}
+.acc summary::-webkit-details-marker{display:none}
+.acc summary .chev{transition:transform .25s;color:var(--acc)}
+@media(prefers-reduced-motion:reduce){.acc summary .chev{transition:none}}
+.acc details[open] summary .chev{transform:rotate(180deg)}
+.acc .body{padding:0 14px 16px;color:var(--ink-dim);font-size:.92rem}
+
+/* bottom sheet demo */
+.bsdemo{position:relative;height:340px;border-radius:24px;overflow:hidden;background:#0a0d15}
+.bsdemo .bg{padding:18px;color:var(--ink-dim);font-size:.9rem}
+.bs-trigger{background:var(--acc);color:#06101f;border:none;font-weight:700;
+  padding:14px 20px;border-radius:12px;font-size:1rem;min-height:48px;cursor:pointer;width:100%}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .25s}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--panel);border-radius:20px 20px 0 0;
+  border-top:1px solid var(--line);transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1);padding:8px 18px 22px}
+@media(prefers-reduced-motion:reduce){.scrim,.sheet{transition:none}}
+.sheet.on{transform:translateY(0)}
+.grab{width:38px;height:5px;border-radius:3px;background:var(--line);margin:8px auto 14px}
+.sheet h4{margin:.2em 0 .4em}
+.sheet .row{display:flex;gap:10px;margin-top:14px}
+.sheet button.close{flex:1;background:var(--panel-2);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:12px;min-height:48px;cursor:pointer}
+
+/* sticky cta demo */
+.stickydemo{position:relative;height:300px;border-radius:24px;overflow:hidden;background:#0a0d15;display:flex;flex-direction:column}
+.stickydemo .feed{flex:1;overflow-y:auto;padding:16px;color:var(--ink-dim);font-size:.9rem}
+.stickydemo .feed p{margin:0 0 14px}
+.stickybar{border-top:1px solid var(--line);background:var(--panel);padding:10px 14px;display:flex;gap:10px;align-items:center}
+.stickybar .price{font-weight:800;color:#fff}
+.stickybar button{margin-left:auto;background:var(--acc-2);color:#06140d;border:none;font-weight:700;padding:0 18px;height:48px;border-radius:10px;cursor:pointer}
+
+/* nav demo */
+.navdemo{height:300px;border-radius:24px;overflow:hidden;background:#0a0d15;position:relative;display:flex;flex-direction:column}
+.navtop{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)}
+.burger{width:44px;height:44px;display:flex;flex-direction:column;justify-content:center;gap:5px;background:none;border:none;cursor:pointer;padding:10px}
+.burger span{height:2px;background:var(--ink);border-radius:2px;transition:.25s}
+.burger.x span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+.burger.x span:nth-child(2){opacity:0}
+.burger.x span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+.drawer{position:absolute;inset:0 30% 0 0;background:var(--panel);border-right:1px solid var(--line);
+  transform:translateX(-100%);transition:transform .28s ease;padding:18px;z-index:3}
+.drawer.on{transform:translateX(0)}
+.drawer a{display:block;padding:12px 8px;border-bottom:1px solid var(--line);color:var(--ink)}
+.botnav{margin-top:auto;display:flex;border-top:1px solid var(--line);background:var(--panel)}
+.botnav a{flex:1;text-align:center;padding:10px 4px;font-size:.66rem;color:var(--ink-dim);min-height:48px;display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center}
+.botnav a.on{color:var(--acc)}
+.botnav .ic{font-size:1.1rem}
+
+/* tap target demo */
+.tt{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin:1em 0}
+.tt .t{display:flex;align-items:center;justify-content:center;border-radius:10px;color:#fff;font-size:.72rem;text-align:center;font-weight:700}
+.tt .bad{width:30px;height:30px;background:#5a2230;border:1px dashed var(--bad)}
+.tt .ok{width:48px;height:48px;background:#23402f;border:1px solid var(--good)}
+.tt .big{width:60px;height:60px;background:#1f3a52;border:1px solid var(--acc)}
+
+/* thumb zone */
+.thumb{max-width:240px;margin:1em auto;aspect-ratio:9/17;border-radius:26px;border:6px solid #1c2333;position:relative;overflow:hidden;
+  background:radial-gradient(120% 80% at 70% 100%, #1f8f63 0%, #1f8f6388 22%, #c97a1f55 45%, #c97a1f33 60%, #5a223044 80%);}
+.thumb .z{position:absolute;left:0;right:0;text-align:center;font-size:.66rem;color:#fff;font-weight:700;text-shadow:0 1px 3px #000}
+.thumb .z1{top:8%}.thumb .z2{top:45%}.thumb .z3{bottom:10%}
+
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--ink-dim);margin:.6em 0}
+.legend span{display:flex;align-items:center;gap:6px}.legend i{width:11px;height:11px;border-radius:3px;display:block}
+
+table{width:100%;border-collapse:collapse;margin:1.1em 0;font-size:.88rem}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{color:var(--ink);font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;background:var(--panel)}
+td{color:var(--ink-dim)}td b,td code{color:var(--ink)}
+
+.check{list-style:none;padding:0;margin:1em 0}
+.check li{padding:10px 12px 10px 40px;position:relative;border:1px solid var(--line);border-radius:10px;margin:7px 0;background:var(--panel);font-size:.9rem}
+.check li::before{content:"";position:absolute;left:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;border-radius:4px;border:2px solid var(--acc)}
+.check li b{color:#fff}
+
+footer{color:var(--ink-faint);font-size:.8rem;margin-top:50px;padding-top:20px;border-top:1px solid var(--line)}
+footer a{color:var(--ink-dim)}
+
+.tochead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.toc-close{display:none}
+@media(max-width:880px){
+  .wrap{grid-template-columns:1fr}
+  nav.toc{position:fixed;z-index:50;width:min(86vw,320px);left:0;top:0;height:100vh;height:100dvh;
+    transform:translateX(-100%);transition:transform .28s ease;box-shadow:0 0 40px rgba(0,0,0,.6);
+    padding:0 0 calc(env(safe-area-inset-bottom) + 24px);overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+  nav.toc.open{transform:translateX(0)}
+  nav.toc .tochead{position:sticky;top:0;z-index:2;align-items:center;background:var(--panel);
+    border-bottom:1px solid var(--line);padding:calc(env(safe-area-inset-top) + 14px) 14px 12px}
+  .toc-close{display:flex;flex:0 0 auto;width:44px;height:44px;align-items:center;justify-content:center;
+    border-radius:12px;background:var(--panel-2);border:1px solid var(--line);color:var(--ink);font-size:1.2rem;cursor:pointer}
+  nav.toc a{min-height:44px;display:flex;align-items:center;padding:10px 16px;font-size:.95rem;margin:1px 8px;border-left:none;border-radius:10px}
+  nav.toc a.grp{min-height:0;padding:14px 16px 4px}
+  .mtoggle{display:flex;position:fixed;z-index:60;top:calc(env(safe-area-inset-top) + 12px);left:12px;width:48px;height:48px;border-radius:12px;
+    background:var(--panel);border:1px solid var(--line);color:var(--ink);align-items:center;justify-content:center;cursor:pointer;font-size:1.3rem;box-shadow:0 4px 16px rgba(0,0,0,.45)}
+  main{padding-top:calc(env(safe-area-inset-top) + 76px)}
+  .scrim-nav{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:40;opacity:0;pointer-events:none;transition:opacity .25s}
+  .scrim-nav.on{opacity:1;pointer-events:auto}
+  body.nav-open{overflow:hidden}
+}
+@media(max-width:880px) and (prefers-reduced-motion:reduce){
+  nav.toc{transition:none}.scrim-nav{transition:none}
+}
+</style>
+</head>
+<body>
+
+<button class="mtoggle" id="mtoggle" aria-label="Otwórz menu" aria-controls="toc" aria-expanded="false" type="button">☰</button>
+<div class="scrim-nav" id="scrimNav"></div>
+
+<div class="wrap">
+<nav class="toc" id="toc" aria-label="Spis treści">
+  <div class="tochead">
+    <div>
+      <div class="brand">Mobile Optimization</div>
+      <div class="sub">Specyfikacja · v1.0</div>
+    </div>
+    <button class="toc-close" id="tocClose" aria-label="Zamknij menu" type="button">✕</button>
+  </div>
+  <a class="grp">Fundamenty</a>
+  <a href="#mobile-first">1 · Mobile-first &amp; viewport</a>
+  <a href="#layout">2 · Layout, breakpointy, jednostki</a>
+  <a href="#typografia">3 · Typografia fluid</a>
+  <a class="grp">Dotyk &amp; ergonomia</a>
+  <a href="#touch">4 · Touch targets (rozmiary)</a>
+  <a href="#thumb">5 · Thumb zone</a>
+  <a class="grp">Wzorce interakcji</a>
+  <a href="#carousel">6 · Przewijanie w prawo (carousel)</a>
+  <a href="#accordion">7 · Rozwijane elementy (accordion)</a>
+  <a href="#bottomsheet">8 · Bottom sheet</a>
+  <a href="#sticky">9 · Sticky CTA</a>
+  <a href="#nav">10 · Nawigacja (burger / bottom nav)</a>
+  <a href="#gestures">11 · Gesty &amp; swipe</a>
+  <a class="grp">Treść &amp; konwersja</a>
+  <a href="#forms">12 · Formularze</a>
+  <a href="#media">13 · Obrazy &amp; media</a>
+  <a class="grp">Jakość</a>
+  <a href="#performance">14 · Wydajność (Core Web Vitals)</a>
+  <a href="#a11y">15 · Dostępność &amp; detale</a>
+  <a href="#checklist">16 · Checklist przed publikacją</a>
+</nav>
+
+<main>
+<div class="hero">
+  <div class="eyebrow">agency-site · referencja produkcyjna</div>
+  <h1>Optymalizacja stron pod mobile</h1>
+  <p>Kompletna specyfikacja wzorców, liczb i kodu — od fundamentów (viewport, breakpointy) przez wzorce interakcji (przewijanie w prawo, rozwijane elementy, bottom sheet) po wydajność i dostępność. Każdy wzorzec ma <b>działające demo</b> i gotowy do skopiowania kod.</p>
+  <div class="kbar">
+    <span>📱 Mobile-first</span><span>🎯 44–48px touch</span><span>↔ Scroll-snap</span>
+    <span>⚡ Core Web Vitals 2025</span><span>♿ WCAG 2.2</span><span>🧩 Copy-paste kod</span>
+  </div>
+</div>
+<p style="color:var(--ink-faint);font-size:.85rem;margin-top:14px">Otwórz ten plik na telefonie, żeby przetestować demo dotykiem. Wszystkie demo są w pełni funkcjonalne — możesz przewijać, rozwijać i klikać.</p>
+
+<!-- ============ 1 ============ -->
+<section id="mobile-first">
+<div class="eyebrow">Fundamenty</div>
+<h2>1 · Mobile-first &amp; viewport</h2>
+<p>Ponad 60% globalnego ruchu to mobile, a Google indeksuje stronę w wersji mobilnej (mobile-first indexing). Zasada: <b>projektujesz i piszesz CSS najpierw na telefon</b>, a większe ekrany dodajesz przez <code>min-width</code>. Bazowy CSS jest wtedy prostszy i lżejszy dla słabszych urządzeń, a desktop tylko go rozszerza.</p>
+
+<h4>Viewport meta — bez tego nic nie działa</h4>
+<p>Pierwsza linia każdego <code>&lt;head&gt;</code>. Bez niej mobilna przeglądarka renderuje stronę jak desktop (~980px) i skaluje w dół.</p>
+<pre><code><span class="tok-p">&lt;meta</span> <span class="tok-a">name</span>=<span class="tok-v">"viewport"</span> <span class="tok-a">content</span>=<span class="tok-v">"width=device-width, initial-scale=1.0"</span><span class="tok-p">&gt;</span></code></pre>
+<div class="note bad"><b>Nie blokuj zoomu.</b> <code>maximum-scale=1</code> lub <code>user-scalable=no</code> łamie dostępność (użytkownicy słabowidzący nie powiększą strony). Problem zoomu na inputach rozwiązuje się przez font 16px (sekcja 12), nie przez blokadę.</div>
+
+<div class="do-dont">
+  <div class="do"><h5>✓ Rób</h5><ul>
+    <li>Bazowy CSS = mobile, rozszerzaj <code>@media (min-width)</code></li>
+    <li>Testuj na realnym urządzeniu, nie tylko w DevTools</li>
+    <li>Projektuj treść od najważniejszej do najmniej ważnej (kolumna)</li>
+  </ul></div>
+  <div class="dont"><h5>✕ Unikaj</h5><ul>
+    <li>Desktop-first z nadpisywaniem przez <code>max-width</code></li>
+    <li>Stałych szerokości w px na kontenerach</li>
+    <li>Poziomego scrolla całej strony (overflow)</li>
+  </ul></div>
+</div>
+</section>
+
+<!-- ============ 2 ============ -->
+<section id="layout">
+<div class="eyebrow">Fundamenty</div>
+<h2>2 · Layout, breakpointy i jednostki</h2>
+
+<h4>Breakpointy (3–5 punktów wystarczy)</h4>
+<p>Nie celuj w konkretne modele telefonów — ustaw breakpointy tam, gdzie <i>łamie się treść</i>. Standardowy zestaw:</p>
+<table>
+<tr><th>Zakres</th><th>Urządzenie</th><th>Użycie</th></tr>
+<tr><td><code>0–480px</code></td><td>Telefon (portret)</td><td>Baza — 1 kolumna</td></tr>
+<tr><td><code>481–768px</code></td><td>Telefon poziomo / mały tablet</td><td>2 kolumny w gridach</td></tr>
+<tr><td><code>769–1024px</code></td><td>Tablet</td><td>Nawigacja pozioma wraca</td></tr>
+<tr><td><code>1025px+</code></td><td>Desktop</td><td>Pełny layout, sidebary</td></tr>
+</table>
+
+<h4>Nowoczesne jednostki viewport: dvh / svh / lvh</h4>
+<p><code>100vh</code> na mobile jest błędne — nie uwzględnia chowającego się paska adresu, przez co sekcja „na cały ekran" jest ucięta. Rozwiązanie: <b>dynamic viewport height</b>. Wsparcie ~95% przeglądarek, zawsze z fallbackiem.</p>
+<pre><code><span class="tok-c">/* fallback najpierw, potem nowoczesna jednostka */</span>
+<span class="tok-a">.hero</span>{
+  <span class="tok-k">min-height</span>: <span class="tok-v">100vh</span>;   <span class="tok-c">/* stare przeglądarki */</span>
+  <span class="tok-k">min-height</span>: <span class="tok-v">100dvh</span>;  <span class="tok-c">/* dynamiczna — śledzi pasek adresu */</span>
+}</code></pre>
+<ul class="clean">
+  <li><b>dvh</b> — dynamiczna, zmienia się gdy pasek przeglądarki się chowa (najbezpieczniejsza dla pełnoekranowych sekcji)</li>
+  <li><b>svh</b> — small, zakłada widoczny pasek (dobra gdy nie chcesz „skoków")</li>
+  <li><b>lvh</b> — large, zakłada schowany pasek</li>
+</ul>
+
+<h4>Fluid grid bez media queries</h4>
+<p>Grid, który sam się zawija — z 1 kolumny na telefonie do wielu na desktopie, bez ani jednego breakpointu:</p>
+<pre><code><span class="tok-a">.grid</span>{
+  <span class="tok-k">display</span>: <span class="tok-v">grid</span>;
+  <span class="tok-k">grid-template-columns</span>: <span class="tok-v">repeat(auto-fit, minmax(260px, 1fr))</span>;
+  <span class="tok-k">gap</span>: <span class="tok-v">1rem</span>;
+}</code></pre>
+<div class="note"><b>Container queries</b> (<code>@container</code>) to kolejny krok: komponent reaguje na szerokość <i>rodzica</i>, nie ekranu — ta sama karta działa w sidebarze i na pełnej szerokości. Używaj do komponentów, media queries do layoutu strony.</div>
+</section>
+
+<!-- ============ 3 ============ -->
+<section id="typografia">
+<div class="eyebrow">Fundamenty</div>
+<h2>3 · Typografia fluid</h2>
+<p>Zamiast skakać rozmiarem fontu na breakpointach, użyj <code>clamp()</code> — płynne skalowanie między minimum a maksimum. To standard 2025.</p>
+<pre><code><span class="tok-c">/* clamp(MIN, PREFEROWANE-zależne-od-ekranu, MAX) */</span>
+<span class="tok-a">h1</span>{ <span class="tok-k">font-size</span>: <span class="tok-v">clamp(1.9rem, 5vw, 2.7rem)</span>; }
+<span class="tok-a">p</span> { <span class="tok-k">font-size</span>: <span class="tok-v">clamp(1rem, 1rem + 0.3vw, 1.125rem)</span>; }</code></pre>
+<div class="spec">
+  <div class="card"><div class="num">16px</div><div class="lbl">Minimalny body text na mobile</div></div>
+  <div class="card"><div class="num">≤ 75</div><div class="lbl">Znaków na linię (czytelność)</div></div>
+  <div class="card"><div class="num">1.5</div><div class="lbl">Line-height dla tekstu (WCAG)</div></div>
+</div>
+<ul class="clean">
+  <li><b>Body min. 16px</b> — mniejszy tekst męczy i (na iOS) wywołuje zoom inputów</li>
+  <li><b>Krótkie akapity</b> — na wąskim ekranie blok 5+ linii wygląda jak ściana</li>
+  <li><b>Kontrast min. 4.5:1</b> dla normalnego tekstu (WCAG AA)</li>
+  <li><b>Unikaj light/thin</b> font-weight na małych rozmiarach — słabo czytelne w słońcu</li>
+</ul>
+</section>
+
+<!-- ============ 4 ============ -->
+<section id="touch">
+<div class="eyebrow">Dotyk &amp; ergonomia</div>
+<h2>4 · Touch targets — rozmiary klikalnych elementów</h2>
+<p>Palec to nie kursor. Element za mały = chybione tapnięcia i frustracja. Liczby z oficjalnych wytycznych:</p>
+<div class="spec">
+  <div class="card good"><div class="num">44px</div><div class="lbl">Apple HIG — minimum (44×44 pt)</div></div>
+  <div class="card good"><div class="num">48px</div><div class="lbl">Material Design — zalecane (48×48 dp)</div></div>
+  <div class="card warn"><div class="num">24px</div><div class="lbl">WCAG 2.2 — absolutne minimum (AA)</div></div>
+  <div class="card"><div class="num">8px</div><div class="lbl">Min. odstęp między celami</div></div>
+</div>
+
+<div class="demo">
+  <div class="dlabel">Demo — porównaj rozmiary</div>
+  <div class="tt">
+    <div class="t bad">30px<br>źle</div>
+    <div class="t ok">48px<br>OK</div>
+    <div class="t big">60px<br>primary</div>
+  </div>
+  <p style="color:var(--ink-faint);font-size:.82rem;margin:0">Czerwony (30px) — poniżej normy, łatwo chybić. Zielony (48px) — komfortowy. Niebieski (60px) — dla głównych akcji (CTA, „Kup").</p>
+</div>
+
+<p>Praktyczna zasada: <b>cel min. 48×48px, odstęp min. 8px</b>. Jeśli ikona wizualnie musi być mała, powiększ <i>obszar dotyku</i> niewidzialnym paddingiem:</p>
+<pre><code><span class="tok-c">/* ikona 24px, ale klikalne 48px */</span>
+<span class="tok-a">.icon-btn</span>{
+  <span class="tok-k">min-width</span>: <span class="tok-v">48px</span>; <span class="tok-k">min-height</span>: <span class="tok-v">48px</span>;
+  <span class="tok-k">display</span>: <span class="tok-v">flex</span>; <span class="tok-k">align-items</span>: <span class="tok-v">center</span>; <span class="tok-k">justify-content</span>: <span class="tok-v">center</span>;
+}</code></pre>
+<div class="note good"><b>Bonus konwersji:</b> przyciski formularzy i CTA na mobile rób pełnej szerokości (lub blisko) i min. 48–56px wysokości — łatwiej trafić kciukiem, wyższy CTR.</div>
+</section>
+
+<!-- ============ 5 ============ -->
+<section id="thumb">
+<div class="eyebrow">Dotyk &amp; ergonomia</div>
+<h2>5 · Thumb zone — gdzie kciuk sięga bez wysiłku</h2>
+<p>Większość ludzi trzyma telefon jedną ręką i obsługuje kciukiem. Steve Hoober zmapował „strefy kciuka": dół-środek jest łatwy, góra i dalekie rogi — trudne. Dlatego <b>najważniejsze akcje idą na dół ekranu</b> (stąd popularność bottom nav i sticky CTA).</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — mapa zasięgu kciuka</div>
+  <div class="thumb">
+    <div class="z z1">🔴 trudno · góra, rogi</div>
+    <div class="z z2">🟡 średnio · środek</div>
+    <div class="z z3">🟢 łatwo · dół</div>
+  </div>
+  <div class="legend">
+    <span><i style="background:#1f8f63"></i> zielona — primary CTA, nawigacja</span>
+    <span><i style="background:#c97a1f"></i> żółta — treść, secondary</span>
+    <span><i style="background:#5a2230"></i> czerwona — rzadkie akcje, logo</span>
+  </div>
+</div>
+
+<ul class="clean">
+  <li><b>Dolne 40–50% ekranu</b> — główne CTA, pasek nawigacji, kluczowe przyciski</li>
+  <li><b>Góra</b> — logo, tytuł, akcje rzadkie (zamknij, ustawienia) — wymaga zmiany chwytu</li>
+  <li><b>Leworęczni</b> — strefa lustrzana; primary CTA trzymaj wyśrodkowane, nie w rogu</li>
+  <li><b>Weryfikuj heatmapami</b> (Hotjar, Clarity) na realnym ruchu — model to punkt startu, nie dogmat</li>
+</ul>
+</section>
+
+<!-- ============ 6 ============ -->
+<section id="carousel">
+<div class="eyebrow">Wzorce interakcji · to o to pytałeś</div>
+<h2>6 · Przewijanie w prawo — carousel / scroll-snap</h2>
+<p>Poziomy scroll („swipe w prawo") to natywny mobilny gest. Idealny do: galerii produktów, kategorii, opinii, kart usług. Nowoczesny sposób to <b>CSS Scroll Snap</b> — działa bez JS, płynnie i dotykowo.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — przesuń palcem w bok ↔</div>
+  <div class="phone"><div class="screen">
+    <div class="carousel" id="car">
+      <div class="slide s1">Slajd 1</div>
+      <div class="slide s2">Slajd 2</div>
+      <div class="slide s3">Slajd 3</div>
+      <div class="slide s4">Slajd 4</div>
+    </div>
+    <div class="dots" id="dots"><i class="on"></i><i></i><i></i><i></i></div>
+  </div></div>
+  <p style="color:var(--ink-faint);font-size:.82rem;margin:10px 0 0;text-align:center">Każdy slajd „zatrzaskuje się" na środku. Kropki pokazują pozycję. Brak biblioteki — czysty CSS.</p>
+</div>
+
+<h4>Kod — kontener i slajdy</h4>
+<pre><code><span class="tok-a">.carousel</span>{
+  <span class="tok-k">display</span>: <span class="tok-v">flex</span>;
+  <span class="tok-k">gap</span>: <span class="tok-v">12px</span>;
+  <span class="tok-k">overflow-x</span>: <span class="tok-v">auto</span>;
+  <span class="tok-k">scroll-snap-type</span>: <span class="tok-v">x mandatory</span>;        <span class="tok-c">/* wymuś zatrzaskiwanie */</span>
+  <span class="tok-k">-webkit-overflow-scrolling</span>: <span class="tok-v">touch</span>;       <span class="tok-c">/* płynny scroll iOS */</span>
+  <span class="tok-k">overscroll-behavior-x</span>: <span class="tok-v">contain</span>;          <span class="tok-c">/* nie „przeciągaj" całej strony */</span>
+  <span class="tok-k">scrollbar-width</span>: <span class="tok-v">none</span>;                    <span class="tok-c">/* ukryj scrollbar */</span>
+}
+<span class="tok-a">.carousel .slide</span>{
+  <span class="tok-k">flex</span>: <span class="tok-v">0 0 78%</span>;                            <span class="tok-c">/* szerokość slajdu — peek następnego */</span>
+  <span class="tok-k">scroll-snap-align</span>: <span class="tok-v">center</span>;               <span class="tok-c">/* punkt zatrzasku */</span>
+}</code></pre>
+
+<div class="do-dont">
+  <div class="do"><h5>✓ Rób</h5><ul>
+    <li><code>mandatory</code> dla galerii (zawsze pełny slajd), <code>proximity</code> dla list</li>
+    <li>Pokaż „peek" następnego slajdu (78–85% szer.) — sygnał, że jest więcej</li>
+    <li>Dodaj kropki/wskaźnik pozycji + strzałki na desktopie</li>
+    <li><code>overscroll-behavior-x: contain</code> — żeby scroll nie „uciekał" do strony</li>
+  </ul></div>
+  <div class="dont"><h5>✕ Unikaj</h5><ul>
+    <li>Ukrywania <b>kluczowej</b> treści w karuzeli — ludzie rzadko swipują dalej niż 1–2 razy</li>
+    <li>Auto-przewijania bez pauzy (dezorientuje, łamie a11y)</li>
+    <li>Poziomego scrolla bez wizualnej wskazówki, że da się przewinąć</li>
+    <li>Ciężkich bibliotek JS gdy wystarczy CSS</li>
+  </ul></div>
+</div>
+<div class="note"><b>Dostępność:</b> respektuj <code>prefers-reduced-motion</code>, dodaj nawigację strzałkami klawiatury i nie chowaj w karuzeli treści krytycznej dla konwersji.</div>
+</section>
+
+<!-- ============ 7 ============ -->
+<section id="accordion">
+<div class="eyebrow">Wzorce interakcji · to o to pytałeś</div>
+<h2>7 · Rozwijane elementy — accordion / progressive disclosure</h2>
+<p>Na małym ekranie nie zmieścisz wszystkiego naraz. Accordion (rozwijane sekcje) realizuje <b>progressive disclosure</b> — pokazujesz nagłówki, szczegóły dopiero po tapnięciu. Idealne do: FAQ, specyfikacji produktu, filtrów, długich treści, menu.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — tapnij, żeby rozwinąć</div>
+  <div class="phone"><div class="screen"><div class="acc">
+    <details open>
+      <summary>Czym jest progressive disclosure? <span class="chev">▾</span></summary>
+      <div class="body">Technika pokazywania tylko niezbędnych informacji, a reszty na żądanie. Zmniejsza chaos i obciążenie poznawcze użytkownika.</div>
+    </details>
+    <details>
+      <summary>Kiedy używać accordionu? <span class="chev">▾</span></summary>
+      <div class="body">Gdy masz dużo treści podzielonej na sekcje, a użytkownik potrzebuje tylko części naraz — FAQ, opisy, parametry, filtry.</div>
+    </details>
+    <details>
+      <summary>Czy to dobre dla SEO? <span class="chev">▾</span></summary>
+      <div class="body">Tak — treść jest w HTML (tylko wizualnie ukryta), więc Google ją widzi i indeksuje. Inaczej niż przy ładowaniu na klik z JS.</div>
+    </details>
+  </div></div></div>
+  <p style="color:var(--ink-faint);font-size:.82rem;margin:10px 0 0;text-align:center">Zbudowane na natywnym <code>&lt;details&gt;</code> — zero JS, dostępne z klawiatury, czytniki ekranu działają out-of-the-box.</p>
+</div>
+
+<h4>Kod — natywny i dostępny (bez JS)</h4>
+<pre><code><span class="tok-p">&lt;details&gt;</span>
+  <span class="tok-p">&lt;summary&gt;</span>Czym jest progressive disclosure? <span class="tok-p">&lt;span</span> <span class="tok-a">class</span>=<span class="tok-v">"chev"</span><span class="tok-p">&gt;</span>▾<span class="tok-p">&lt;/span&gt;&lt;/summary&gt;</span>
+  <span class="tok-p">&lt;div</span> <span class="tok-a">class</span>=<span class="tok-v">"body"</span><span class="tok-p">&gt;</span>Treść widoczna po rozwinięciu…<span class="tok-p">&lt;/div&gt;</span>
+<span class="tok-p">&lt;/details&gt;</span></code></pre>
+<pre><code><span class="tok-a">summary</span>{ <span class="tok-k">cursor</span>:<span class="tok-v">pointer</span>; <span class="tok-k">min-height</span>:<span class="tok-v">48px</span>; <span class="tok-k">list-style</span>:<span class="tok-v">none</span>; <span class="tok-k">display</span>:<span class="tok-v">flex</span>; <span class="tok-k">justify-content</span>:<span class="tok-v">space-between</span>; <span class="tok-k">align-items</span>:<span class="tok-v">center</span>; }
+<span class="tok-a">summary::-webkit-details-marker</span>{ <span class="tok-k">display</span>:<span class="tok-v">none</span>; }   <span class="tok-c">/* ukryj domyślny trójkąt */</span>
+<span class="tok-a">.chev</span>{ <span class="tok-k">transition</span>:<span class="tok-v">transform .25s</span>; }
+<span class="tok-a">details[open] .chev</span>{ <span class="tok-k">transform</span>:<span class="tok-v">rotate(180deg)</span>; }    <span class="tok-c">/* obróć strzałkę */</span></code></pre>
+
+<div class="do-dont">
+  <div class="do"><h5>✓ Rób</h5><ul>
+    <li>Nagłówek to <code>&lt;button&gt;</code>/<code>&lt;summary&gt;</code> + <code>aria-expanded</code></li>
+    <li>Strzałka/ikona <b>po prawej</b>, obrót przy otwarciu jako sygnał stanu</li>
+    <li>Cały nagłówek klikalny (min. 48px), nie tylko ikona</li>
+    <li>Najczęstsze pytanie możesz zostawić rozwinięte na start</li>
+  </ul></div>
+  <div class="dont"><h5>✕ Unikaj</h5><ul>
+    <li>Chowania treści, którą i tak <b>każdy</b> musi przeczytać (cena, dostawa)</li>
+    <li>Zagnieżdżania accordionów w accordionach</li>
+    <li>Ładowania treści dopiero na klik (gorzej dla SEO i a11y)</li>
+    <li>Braku wizualnego stanu otwarte/zamknięte</li>
+  </ul></div>
+</div>
+</section>
+
+<!-- ============ 8 ============ -->
+<section id="bottomsheet">
+<div class="eyebrow">Wzorce interakcji</div>
+<h2>8 · Bottom sheet — panel wysuwany z dołu</h2>
+<p>Panel wysuwający się od dołu ekranu — w strefie kciuka. Zastępuje klasyczne modale (które na mobile lądują wysoko, poza zasięgiem). Idealny do: opcji, filtrów, wyboru, szybkich akcji, szczegółów. To forma progressive disclosure dla akcji.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — tapnij, panel wysunie się z dołu</div>
+  <div class="phone"><div class="screen">
+    <div class="bsdemo">
+      <div class="bg">
+        <p>Treść ekranu…</p>
+        <button class="bs-trigger" id="bsOpen">Pokaż opcje ↑</button>
+      </div>
+      <div class="scrim" id="bsScrim"></div>
+      <div class="sheet" id="bsSheet" role="dialog" aria-modal="true" aria-label="Opcje">
+        <div class="grab"></div>
+        <h4>Wybierz opcję</h4>
+        <p style="color:var(--ink-dim);font-size:.9rem;margin:0">Panel w zasięgu kciuka. Zamknij przyciskiem, tłem lub gestem w dół.</p>
+        <div class="row">
+          <button class="close" id="bsClose">Anuluj</button>
+          <button class="close" style="background:var(--acc);color:#06101f;border:none;font-weight:700" id="bsClose2">Zatwierdź</button>
+        </div>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<div class="do-dont">
+  <div class="do"><h5>✓ Rób</h5><ul>
+    <li>Widoczny przycisk zamknięcia (X) + „grab handle" jako wskazówka</li>
+    <li>Scrim (przyciemnione tło) + zamykanie tapnięciem w tło</li>
+    <li>Przycisk Wstecz/swipe w dół też zamyka</li>
+    <li>Animacja wsunięcia 200–300ms</li>
+  </ul></div>
+  <div class="dont"><h5>✕ Unikaj</h5><ul>
+    <li>Długiej treści do czytania — sheet jest do <b>szybkich</b> akcji</li>
+    <li>Polegania tylko na geście (nie każdy go zna)</li>
+    <li>Blokowania scrolla tła bez możliwości wyjścia</li>
+  </ul></div>
+</div>
+</section>
+
+<!-- ============ 9 ============ -->
+<section id="sticky">
+<div class="eyebrow">Wzorce interakcji</div>
+<h2>9 · Sticky CTA — przyklejony przycisk akcji</h2>
+<p>Główne CTA przyklejone do dołu, widoczne przez cały scroll — zawsze w zasięgu kciuka. Na długich stronach i kartach produktu daje <b>8–15% mniej wyjść</b> i wyższą konwersję. Klasyk e-commerce („Dodaj do koszyka") i landingów.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — scrolluj treść, pasek zostaje na dole</div>
+  <div class="phone"><div class="screen">
+    <div class="stickydemo">
+      <div class="feed">
+        <p>Opis produktu, akapit pierwszy…</p>
+        <p>Więcej treści, parametry, opinie…</p>
+        <p>Kolejna sekcja — scrollujesz w dół…</p>
+        <p>…a przycisk akcji wciąż jest pod kciukiem.</p>
+        <p>Dalsza treść strony produktowej…</p>
+        <p>Sekcja FAQ, gwarancja, dostawa…</p>
+      </div>
+      <div class="stickybar">
+        <span class="price">249 zł</span>
+        <button>Dodaj do koszyka</button>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<h4>Kod — pasek przyklejony do dołu</h4>
+<pre><code><span class="tok-a">.sticky-cta</span>{
+  <span class="tok-k">position</span>: <span class="tok-v">sticky</span>;        <span class="tok-c">/* lub fixed dla całego viewportu */</span>
+  <span class="tok-k">bottom</span>: <span class="tok-v">0</span>;
+  <span class="tok-k">padding-bottom</span>: <span class="tok-v">env(safe-area-inset-bottom)</span>;  <span class="tok-c">/* notch / pasek iPhone */</span>
+  <span class="tok-k">min-height</span>: <span class="tok-v">56px</span>;
+}</code></pre>
+<div class="note"><b>Safe area:</b> na iPhone z paskiem gestów używaj <code>env(safe-area-inset-bottom)</code> + <code>&lt;meta viewport ... viewport-fit=cover&gt;</code>, żeby przycisk nie chował się pod systemowym paskiem.</div>
+<ul class="clean">
+  <li><b>Jeden cel, jedno CTA</b> — bez listy funkcji i opisów w pasku (rośnie cognitive load)</li>
+  <li><b>Przycisk Wstecz/zamknij</b> jeśli pasek zasłania treść</li>
+  <li><b>Wsuwaj płynnie</b> gdy staje się istotny, nie wrzucaj gwałtownie</li>
+</ul>
+</section>
+
+<!-- ============ 10 ============ -->
+<section id="nav">
+<div class="eyebrow">Wzorce interakcji</div>
+<h2>10 · Nawigacja — hamburger vs bottom nav</h2>
+<p>Dwa główne wzorce. <b>Bottom nav</b> (pasek u dołu) to dziś złoty standard dla 3–5 sekcji — zawsze widoczny, w zasięgu kciuka, wyższe zaangażowanie. <b>Hamburger</b> chowa nawigację — wygodny dla rzadkich/wielu opcji, ale obniża odkrywalność.</p>
+
+<div class="demo">
+  <div class="dlabel">Demo — tapnij ☰ (drawer) oraz pasek na dole</div>
+  <div class="phone"><div class="screen">
+    <div class="navdemo">
+      <div class="navtop">
+        <button class="burger" id="burger" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button>
+        <b style="font-size:.9rem">Twoja marka</b>
+        <span style="width:44px"></span>
+      </div>
+      <div class="drawer" id="drawer">
+        <a href="#nav" onclick="return false">Start</a>
+        <a href="#nav" onclick="return false">Usługi</a>
+        <a href="#nav" onclick="return false">Realizacje</a>
+        <a href="#nav" onclick="return false">Kontakt</a>
+      </div>
+      <div style="flex:1;padding:16px;color:var(--ink-dim);font-size:.85rem">Treść strony. Bottom nav poniżej jest zawsze widoczny.</div>
+      <div class="botnav">
+        <a class="on" onclick="return false"><span class="ic">🏠</span>Start</a>
+        <a onclick="return false"><span class="ic">🔍</span>Szukaj</a>
+        <a onclick="return false"><span class="ic">❤️</span>Ulubione</a>
+        <a onclick="return false"><span class="ic">👤</span>Konto</a>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<table>
+<tr><th>Kryterium</th><th>Bottom nav</th><th>Hamburger</th></tr>
+<tr><td>Odkrywalność</td><td><b style="color:var(--good)">Wysoka</b> — widoczna</td><td><b style="color:var(--bad)">Niska</b> — ukryta</td></tr>
+<tr><td>Liczba sekcji</td><td>3–5 głównych</td><td>Wiele / drugorzędne</td></tr>
+<tr><td>Zasięg kciuka</td><td><b style="color:var(--good)">Idealny</b> (dół)</td><td>Trigger zwykle u góry</td></tr>
+<tr><td>Najlepsze dla</td><td>Social, e-commerce, aplikacje</td><td>Dashboardy, dużo kategorii</td></tr>
+</table>
+<div class="note good"><b>Hybryda (trend 2025):</b> stały bottom nav z 4 kluczowymi sekcjami + hamburger/„Więcej" na resztę. Łączy odkrywalność z pojemnością.</div>
+</section>
+
+<!-- ============ 11 ============ -->
+<section id="gestures">
+<div class="eyebrow">Wzorce interakcji</div>
+<h2>11 · Gesty &amp; swipe</h2>
+<p>Gesty są szybkie i naturalne, ale <b>niewidoczne</b> — dlatego nigdy nie mogą być jedyną drogą do akcji. Zasada: gest jako <i>skrót</i>, zawsze z widoczną alternatywą (przycisk).</p>
+<table>
+<tr><th>Gest</th><th>Typowe użycie</th><th>Uwaga</th></tr>
+<tr><td><b>Swipe poziomy</b></td><td>Carousel, zakładki, usuń/archiwizuj</td><td>Pokaż „peek" lub podpowiedź</td></tr>
+<tr><td><b>Swipe w dół</b></td><td>Zamknij sheet/modal, odśwież (pull-to-refresh)</td><td>Dodaj też przycisk X</td></tr>
+<tr><td><b>Long-press</b></td><td>Menu kontekstowe, podgląd</td><td>Mało odkrywalny — tylko skrót</td></tr>
+<tr><td><b>Pinch / double-tap</b></td><td>Zoom zdjęć, mapy</td><td>Oczekiwany przy obrazach/mapach</td></tr>
+</table>
+<ul class="clean">
+  <li><b>Zawsze alternatywa</b> — każda akcja gestem ma też widoczny przycisk</li>
+  <li><b>Nie przejmuj systemowych gestów</b> — swipe od krawędzi = Wstecz w systemie</li>
+  <li><b>Feedback</b> — wizualna reakcja na gest (przesuwa się, podświetla)</li>
+  <li><b>Strefa bezpieczna</b> — interaktywne elementy z dala od krawędzi (kolizja z gestami OS)</li>
+</ul>
+</section>
+
+<!-- ============ 12 ============ -->
+<section id="forms">
+<div class="eyebrow">Treść &amp; konwersja</div>
+<h2>12 · Formularze na mobile</h2>
+<p>Wpisywanie na telefonie jest uciążliwe — dobra optymalizacja formularzy to najprostszy wzrost konwersji. Właściwa klawiatura skraca czas wpisywania o ~30% i redukuje błędy o ~50%, a autofill podnosi konwersję o ~20%.</p>
+
+<h4>Właściwy <code>type</code> i <code>inputmode</code> = właściwa klawiatura</h4>
+<pre><code><span class="tok-c">&lt;!-- e-mail: klawiatura z @ i .pl --&gt;</span>
+<span class="tok-p">&lt;input</span> <span class="tok-a">type</span>=<span class="tok-v">"email"</span> <span class="tok-a">autocomplete</span>=<span class="tok-v">"email"</span> <span class="tok-a">inputmode</span>=<span class="tok-v">"email"</span><span class="tok-p">&gt;</span>
+
+<span class="tok-c">&lt;!-- telefon: klawiatura numeryczna (NIE type=number!) --&gt;</span>
+<span class="tok-p">&lt;input</span> <span class="tok-a">type</span>=<span class="tok-v">"tel"</span> <span class="tok-a">autocomplete</span>=<span class="tok-v">"tel"</span><span class="tok-p">&gt;</span>
+
+<span class="tok-c">&lt;!-- kwota / kod pocztowy: cyfry bez strzałek-spinnerów --&gt;</span>
+<span class="tok-p">&lt;input</span> <span class="tok-a">type</span>=<span class="tok-v">"text"</span> <span class="tok-a">inputmode</span>=<span class="tok-v">"decimal"</span><span class="tok-p">&gt;</span>
+
+<span class="tok-c">&lt;!-- kod SMS: auto-wpis z wiadomości --&gt;</span>
+<span class="tok-p">&lt;input</span> <span class="tok-a">autocomplete</span>=<span class="tok-v">"one-time-code"</span> <span class="tok-a">inputmode</span>=<span class="tok-v">"numeric"</span><span class="tok-p">&gt;</span></code></pre>
+
+<table>
+<tr><th>Pole</th><th>Ustawienie</th></tr>
+<tr><td>E-mail</td><td><code>type="email"</code> + <code>autocomplete="email"</code></td></tr>
+<tr><td>Telefon</td><td><code>type="tel"</code> (nie <code>number</code> — psuje formatowanie)</td></tr>
+<tr><td>Imię / nazwisko</td><td><code>autocomplete="name"</code> / <code>given-name</code></td></tr>
+<tr><td>Kwota, PIN, kod</td><td><code>inputmode="numeric"</code> lub <code>decimal</code></td></tr>
+<tr><td>Kod z SMS</td><td><code>autocomplete="one-time-code"</code></td></tr>
+<tr><td>Adres, miasto</td><td><code>autocomplete="street-address"</code>, <code>address-level2</code></td></tr>
+</table>
+
+<div class="note bad"><b>Pułapka iOS — zoom na inpucie.</b> Gdy font inputa &lt; 16px, Safari sam powiększa stronę po kliknięciu w pole (i nie wraca). Rozwiązanie: <code>font-size: 16px</code> na wszystkich polach. Nie blokuj tego przez <code>maximum-scale</code> (łamie a11y).</div>
+<pre><code><span class="tok-a">input, select, textarea</span>{ <span class="tok-k">font-size</span>: <span class="tok-v">16px</span>; }  <span class="tok-c">/* zapobiega auto-zoom iOS */</span></code></pre>
+
+<div class="do-dont">
+  <div class="do"><h5>✓ Rób</h5><ul>
+    <li>Jedna kolumna, pola pełnej szerokości, min. 48px wysokości</li>
+    <li>Włącz <code>autocomplete</code> na każdym polu</li>
+    <li>Etykiety nad polem (nie placeholder zamiast etykiety)</li>
+    <li>Walidacja inline + jasny komunikat błędu</li>
+  </ul></div>
+  <div class="dont"><h5>✕ Unikaj</h5><ul>
+    <li>Tylu pól ile w wersji desktop — tnij do minimum</li>
+    <li><code>type="number"</code> do telefonów/kart/kodów</li>
+    <li>Placeholdera jako jedynej etykiety (znika po wpisaniu)</li>
+    <li>CAPTCHA i pól, których nie musisz zbierać na mobile</li>
+  </ul></div>
+</div>
+</section>
+
+<!-- ============ 13 ============ -->
+<section id="media">
+<div class="eyebrow">Treść &amp; konwersja</div>
+<h2>13 · Obrazy &amp; media</h2>
+<p>Obrazy to zwykle najcięższy element strony i główny winowajca wolnego LCP na mobile. Nowoczesne formaty + responsywne dostarczanie tną wagę o 50–80%.</p>
+
+<div class="spec">
+  <div class="card good"><div class="num">AVIF</div><div class="lbl">Najlepsza kompresja</div></div>
+  <div class="card good"><div class="num">WebP</div><div class="lbl">~97% wsparcia, −25–35% vs JPEG</div></div>
+  <div class="card"><div class="num">srcset</div><div class="lbl">Właściwy rozmiar na urządzenie</div></div>
+</div>
+
+<h4>Responsywne obrazy — <code>srcset</code> + <code>sizes</code></h4>
+<pre><code><span class="tok-p">&lt;img</span>
+  <span class="tok-a">src</span>=<span class="tok-v">"foto-800.jpg"</span>
+  <span class="tok-a">srcset</span>=<span class="tok-v">"foto-400.jpg 400w, foto-800.jpg 800w, foto-1600.jpg 1600w"</span>
+  <span class="tok-a">sizes</span>=<span class="tok-v">"(max-width: 600px) 100vw, 50vw"</span>
+  <span class="tok-a">width</span>=<span class="tok-v">"800"</span> <span class="tok-a">height</span>=<span class="tok-v">"600"</span>     <span class="tok-c">&lt;!-- ZAWSZE — rezerwuje miejsce, zero CLS --&gt;</span>
+  <span class="tok-a">loading</span>=<span class="tok-v">"lazy"</span> <span class="tok-a">decoding</span>=<span class="tok-v">"async"</span>
+  <span class="tok-a">alt</span>=<span class="tok-v">"Opis obrazu"</span><span class="tok-p">&gt;</span></code></pre>
+<p>Format z fallbackiem przez <code>&lt;picture&gt;</code>:</p>
+<pre><code><span class="tok-p">&lt;picture&gt;</span>
+  <span class="tok-p">&lt;source</span> <span class="tok-a">type</span>=<span class="tok-v">"image/avif"</span> <span class="tok-a">srcset</span>=<span class="tok-v">"foto.avif"</span><span class="tok-p">&gt;</span>
+  <span class="tok-p">&lt;source</span> <span class="tok-a">type</span>=<span class="tok-v">"image/webp"</span> <span class="tok-a">srcset</span>=<span class="tok-v">"foto.webp"</span><span class="tok-p">&gt;</span>
+  <span class="tok-p">&lt;img</span> <span class="tok-a">src</span>=<span class="tok-v">"foto.jpg"</span> <span class="tok-a">alt</span>=<span class="tok-v">"…"</span> <span class="tok-a">width</span>=<span class="tok-v">"800"</span> <span class="tok-a">height</span>=<span class="tok-v">"600"</span><span class="tok-p">&gt;</span>
+<span class="tok-p">&lt;/picture&gt;</span></code></pre>
+
+<div class="do-dont">
+  <div class="do"><h5>✓ Rób</h5><ul>
+    <li><code>width</code>+<code>height</code> (lub <code>aspect-ratio</code>) na każdym obrazie — zero CLS</li>
+    <li><code>loading="lazy"</code> na obrazach <b>poniżej</b> ekranu</li>
+    <li>AVIF/WebP z fallbackiem; CDN obrazów</li>
+  </ul></div>
+  <div class="dont"><h5>✕ Unikaj</h5><ul>
+    <li><code>lazy</code> na obrazie LCP (hero) — opóźnia render</li>
+    <li>Serwowania desktopowych 3000px na telefon</li>
+    <li>Autoodtwarzanego wideo z dźwiękiem na mobile</li>
+  </ul></div>
+</div>
+</section>
+
+<!-- ============ 14 ============ -->
+<section id="performance">
+<div class="eyebrow">Jakość</div>
+<h2>14 · Wydajność — Core Web Vitals (2025/2026)</h2>
+<p>Google ocenia stronę osobno na mobile, na 75. percentylu realnego ruchu. To czynnik rankingowy. Tylko ~48% stron mobilnych przechodzi wszystkie trzy metryki — to realna przewaga konkurencyjna.</p>
+
+<div class="spec">
+  <div class="card good"><div class="num">LCP ≤ 2,5s</div><div class="lbl">Largest Contentful Paint — ładowanie</div></div>
+  <div class="card good"><div class="num">INP ≤ 200ms</div><div class="lbl">Interaction to Next Paint — responsywność</div></div>
+  <div class="card good"><div class="num">CLS ≤ 0,1</div><div class="lbl">Cumulative Layout Shift — stabilność</div></div>
+</div>
+<div class="note"><b>Zmiana:</b> w 2024 <b>INP zastąpił FID</b> jako metryka responsywności — mierzy opóźnienie <i>wszystkich</i> interakcji, nie tylko pierwszej. Ciężki JavaScript najmocniej psuje INP na słabszych telefonach.</div>
+
+<table>
+<tr><th>Metryka</th><th>Dobra</th><th>Wymaga poprawy</th><th>Słaba</th></tr>
+<tr><td><b>LCP</b></td><td style="color:var(--good)">≤ 2,5s</td><td style="color:var(--warn)">2,5–4,0s</td><td style="color:var(--bad)">&gt; 4,0s</td></tr>
+<tr><td><b>INP</b></td><td style="color:var(--good)">≤ 200ms</td><td style="color:var(--warn)">200–500ms</td><td style="color:var(--bad)">&gt; 500ms</td></tr>
+<tr><td><b>CLS</b></td><td style="color:var(--good)">≤ 0,1</td><td style="color:var(--warn)">0,1–0,25</td><td style="color:var(--bad)">&gt; 0,25</td></tr>
+</table>
+
+<h4>Jak realnie poprawić każdą metrykę</h4>
+<ul class="clean">
+  <li><b>LCP</b> — optymalizuj obraz/nagłówek hero, <code>fetchpriority="high"</code>, preload fontu, CDN, mniej blokującego CSS</li>
+  <li><b>INP</b> — tnij i dziel długie zadania JS, mniej zewnętrznych skryptów, <code>content-visibility</code>, debounce</li>
+  <li><b>CLS</b> — wymiary obrazów/wideo, rezerwacja miejsca na reklamy/embedy, <code>font-display: swap</code>, nie wstawiaj treści nad istniejącą</li>
+</ul>
+<div class="note good"><b>Mierz realnych użytkowników:</b> PageSpeed Insights (dane CrUX) + Search Console (raport Core Web Vitals) + lokalnie Lighthouse w trybie mobile z throttlingiem. Lab ≠ field — licz się z polem.</div>
+</section>
+
+<!-- ============ 15 ============ -->
+<section id="a11y">
+<div class="eyebrow">Jakość</div>
+<h2>15 · Dostępność &amp; detale techniczne</h2>
+<p>Drobiazgi, które odróżniają stronę „działa" od „dopracowana". Większość to jedna linia kodu.</p>
+
+<h4>Ruch — szanuj <code>prefers-reduced-motion</code></h4>
+<pre><code><span class="tok-a">@media (prefers-reduced-motion: reduce)</span>{
+  <span class="tok-a">*</span>{ <span class="tok-k">animation</span>:<span class="tok-v">none !important</span>; <span class="tok-k">transition</span>:<span class="tok-v">none !important</span>; <span class="tok-k">scroll-behavior</span>:<span class="tok-v">auto</span>; }
+}</code></pre>
+
+<h4>Stany dotyku zamiast hover</h4>
+<p>Na telefonie nie ma „hover" — efekty hover albo nie działają, albo „przyklejają się". Projektuj stan <code>:active</code> i używaj hover tylko warunkowo:</p>
+<pre><code><span class="tok-c">/* hover tylko tam, gdzie urządzenie faktycznie go ma */</span>
+<span class="tok-a">@media (hover: hover)</span>{ <span class="tok-a">.btn:hover</span>{ <span class="tok-k">background</span>:<span class="tok-v">#333</span>; } }
+<span class="tok-a">.btn:active</span>{ <span class="tok-k">transform</span>:<span class="tok-v">scale(.97)</span>; }   <span class="tok-c">/* feedback dotyku */</span></code></pre>
+
+<h4>Inne detale</h4>
+<ul class="clean">
+  <li><b>Tap highlight</b> — kontroluj <code>-webkit-tap-highlight-color</code> (domyślny szary box bywa brzydki)</li>
+  <li><b>Safe area</b> — <code>env(safe-area-inset-*)</code> + <code>viewport-fit=cover</code> dla notcha/paska gestów</li>
+  <li><b>Focus widoczny</b> — nie usuwaj <code>:focus-visible</code> (nawigacja klawiaturą/switch)</li>
+  <li><b>aria-expanded</b> — na accordionach, hamburgerze, dropdownach (stan dla czytników)</li>
+  <li><b>Kontrast</b> — min. 4.5:1 tekst, 3:1 elementy UI i ikony (WCAG AA)</li>
+  <li><b>Język</b> — <code>&lt;html lang="pl"&gt;</code> dla poprawnego czytania i autokorekty</li>
+</ul>
+</section>
+
+<!-- ============ 16 ============ -->
+<section id="checklist">
+<div class="eyebrow">Jakość</div>
+<h2>16 · Checklist przed publikacją</h2>
+<p>Szybka kontrola każdej strony przed wdrożeniem na produkcję.</p>
+<h4>Fundamenty</h4>
+<ul class="check">
+  <li><b>Viewport meta</b> obecny, zoom <b>nie</b> zablokowany</li>
+  <li>CSS <b>mobile-first</b>, brak poziomego scrolla całej strony</li>
+  <li>Pełnoekranowe sekcje używają <b>dvh</b>, nie vh</li>
+  <li>Body text min. <b>16px</b>, kontrast ≥ 4.5:1</li>
+</ul>
+<h4>Dotyk &amp; interakcja</h4>
+<ul class="check">
+  <li>Wszystkie cele dotykowe ≥ <b>48px</b>, odstęp ≥ 8px</li>
+  <li>Główne CTA w <b>dolnej strefie</b> (zasięg kciuka)</li>
+  <li>Carousele: scroll-snap + wskaźnik pozycji + <b>overscroll contain</b></li>
+  <li>Accordiony: natywne/ARIA, cały nagłówek klikalny, stan widoczny</li>
+  <li>Każdy gest ma <b>widoczną alternatywę</b> (przycisk)</li>
+</ul>
+<h4>Formularze</h4>
+<ul class="check">
+  <li>Poprawny <b>type</b>/<b>inputmode</b> (tel, email, numeric…)</li>
+  <li><b>autocomplete</b> na każdym polu, font pól = 16px</li>
+  <li>Etykiety nad polem, walidacja inline</li>
+</ul>
+<h4>Wydajność</h4>
+<ul class="check">
+  <li>Obrazy: <b>WebP/AVIF</b>, srcset, width+height, lazy poniżej ekranu</li>
+  <li>Hero/LCP <b>nie</b> jest lazy, font preload + swap</li>
+  <li>LCP ≤ 2,5s · INP ≤ 200ms · CLS ≤ 0,1 (test mobile + throttling)</li>
+  <li>Sprawdzone w <b>PageSpeed Insights</b> i Search Console</li>
+</ul>
+<h4>Detale</h4>
+<ul class="check">
+  <li><b>prefers-reduced-motion</b> obsłużone</li>
+  <li>Hover tylko pod <code>@media (hover:hover)</code>, jest stan <code>:active</code></li>
+  <li><b>safe-area</b> dla notcha/sticky CTA, focus widoczny</li>
+  <li>Przetestowane na <b>realnym telefonie</b> (iOS + Android)</li>
+</ul>
+</section>
+
+<footer>
+  <p><b>Specyfikacja Optymalizacji Mobile</b> · v1.0 · referencja produkcyjna dla agency-site.</p>
+  <p>Źródła wytycznych: Apple Human Interface Guidelines, Google Material Design 3, web.dev (Core Web Vitals), MDN Web Docs, WCAG 2.2, Nielsen Norman Group, CSS-Tricks. Liczby (44/48px, LCP 2,5s, INP 200ms, CLS 0,1, font 16px) odzwierciedlają stan na 2025/2026.</p>
+</footer>
+</main>
+</div>
+
+<script>
+(function(){
+  // mobile nav toggle
+  var t=document.getElementById('mtoggle'),toc=document.getElementById('toc'),sn=document.getElementById('scrimNav'),tc=document.getElementById('tocClose');
+  function openNav(){toc.classList.add('open');sn.classList.add('on');document.body.classList.add('nav-open');if(t)t.setAttribute('aria-expanded','true');var f=toc.querySelector('a[href^="#"]');if(f)f.focus();}
+  function closeNav(){toc.classList.remove('open');sn.classList.remove('on');document.body.classList.remove('nav-open');if(t)t.setAttribute('aria-expanded','false');}
+  if(t){t.addEventListener('click',function(){toc.classList.contains('open')?closeNav():openNav();});}
+  if(sn){sn.addEventListener('click',closeNav);}
+  if(tc){tc.addEventListener('click',closeNav);}
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')closeNav();});
+  toc.querySelectorAll('a[href^="#"]').forEach(function(a){a.addEventListener('click',closeNav);});
+
+  // carousel dots
+  var car=document.

@@ -85,6 +85,7 @@ function gateRiskTier(caseDir, expect) {
 // bash-guard (landscape #4): ta sama funkcja evaluate(), ktora blokuje w hooku. `disabled` = mutant z pg-mutate.js.
 // Token ALLOW_* bez zgody uzytkownika to w hooku blokada `override-required` — tu liczony tak samo.
 const { evaluate: evaluateBash, RULES: BASH_RULES } = require(path.join(CLAUDE_DIR, 'hooks', 'lib', 'bash-rules.js'));
+const OVERRIDES = require(path.join(CLAUDE_DIR, 'hooks', 'lib', 'overrides.js'));
 const EVAL_CWD = path.join(os.homedir(), 'Desktop', 'pg-eval-project'); // zwykly katalog projektu: nie %TEMP%, nie ~/.claude
 function gateBashGuard(caseDir, expect, opts) {
   const r = evaluateBash(expect.command, {
@@ -92,7 +93,9 @@ function gateBashGuard(caseDir, expect, opts) {
     disabled: (opts && opts.disabled) || new Set(), exists: () => expect.exists !== false,
   });
   const blockIds = r.blocks.map((b) => b.id);
-  if (r.tokens.length && !(opts && opts.disabled && opts.disabled.has('override-required'))) blockIds.push('override-required');
+  // Poziom A (2026-10-02) agent wydaje sobie sam — nie liczy sie jako override-required (jak overrides.sourceOf w hooku).
+  const needsGrant = r.tokens.filter((t) => OVERRIDES.tierOf(t) !== 'A');
+  if (needsGrant.length && !(opts && opts.disabled && opts.disabled.has('override-required'))) blockIds.push('override-required');
   const observeIds = r.observes.map((o) => o.id);
   const ids = blockIds.concat(observeIds);
   const hit = expect.rule ? ids.includes(expect.rule) : ids.length > 0;
