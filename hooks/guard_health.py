@@ -7,6 +7,7 @@
 #                  telemetria skipow (gates.jsonl), test_hooks_v3 (pozytywne), narzedzia bin/*.js.
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -18,8 +19,11 @@ from pathlib import Path
 HOME = Path(os.environ.get("USERPROFILE", str(Path.home())))
 CLAUDE = HOME / ".claude"
 _OWNER_LOG_DIR = Path(r"~/.claude/memory/log")  # vault wlasciciela; brak dysku (wersja publiczna PG) -> ~/.claude/memory/log
-LOG_DIR = _OWNER_LOG_DIR if _OWNER_LOG_DIR.exists() else CLAUDE / "memory" / "log"
-LOG = LOG_DIR / "guard-health.md"
+# Linux (laptop, 2026-10-02): vault z Syncthinga ~/Obsidian/MAIN; osobny plik logu per komputer, bo deferred-task-runner na
+# Zenbooku czyta ogon guard-health.md jako stan Zenbooka, a rownolegly zapis z dwoch komputerow daje sync-conflict.
+_LINUX_LOG_DIR = Path.home() / "Obsidian" / "MAIN" / "Claude Memory" / "Log"
+LOG_DIR = next((d for d in (_OWNER_LOG_DIR, _LINUX_LOG_DIR) if d.exists()), CLAUDE / "memory" / "log")
+LOG = LOG_DIR / ("guard-health.md" if os.name == "nt" else f"guard-health-{platform.node() or 'linux'}.md")
 GATES_LOG = CLAUDE / "logs" / "gates.jsonl"
 GATES_WINDOW_DAYS = 7
 MIN_HOOK_TIMEOUT_S = 120  # post-edit tsc -b ma budzet 90 s; domyslne 60 s harnessu ucinalo hook w ciszy
@@ -120,7 +124,7 @@ for site in TSC_B_SITES:
     check(f"tsc -b w {site.name}", "tsc -b" in read(site), "nadal tylko `tsc --noEmit` = slepy przy project references")
 
 # 2e. narzedzia Pythona realnie dostepne (bez nich sciezka .py w hookach = martwy kod)
-ruff_ok = shutil.which("ruff") is not None or sh(["python", "-m", "ruff", "--version"])[0] == 0
+ruff_ok = shutil.which("ruff") is not None or sh([sys.executable, "-m", "ruff", "--version"])[0] == 0
 check("ruff dostepny (PATH albo python -m ruff)", ruff_ok, "pip install ruff")
 check("pyright dostepny na PATH", shutil.which("pyright") is not None, "npm i -g pyright")
 
@@ -154,6 +158,13 @@ if GATES_LOG.exists():
     check("gates.jsonl: kazdy skip ma powod", empty_reason == 0, f"{empty_reason} skipow bez powodu")
     for (hook, ev), n in sorted(counts.items(), key=lambda kv: -kv[1])[:12]:
         info.append(f"{hook}/{ev}: {n}")
+    # Merge bez frazy (pg-merge-bezpieczny v2, ops-review 2026-10-01): rozklad zawsze widoczny; start bez wyniku albo wynik
+    # niepewny (zerwane polaczenie przy PUT /merge) = RED — ktos musi sprawdzic, czy PR wszedl na main.
+    start, scalone, odmowy, niepewne, gh_odmowy = (counts[("pg-merge-bezpieczny", "auto-merge" + s)] for s in ("-start", "", "-odmowa", "-niepewny", "-github-odmowa"))
+    info.append(f"auto-merge 7 dni: start={start} scalone={scalone} odmowy={odmowy} niepewne={niepewne} github-odmowy={gh_odmowy}, "
+                f"stop-gate suppressed={counts[('stop-gate', 'suppressed')]}")
+    check("auto-merge: kazdy start ma pewny wynik", niepewne == 0 and start <= scalone + gh_odmowy,
+          f"start={start} scalone={scalone} niepewne={niepewne} — sprawdz PR-y w gates.jsonl")
 else:
     check("gates.jsonl istnieje (hooki loguja)", False, "zaden hook nic nie zapisal — telemetria martwa albo hooki nie chodza")
 
@@ -198,7 +209,12 @@ check("pg-wire: wpiecia hookow w settings.json = pg/settings-hooks.json", _rc_ou
 # 2h. Hooki gita (#!/bin/sh) musza parsowac pod POSIX sh, nie tylko pod Git Bash: na Ubuntu sh = dash, w WSL/busybox tez.
 # Blizna PREPUSH-BASHISM-DASH (2026-09-12): here-string `<<<` i tablice `x=()` wywalaly hook z rc 2 = KAZDY push/commit zablokowany
 # na Linuksie; wykryte dopiero przez CI publicznego eksportu. Bez WSL = info (CI ubuntu eksportu jest druga linia).
-if shutil.which("wsl"):
+if os.name != "nt" and shutil.which("sh"):
+    # Linux/macOS (laptop 2026-10-02): sh = dash/POSIX natywnie, bez WSL.
+    for _hook in ("pre-commit", "pre-push", "commit-msg"):
+        _rc, _out = _rc_out(sh(["sh", "-n", str(CLAUDE / "git-hooks" / _hook)], timeout=60))
+        check(f"git-hooks/{_hook}: skladnia POSIX sh (sh -n)", _rc == 0, (_out.strip().splitlines() or ["brak wyniku"])[-1][:160])
+elif shutil.which("wsl"):
     for _hook in ("pre-commit", "pre-push", "commit-msg"):
         # sciezke tlumaczy wslpath WEWNATRZ dystrybucji (docker-desktop montuje C: pod /tmp/docker-desktop-root/..., Ubuntu pod /mnt/c)
         _win = str(CLAUDE / "git-hooks" / _hook)
@@ -227,7 +243,7 @@ _browsers = CLAUDE / "tools" / "qa-matrix" / "node_modules" / "playwright-core" 
 if _browsers.exists():
     try:
         _rev = next(b["revision"] for b in json.loads(read(_browsers))["browsers"] if b["name"] == "chromium")
-        _pw_home = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
+        _pw_home = Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or (Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright" if os.name == "nt" else Path.home() / ".cache" / "ms-playwright"))
         check(f"qa-matrix runtime: chromium-{_rev} pobrany", (_pw_home / f"chromium-{_rev}").exists() or (_pw_home / f"chromium_headless_shell-{_rev}").exists(), "cd ~/.claude/tools/qa-matrix && npx playwright install chromium")
     except (StopIteration, KeyError, json.JSONDecodeError) as _err:
         check("qa-matrix runtime: browsers.json czytelny", False, f"{type(_err).__name__}")
@@ -283,7 +299,7 @@ try:
     with _ur.urlopen(_ur.Request("http://<secret-manager-url>/api/status", headers={"User-Agent": "pg-guard-health"}), timeout=8) as _resp:
         check("Infisical vault odpowiada (<secret-manager-url>)", _resp.status == 200, f"HTTP {_resp.status}")
 except Exception as _err:  # noqa: BLE001 — kazda awaria sieci/kontenera = RED z powodem
-    check("Infisical vault odpowiada (<secret-manager-url>)", False, f"{type(_err).__name__}: {str(_err)[:80]} -> cd <secret-manager> && docker compose -f docker-compose.prod.yml -p infisical-vault up -d")
+    check("Infisical vault odpowiada (<secret-manager-url>)", False, f"{type(_err).__name__}: {str(_err)[:80]} -> " + ("cd <secret-manager> && docker compose -f docker-compose.prod.yml -p infisical-vault up -d" if os.name == "nt" else "systemctl --user restart zenbook-infisical (tunel SSH do Zenbooka); dalej pada = Infisical na Zenbooku"))
 
 # 2i. Widocznosc repo z sekretami w historii: MUSZA byc prywatne (bez tokena API zwraca 404).
 #     Incydent 2026-09-05: agency-site wrocilo do public z haslami admina w historii (Log/incidents.md).
@@ -329,8 +345,17 @@ for logname in (_cc_tasks or ["fleet-pr-reviewer", "fleet-cve-watch"]):
             red.append(f"log {logname}: ostatni wpis to STARTED bez DONE/FAILED — run umarl w trakcie")
 
 # 5. blokada platnych tokenow w tle
-rc, out = sh(["schtasks", "/query", "/tn", "PG-DocLog-Auto", "/fo", "csv"])
-check("PG-DocLog-Auto wylaczony", rc != 0 or "Disabled" in out, "task WLACZONY = platne tokeny w tle!")
+if os.name == "nt":
+    rc, out = sh(["schtasks", "/query", "/tn", "PG-DocLog-Auto", "/fo", "csv"])
+    check("PG-DocLog-Auto wylaczony", rc != 0 or "Disabled" in out, "task WLACZONY = platne tokeny w tle!")
+else:
+    # Linux (2026-10-02): odpowiednik to brak uslugi systemd --user i wpisu crontab, ktore odpalaja `claude -p` / klucz API w tle.
+    _paid_rx = re.compile(r"\bclaude\b[^\n]*\s(-p|--print)\b|ANTHROPIC_API_KEY|DocLog")
+    _bg = [p.name for p in (Path.home() / ".config" / "systemd" / "user").glob("*.service") if _paid_rx.search(read(p))]
+    _crc, _cron = _rc_out(sh(["crontab", "-l"], timeout=15))
+    if _crc == 0 and _paid_rx.search(_cron):
+        _bg.append("crontab")
+    check("brak platnych tokenow w tle (systemd --user / crontab bez claude -p)", not _bg, f"podejrzane: {_bg}")
 for wf in ["claude-review.yml", "auto-improve.yml"]:
     p = CLAUDE / "templates" / "repo" / ".github" / "workflows" / wf
     check(f"szablon {wf} bez ANTHROPIC_API_KEY", p.exists() and "ANTHROPIC_API_KEY" not in read(p))
@@ -359,6 +384,8 @@ if _local_override:
 try:
     _deny = set(json.loads(read(CLAUDE / "settings.json")).get("permissions", {}).get("deny", []))
     _base = set(json.loads(read(CLAUDE / "pg" / "deny-baseline.json")).get("deny", []))
+    if os.name != "nt":  # = pg-wire.js localDeny (port Linux 2026-10-02)
+        _base = {d.replace("(//d/", "(~/D/") for d in _base}
     check("permissions.deny zawiera baseline (pg/deny-baseline.json)", _base <= _deny, f"brakuje: {sorted(_base - _deny)[:4]}")
     _bad = [d for d in _deny if re.match(r"^\w+\([A-Za-z]:[/\\]", d)]
     check("permissions.deny: sciezki absolutne jako //dysk/...", not _bad, f"zla forma: {_bad[:3]}")

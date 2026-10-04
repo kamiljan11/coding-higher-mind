@@ -47,7 +47,7 @@ The Windows path for editing is: `~\AppData\Roaming\Claude\local-agent-mode-sess
 Cross-reference what's active in the memory files against what the skill descriptions mention. Look for:
 
 1. **Context skills missing active project keywords** — e.g. if there's an active campaign running under mas-prints but the description doesn't mention it, add it
-2. **New tools/systems in Active Systems.md** not reflected in mas-tech-stack description
+2. **New tools/systems in Active Systems.md** not reflected in tech-stack description
 3. **Recurring frustration phrases** from Notes for Claude.md that could be added as triggers to relevant skills (e.g. if a skill keeps not firing on certain phrases uzytkownik uses)
 4. **Stale keywords** — project-specific terms for finished projects still cluttering descriptions
 

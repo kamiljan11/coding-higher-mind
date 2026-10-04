@@ -145,17 +145,18 @@ def self_test() -> int:
 
     check("week_key: ISO week", week_key("2026-09-12T10:00:00.000Z") == "2026-W37")
     check("week_key: smieci -> None", week_key("nope") is None)
-    fake_fs = {"C:/w/repoA/.git", "C:/w/repoB/.git"}
+    B = "C:" if os.name == "nt" else ""  # Linux: fikstura musi byc sciezka absolutna (port 2026-10-02)
+    fake_fs = {B + "/w/repoA/.git", B + "/w/repoB/.git"}
 
     def exists(p: str) -> bool:
         return p.replace("\\", "/") in fake_fs
 
     cache: dict[str, str | None] = {}
-    check("git_root: znajduje .git w gorze", (git_root("C:/w/repoA/src/deep", cache, exists) or "").replace("\\", "/").endswith("repoA"))
-    check("git_root: brak = None", git_root("C:/nowhere/x", cache, exists) is None)
-    check("attribute: cwd w repo", attribute_repo("C:/w/repoA/src", collections.Counter(), cache, exists) == "repoA")
-    check("attribute: cwd poza repo -> najczesciej edytowane", attribute_repo("C:/nowhere", collections.Counter({"C:/w/repoB": 5, "C:/w/repoA": 1}), cache, exists) == "repoB")
-    check("attribute: nic -> basename cwd", attribute_repo("C:/nowhere/dir", collections.Counter(), cache, exists) == "dir")
+    check("git_root: znajduje .git w gorze", (git_root(B + "/w/repoA/src/deep", cache, exists) or "").replace("\\", "/").endswith("repoA"))
+    check("git_root: brak = None", git_root(B + "/nowhere/x", cache, exists) is None)
+    check("attribute: cwd w repo", attribute_repo(B + "/w/repoA/src", collections.Counter(), cache, exists) == "repoA")
+    check("attribute: cwd poza repo -> najczesciej edytowane", attribute_repo(B + "/nowhere", collections.Counter({B + "/w/repoB": 5, B + "/w/repoA": 1}), cache, exists) == "repoB")
+    check("attribute: nic -> basename cwd", attribute_repo(B + "/nowhere/dir", collections.Counter(), cache, exists) == "dir")
     sessions = [{"repo": "a", "weeks": {"2026-W36": {"responses": 2, "output_tokens": 100, "input_tokens": 1000, "tool_calls": 3}, "2026-W37": {"responses": 1, "output_tokens": 50, "input_tokens": 10, "tool_calls": 1}}},
                 {"repo": "a", "weeks": {"2026-W37": {"responses": 1, "output_tokens": 50, "input_tokens": 10, "tool_calls": 0}}}]
     table = aggregate(sessions, "2026-W37")

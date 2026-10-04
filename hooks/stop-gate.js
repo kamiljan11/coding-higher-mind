@@ -28,10 +28,11 @@ try { ({ VERDICT } = require(path.join(__dirname, '..', 'bin', 'pg-aggregate.js'
 }
 const { classify, modelFor, T3_PATH_RX, contentEscalation } = require('./lib/risk-tier');
 const { isTempPath } = require('./lib/protected-paths');
+const { parseUnifiedDiff, archSignals, hasAdr } = require('./lib/arch-signals');
 
 const HOOK = 'stop-gate';
 const MAX_REPOS = 4;
-const BLOCK_REASONS = 3; // lint, testy, review
+const BLOCK_REASONS = 4; // lint, testy, review, arch
 // Kazda blokada = inna para (powod, repo); sufit = wszystkie mozliwe pary, wiec bramka review nie gasnie
 // po wyczerpaniu limitu przez lint+testy (finding security-reviewer 2026-09-05 na v3.0: max 2).
 const MAX_BLOCKS_PER_CYCLE = BLOCK_REASONS * MAX_REPOS;
@@ -72,6 +73,73 @@ function clearState() { try { fs.unlinkSync(statePath); } catch (e) { /* brak = 
 const state = readState();
 if (!Array.isArray(state.reasons)) state.reasons = [];
 
+// --- znacznik „juz zgloszone" per sesja x repo (fix petli 2026-10-01) ---
+// Sesja wielodniowa/wielorepo: repo z dawnych edycji + commity od STARTU sesji + cudze niezacommitowane zmiany
+// blokowaly kazdy Stop od nowa (limit blokad czyscil stan, nastepna tura zaczynala od zera — petla bez konca).
+// Gdy zgloszone repo przechodzi (anty-petla) albo limit sie wyczerpie, zapisujemy per repo: czas + odcisk drzewa. Nastepny Stop
+// liczy tylko commity PO znaczniku, a niezacommitowane zmiany tylko gdy drzewo zmienilo sie od znacznika.
+// Nowa praca = nowy commit albo zmiana drzewa => bramka dziala jak dotad; to samo znalezisko nie wraca w kolko.
+// v2 (pg-review 2026-10-01): znacznik w ~/.claude/logs (warstwa kontrolna — agent nie podrobi go bez frazy; %TEMP% mogl),
+// odcisk z TRESCI (diff + zawartosc nieśledzonych plikow), powody zapisane i przepuszczenie zglaszane uzytkownikowi.
+const WM_DIR = process.env.PG_STOP_WM_DIR || path.join(os.homedir(), '.claude', 'logs', 'stop-gate-wm');
+const watermarkPath = path.join(WM_DIR, crypto.createHash('sha256').update(String(input.session_id || cwd)).digest('hex').slice(0, 32) + '.json');
+function readWatermarks() {
+  try {
+    const w = JSON.parse(fs.readFileSync(watermarkPath, 'utf8'));
+    if (!w || typeof w !== 'object') return {};
+    // Znacznik z przyszlosci (podrobiony) wycinalby commity sesji z tieru — taki wpis odrzucamy (security-review v2).
+    for (const k of Object.keys(w)) if (!w[k] || typeof w[k].ts !== 'number' || w[k].ts > Date.now() + 60000) delete w[k];
+    return w;
+  } catch (e) { return {}; }
+}
+const watermarks = readWatermarks();
+const UNTRACKED_HASH_MAX = 500; // plikow; wiecej = odcisk zawsze nowy (wolimy ponowne sprawdzenie niz slepy znacznik)
+// Do 20 MB tresc; wieksze = rozmiar+mtime (znana granica: `touch -r` po podmianie — pg/known-limits.md).
+const UNTRACKED_FULL_BYTES = 20 * 1024 * 1024;
+// 2026-10-04: odcisk TYLKO z plikow tej sesji (`owned`). Wczesniej cudzy nieśledzony plik zmienial odcisk, znacznik gasl
+// i blokada wracala za stare commity sesji — ta sama petla, ktora ownedBy mial zamknac (finding laptop 2026-10-02).
+// Tresc kazdego wlasnego zmienionego pliku (sledzonego i nie) idzie do hasha — podmiana o tej samej dlugosci dalej widoczna.
+function treeFingerprint(root, owned) {
+  const h = crypto.createHash('sha256');
+  const keep = owned || (() => true);
+  // Czytanie tresci plikow kosztuje: przy malym budzecie odcisk jednorazowy (= ponowne sprawdzenie, bezpieczny kierunek).
+  if (budgetLeft() < 20000) return 'niepewny-' + crypto.randomBytes(8).toString('hex');
+  const st = sh('git -c core.quotePath=false status --porcelain --untracked-files=all', root, GIT_TIMEOUT_MS);
+  const head = sh('git rev-parse HEAD', root, GIT_TIMEOUT_MS);
+  // Kazdy blad gita = odcisk jednorazowy: wolimy ponowne sprawdzenie niz znacznik na niepelnych danych.
+  if (![st, head].every((r) => r.ok)) return 'niepewny-' + crypto.randomBytes(8).toString('hex');
+  const entries = [];
+  for (const line of st.out.split('\n')) {
+    if (!line.trim()) continue;
+    let rel = line.slice(3).trim();
+    if (rel.includes(' -> ')) rel = rel.split(' -> ').pop();
+    rel = rel.replace(/^"|"$/g, '');
+    if (keep(path.join(root, rel))) entries.push({ line, rel, deleted: /^(.D|D)/.test(line) });
+  }
+  if (entries.length > UNTRACKED_HASH_MAX) return 'niepewny-' + crypto.randomBytes(8).toString('hex');
+  h.update(head.out + '\n');
+  for (const e of entries.sort((a, b) => a.rel.localeCompare(b.rel))) {
+    h.update(e.line + '\0');
+    if (e.deleted) continue;
+    try {
+      const p = path.join(root, e.rel);
+      const s = fs.statSync(p);
+      // Duzy plik: rozmiar + mtime zamiast tresci (hook Stop nie moze czytac GB); podmiana tresci zmienia mtime.
+      h.update(s.size > UNTRACKED_FULL_BYTES ? `${s.size}:${s.mtimeMs}` : s.isFile() ? fs.readFileSync(p) : 'katalog');
+    } catch (err) { h.update(e.rel + ':nieczytelny'); }
+  }
+  return h.digest('hex');
+}
+function saveWatermarks(roots, reasons, ownedFor) {
+  if (!roots.length) return;
+  const now = Date.now();
+  for (const root of roots) watermarks[root] = { ts: now, tree: treeFingerprint(root, ownedFor && ownedFor(root)), reasons: reasons.filter((r) => String(r).endsWith('@' + root)) };
+  try { fs.mkdirSync(WM_DIR, { recursive: true }); fs.writeFileSync(watermarkPath, JSON.stringify(watermarks)); } catch (e) {
+    log({ hook: HOOK, event: 'error', reason: `watermark write failed: ${e.message}`, target: watermarkPath });
+  }
+}
+const reposFromReasons = (reasons) => [...new Set(reasons.map((r) => String(r).split('@').slice(1).join('@')).filter(Boolean))];
+
 // Klucz blokady = powod@repo. Sam powod (v3.0) gasil sprawdzenie dla WSZYSTKICH repo w cyklu — po jednym
 // bloku lintu w repo A, repo B z realnym bledem przechodzilo (finding dogfood code-reviewer 2026-09-05).
 const blockKey = (reason, repo) => `${reason}@${repo}`;
@@ -101,8 +169,28 @@ function gitRoot(dir) {
   return r.ok ? path.resolve(r.out.trim()) : null;
 }
 // Zmienione pliki (staged + unstaged + untracked), bez usunietych. Zwraca sciezki absolutne.
+// realpath: Windows ma dwie formy tej samej sciezki (8.3 `USERNA~1` z %TEMP% vs `<owner>` z gita).
+const normPath = (p) => {
+  let r = path.resolve(String(p));
+  try { r = fs.realpathSync.native(r); } catch (e) { /* plik usuniety — zostaje forma rozwiazana */ }
+  return r.replace(/\\/g, '/').toLowerCase();
+};
+// Plik „nalezy do tej sesji", gdy sesja go edytowala (Edit/Write) albo jego sciezka padla w jej komendzie Bash/PowerShell
+// (sed, python write, git add). Niezacommitowane pliki, ktorych sesja nigdy nie dotknela, to praca innej sesji w tym samym
+// repo — logujemy je (`foreign`), ale nie lintujemy/testujemy/recenzujemy za nie tej sesji (petla 2026-10-01/02).
+// Nadmiar (komenda tylko czytajaca plik) liczy plik jako wlasny — bezpieczny kierunek bledu.
+function ownedBy(transcript, root) {
+  const edited = new Set(transcript.editedFiles.map(normPath));
+  const blob = transcript.commandText;
+  return (abs) => {
+    const n = normPath(abs);
+    if (edited.has(n)) return true;
+    const rel = path.relative(root, abs).replace(/\\/g, '/').toLowerCase();
+    return blob.includes(n) || (rel.length > 3 && blob.includes(rel));
+  };
+}
 function changedFiles(root) {
-  const r = sh('git status --porcelain --untracked-files=all', root, GIT_TIMEOUT_MS);
+  const r = sh('git -c core.quotePath=false status --porcelain --untracked-files=all', root, GIT_TIMEOUT_MS);
   if (!r.ok) return [];
   const files = [];
   for (const line of r.out.split('\n')) {
@@ -113,17 +201,20 @@ function changedFiles(root) {
   }
   return files;
 }
+// Linie liczone TYLKO dla podanych plikow (2026-10-02): wczesniej argument byl ignorowany i do progu T3 wchodzily
+// niezacommitowane zmiany innych sesji w tym samym repo (~/.claude: 2753 linii cudzej pracy = petla blokad).
 function changedLineCount(root, files) {
   let total = 0;
-  const numstat = sh('git diff --numstat HEAD', root, GIT_TIMEOUT_MS);
+  const want = new Set((files || []).map(normPath));
+  const numstat = sh('git -c core.quotePath=false diff --no-ext-diff --numstat HEAD', root, GIT_TIMEOUT_MS);
   if (numstat.ok) for (const line of numstat.out.split('\n')) {
-    const m = line.match(/^(\d+)\s+(\d+)\s/);
-    if (m) total += Number(m[1]) + Number(m[2]);
+    const m = line.match(/^(\d+)\s+(\d+)\s+(.+)$/);
+    if (m && want.has(normPath(path.join(root, m[3].trim())))) total += Number(m[1]) + Number(m[2]);
   }
   const untracked = sh('git ls-files --others --exclude-standard', root, GIT_TIMEOUT_MS);
   if (untracked.ok) for (const rel of untracked.out.split('\n').filter(Boolean)) {
     const abs = path.join(root, rel);
-    if (!isCodeFile(abs)) continue;
+    if (!isCodeFile(abs) || !want.has(normPath(abs))) continue;
     try { total += fs.readFileSync(abs, 'utf8').split('\n').length; } catch (e) { /* zniknal */ }
   }
   return total;
@@ -156,7 +247,9 @@ const AGGREGATE_DIR_RX =/pg-aggregate\.js["']?\s+(?:"([^"$]+)"|'([^'$]+)'|([^\s"
 
 async function parseTranscript(transcriptPath) {
   const result = { available: false, editedFiles: [], editsAfterReview: 0, reviewerRan: false, reviewersRan: new Set(),
-    startedAt: null, t3EditAfterReview: false, aggregateRuns: [], testRunAfterEdit: false, lastAssistantText: '' };
+    startedAt: null, t3EditAfterReview: false, aggregateRuns: [], testRunAfterEdit: false, lastAssistantText: '', commandText: '',
+    skillsRan: new Set() };
+  const commands = [];
   if (!transcriptPath || !fs.existsSync(transcriptPath)) return result;
   result.available = true;
   const onEdit = (file) => {
@@ -188,6 +281,7 @@ async function parseTranscript(transcriptPath) {
         onEdit(file);
       } else if (/^(Bash|PowerShell)$/.test(block.name)) {
         const command = String(toolInput.command || '');
+        commands.push(command.replace(/\\\\?/g, '/').toLowerCase());
         if (WRITE_COMMAND_RX.test(withoutTempRedirects(command))) onEdit(null);
         if (TEST_CMD_RX.test(command)) result.testRunAfterEdit = true;
         const agg = AGGREGATE_DIR_RX.exec(command);
@@ -195,9 +289,12 @@ async function parseTranscript(transcriptPath) {
       } else if (block.name === 'Agent') {
         const role = reviewerRoleOf(toolInput);
         if (role) { result.reviewerRan = true; result.reviewersRan.add(role); result.editsAfterReview = 0; result.t3EditAfterReview = false; }
+      } else if (block.name === 'Skill') {
+        result.skillsRan.add(String(toolInput.skill || '').split(':').pop());
       }
     }
   }
+  result.commandText = commands.join('\n');
   return result;
 }
 
@@ -218,7 +315,7 @@ function sessionCommitFiles(root, startedAt) {
   let lines = 0;
   for (const sha of shas.slice(0, 30)) {
     if (budgetLeft() < 25000) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (git show)', target: root }); break; }
-    const show = sh(`git show --numstat --format= ${sha}`, root, GIT_TIMEOUT_MS);
+    const show = sh(`git -c core.quotePath=false show --no-ext-diff --numstat --format= ${sha}`, root, GIT_TIMEOUT_MS);
     if (!show.ok) continue;
     for (const l of show.out.split('\n')) {
       const m = /^(\d+|-)\s+(\d+|-)\s+(.+)$/.exec(l.trim());
@@ -353,7 +450,8 @@ function runTests(root, changed, transcript) {
       // Interpreter jest, a proba padla albo nie wypisala obu linii: zapamietujemy i probujemy nastepnego (ops-review
       // 2026-09-28: python z bledem nie moze blokowac, gdy python3 dziala). Blokada dopiero, gdy nikt nie dal wyniku.
       if (!r.ok || !/^ORIGIN pytest/m.test(r.out || '') || !/^ORIGIN _pytest/m.test(r.out || '')) {
-        probeError = probeError || `${p} (exit ${r.status}): ${String(r.out || r.msg || '').trim().split(/\r?\n/).pop().slice(0, 120)}`;
+        // Bledy WSZYSTKICH interpreterow w komunikacie (code + ops review 2026-09-28: pierwszy maskowal powod drugiego).
+        probeError = (probeError ? probeError + '; ' : '') + `${p} (exit ${r.status}): ${String(r.out || r.msg || '').trim().split(/\r?\n/).pop().slice(0, 120)}`;
         continue;
       }
       const origins = {};
@@ -409,7 +507,7 @@ function reviewRequirement(root, changedCode, extraLines, sessionShas) {
   // N1 (OBSERVE): tier z TRESCI dodanych linii (platnosci/service_role/DDL) — najpierw zbieramy FP, bez blokady.
   // Takze tresc commitow z tej sesji (code-review 2026-09-26: bez nich N1 byl slepy na to samo, co #14 zamknal dla sciezek).
   if (verdict.tier !== 'T3' && budgetLeft() > 20000) {
-    const diffs = [sh('git diff HEAD -U0', root, GIT_TIMEOUT_MS), ...(sessionShas || []).slice(0, 10).map((sha) => sh(`git show -U0 --format= ${sha}`, root, GIT_TIMEOUT_MS))];
+    const diffs = [sh('git diff --no-ext-diff --no-textconv HEAD -U0', root, GIT_TIMEOUT_MS), ...(sessionShas || []).slice(0, 10).map((sha) => sh(`git -c core.quotePath=false show --no-ext-diff --no-textconv -U0 --format= ${sha}`, root, GIT_TIMEOUT_MS))];
     const added = diffs.filter((d) => d.ok).map((d) => d.out).join('\n').split('\n').filter((l) => /^\+(?!\+\+)/.test(l)).join('\n').slice(0, 400000);
     const hit = contentEscalation(added);
     if (hit) log({ hook: HOOK, event: 'would_block', reason: `tier-content: ${verdict.tier} -> T3 (${hit})`, target: root });
@@ -419,6 +517,59 @@ function reviewRequirement(root, changedCode, extraLines, sessionShas) {
   if (verdict.tier === 'T0' || verdict.tier === 'T1') return null;
   const list = verdict.reviewers.map((r) => `${r} (${modelFor(r, verdict.tier)})`).join(', ');
   return { tier: verdict.tier, why: verdict.reasons.join('; '), reviewers: list, required: verdict.reviewers };
+}
+
+// Architektura przy T2+ (2026-10-04): sygnaly z diffu TEJ sesji (wlasne niezacommitowane + commity sesji). Zwraca liste
+// powodow, gdy wymog NIE jest spelniony; null = brak sygnalow albo jest ADR z trescia. Nieśledzony plik = caly dodany.
+// security-review 2026-10-04: samo wywolanie pg-council / string „pg-council.js" NIE zwalnia (zero dowodu narady) —
+// narada konczy sie adr-draft.md, ktory trafia do docs/adr; bramka sprawdza ADR, nie rytual.
+const ARCH_MAX_FILES = 200;
+const ARCH_MAX_FILE_BYTES = 1024 * 1024;
+// Instalatory zmieniaja manifest bez sciezki w komendzie (ownedBy go nie widzi) — wtedy manifest/infra z calego drzewa.
+const INSTALL_CMD_RX = /\b((npm|pnpm|yarn|bun)\s+(i|install|add)\b|pip3?\s+install|uv\s+(add|pip\s+install)|poetry\s+add|cargo\s+add|go\s+get)\b/;
+const ARCH_FILE_RX = /(^|\/)(package\.json|pyproject\.toml|requirements[\w.-]*\.txt|Cargo\.toml|go\.mod|Dockerfile[\w.-]*|(docker-)?compose[\w.-]*\.ya?ml|vercel\.json|netlify\.toml|fly\.toml|supabase\/config\.toml|\.github\/workflows\/[^/]+\.ya?ml)$/i;
+function archRequirement(root, changedOwned, changedAll, shas, transcript) {
+  if (budgetLeft() < 20000) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (arch)', target: root }); return null; }
+  const ls = sh('git -c core.quotePath=false ls-files --others --exclude-standard', root, GIT_TIMEOUT_MS);
+  if (!ls.ok) log({ hook: HOOK, event: 'skipped', reason: 'arch: git ls-files nieudany (nieśledzone traktowane jak sledzone)', target: root });
+  const untracked = new Set(ls.ok ? ls.out.split('\n').filter(Boolean).map((r) => normPath(path.join(root, r))) : []);
+  const extra = INSTALL_CMD_RX.test(transcript.commandText) ? changedAll.filter((f) => ARCH_FILE_RX.test(f.replace(/\\/g, '/'))) : [];
+  const all = [...new Set([...changedOwned, ...extra])];
+  if (all.length > ARCH_MAX_FILES) log({ hook: HOOK, event: 'skipped', reason: `arch: ${all.length - ARCH_MAX_FILES} plikow poza limitem ${ARCH_MAX_FILES}`, target: root });
+  const rels = all.slice(0, ARCH_MAX_FILES).map((f) => ({ abs: f, rel: path.relative(root, f).replace(/\\/g, '/') }));
+  const parts = [];
+  // Sciezki jako argumenty (spawnSync, bez powloki) + literal pathspecs + bez ext-diff/textconv: nazwa pliku z `$(...)`
+  // albo magia pathspec w obcym repo nie wykona komendy ani nie zmieni zakresu diffu w hooku.
+  const tracked = rels.filter((r) => !untracked.has(normPath(r.abs))).map((r) => r.rel);
+  if (tracked.length) {
+    const d = spawnSync('git', ['-c', 'core.quotePath=false', '--literal-pathspecs', 'diff', '--no-ext-diff', '--no-textconv', 'HEAD', '-U0', '--', ...tracked],
+      { cwd: root, timeout: GIT_TIMEOUT_MS, env: CHILD_ENV, maxBuffer: 16 * 1024 * 1024 });
+    if (d.status === 0) parts.push(String(d.stdout));
+    else log({ hook: HOOK, event: 'skipped', reason: `arch: git diff exit ${d.status}`, target: root });
+  }
+  for (const r of rels.filter((x) => untracked.has(normPath(x.abs)))) {
+    if (budgetLeft() < 15000) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (arch untracked)', target: root }); break; }
+    try {
+      // lstat + isFile: symlink do /dev/zero albo FIFO zawiesilby hook do timeoutu (security-review 2026-10-04).
+      const s = fs.lstatSync(r.abs);
+      if (!s.isFile() || s.size > ARCH_MAX_FILE_BYTES) { log({ hook: HOOK, event: 'skipped', reason: `arch: pominiety ${r.rel} (nie plik albo > 1 MB)`, target: root }); continue; }
+      const body = fs.readFileSync(r.abs, 'utf8').split('\n').map((l) => '+' + l).join('\n');
+      parts.push(`diff --git a/${r.rel} b/${r.rel}\nnew file mode 100644\n+++ b/${r.rel}\n@@ -0,0 +1 @@\n${body}`);
+    } catch (e) { /* zniknal */ }
+  }
+  if ((shas || []).length > 10) log({ hook: HOOK, event: 'skipped', reason: `arch: ${shas.length - 10} commitow sesji poza limitem 10`, target: root });
+  for (const sha of (shas || []).slice(0, 10)) {
+    if (budgetLeft() < 15000) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (arch git show)', target: root }); break; }
+    // spawnSync + maxBuffer: commit z nowa zaleznoscia zwykle niesie lockfile > 1 MB (ENOBUFS w sh() = fail-open, code-review).
+    const s = spawnSync('git', ['-c', 'core.quotePath=false', 'show', '--no-ext-diff', '--no-textconv', '-U0', '--format=', sha],
+      { cwd: root, timeout: GIT_TIMEOUT_MS, env: CHILD_ENV, maxBuffer: 64 * 1024 * 1024 });
+    if (s.status === 0) parts.push(String(s.stdout)); else log({ hook: HOOK, event: 'skipped', reason: `arch: git show ${sha.slice(0, 8)} nieudany (${s.error ? s.error.code : 'exit ' + s.status})`, target: root });
+  }
+  const files = parseUnifiedDiff(parts.join('\n'));
+  const reasons = archSignals(files);
+  if (!reasons.length) return null;
+  if (hasAdr(files)) { log({ hook: HOOK, event: 'ran', reason: `arch: ADR w diffie (${reasons.length} sygnalow)`, target: root }); return null; }
+  return reasons;
 }
 
 // #1: ostatni przebieg pg-review z transkryptu. INCOMPLETE = recenzja NIE zrobiona; REQUEST CHANGES bez zadnej edycji
@@ -468,14 +619,18 @@ function emitNudges() {
 }
 
 async function main() {
+  // Transkrypt przed limitem: znacznik liczony z plikow TEJ sesji musi miec ten sam zbior plikow co porownanie nizej.
+  const transcript = await parseTranscript(input.transcript_path);
+  const ownedFor = (root) => (transcript.available ? ownedBy(transcript, root) : null);
   if (state.reasons.length >= MAX_BLOCKS_PER_CYCLE) {
+    // Zgloszone repo dostaja znacznik: w nastepnej turze te same znaleziska nie zablokuja od nowa.
+    saveWatermarks(reposFromReasons(state.reasons), state.reasons, ownedFor);
     clearState();
     // #17: po limicie NIE zwalniamy po cichu — uzytkownik dostaje komunikat, co zostalo niezalatwione.
     log({ hook: HOOK, event: 'skipped', reason: `max ${MAX_BLOCKS_PER_CYCLE} blocks reached: ${state.reasons.join(',')}`, target: cwd });
     nudgesOut.push(`[stop-gate] LIMIT ${MAX_BLOCKS_PER_CYCLE} blokad w tym cyklu — sesja konczy sie mimo niezalatwionych bramek: ${state.reasons.join(', ')}. Sprawdz recznie albo popros o dokonczenie.`);
     return;
   }
-  const transcript = await parseTranscript(input.transcript_path);
   if (!transcript.available) log({ hook: HOOK, event: 'skipped', reason: 'no transcript_path (review gate off)', target: cwd });
 
   const repos = discoverRepos(transcript.editedFiles);
@@ -483,13 +638,24 @@ async function main() {
 
   let touched = 0;
   for (const root of repos) {
-    const changed = changedFiles(root);
+    const wm = watermarks[root];
+    // Drzewo identyczne jak przy znaczniku = te zmiany juz byly ocenione/zgloszone w tej sesji (fix petli 2026-10-01).
+    const owned = ownedFor(root) || (() => true);
+    const treeUnchanged = Boolean(wm) && treeFingerprint(root, owned) === wm.tree;
+    if (treeUnchanged) log({ hook: HOOK, event: 'suppressed', reason: `watermark (drzewo bez zmian): ${(wm.reasons || []).join(', ') || 'brak powodow'}`, target: root });
+    const changedAll = treeUnchanged ? [] : changedFiles(root);
+    const changed = changedAll.filter(owned);
+    if (changedAll.length > changed.length) log({ hook: HOOK, event: 'skipped', reason: `foreign: ${changedAll.length - changed.length} niezacommitowanych plikow innej sesji (nietkniete przez te sesje)`, target: root });
     // SQL (migracje/RLS) nie ma lintera w hooku, ale to najbardziej ryzykowna klasa zmian — liczy sie do review.
     const changedCode = changed.filter((f) => isCodeFile(f) || SQL_FILE_RX.test(f));
-    // #14: pliki commitow z tej sesji licza sie do TIERU (nie do lintu — ten zrobil pre-commit).
-    const committed = transcript.available ? sessionCommitFiles(root, transcript.startedAt) : { files: [], lines: 0 };
+    // #14: pliki commitow z tej sesji licza sie do TIERU (nie do lintu — ten zrobil pre-commit) — od znacznika, nie od startu sesji.
+    // Reflog ma rozdzielczosc 1 s: znacznik w dol do pelnej sekundy, by commit z tej samej sekundy nie umknal (wolimy nadmiar).
+    const since = wm ? Math.max(transcript.startedAt || 0, Math.floor(wm.ts / 1000) * 1000) : transcript.startedAt;
+    const committed = transcript.available ? sessionCommitFiles(root, since) : { files: [], lines: 0 };
     const committedCode = committed.files.filter((f) => (isCodeFile(f) || SQL_FILE_RX.test(f)) && !changedCode.includes(f));
-    if (!changedCode.length && !committedCode.length) continue;
+    // Manifest/infra bez kodu tez wchodzi (ops-review 2026-10-04: inaczej bramka arch nie widziala swoich glownych sygnalow).
+    const archTouched = changed.some((f) => ARCH_FILE_RX.test(f.replace(/\\/g, '/'))) || committed.files.some((f) => ARCH_FILE_RX.test(f.replace(/\\/g, '/')));
+    if (!changedCode.length && !committedCode.length && !archTouched) continue;
     touched++;
 
     if (changedCode.length && !alreadyBlocked('lint', root)) {
@@ -503,8 +669,10 @@ async function main() {
       const failed = runTests(root, changed, transcript);
       if (failed) block('testy', root, 'Testy nie przechodza. Napraw je, dopiero potem koncz:\n' + failed);
     }
+    // need liczony RAZ, poza galezia review: bramka arch nie moze znikac po pierwszej blokadzie review (security-review 2026-10-04).
+    const need = transcript.available && (!alreadyBlocked('review', root) || !alreadyBlocked('arch', root))
+      ? reviewRequirement(root, [...changedCode, ...committedCode], committed.lines, committed.shas) : null;
     if (!alreadyBlocked('review', root) && transcript.available) {
-      const need = reviewRequirement(root, [...changedCode, ...committedCode], committed.lines, committed.shas);
       // Kazdy WYMAGANY dzial musial sie odpalic (nie: jakikolwiek recenzent) — narada 2026-09-12, fakt code-reviewera.
       const missing = need ? need.required.filter((r) => !transcript.reviewersRan.has(r)) : [];
       // #14: edycja sciezki T3 PO ostatnim review = review ponownie (budzet 8 edycji dotyczy reszty).
@@ -519,9 +687,27 @@ async function main() {
       const aggProblem = need ? aggregateProblem(transcript, need.required.filter((r) => /reviewer$/.test(r)), root) : null;
       if (aggProblem) block('review', root, `Recenzja dzialowa niedomknieta: ${aggProblem}. Dopusc brakujace dzialy / napraw findings i zagreguj ponownie (--tier ${need.tier} --final).`);
     }
+    // Tier dla arch liczony takze z manifestu/infra (risk-tier: zaleznosci/CI/build = T2) — sam package.json z nowa
+    // zaleznoscia tez wymaga ADR (code-review 2026-10-04). Wymog REVIEW zostaje liczony jak dotad (bez nowego tarcia).
+    const archFiles = [...changed, ...committed.files].filter((f) => ARCH_FILE_RX.test(f.replace(/\\/g, '/')));
+    const archNeed = need || (archFiles.length && transcript.available && !alreadyBlocked('arch', root)
+      ? reviewRequirement(root, [...changedCode, ...committedCode, ...archFiles], committed.lines, committed.shas) : null);
+    if (archNeed && !alreadyBlocked('arch', root)) {
+      const arch = archRequirement(root, changed, changedAll, committed.shas, transcript);
+      if (arch) block('arch', root,
+        `Zmiana ${archNeed.tier} jest ARCHITEKTONICZNA (${arch.join('; ')}), a w diffie tej sesji nie ma ADR z trescia (>= 5 linii). ` +
+        'Dodaj ADR w docs/adr/NNNN-tytul.md (szablon ~/.claude/templates/repo/docs/adr/: decyzja, odrzucona alternatywa, konsekwencje). ' +
+        'Przed decyzja: skill architecture-advisor (trade-offy); przy sporze/T3: skill pg-council (narada -> adr-draft.md -> docs/adr). Decyzja uzytkownika 2026-10-04: twardo przy T2+.');
+    }
     nudges(root, changed);
   }
   observeClaims(transcript, repos);
+  // Znacznik tylko dla repo ZGLOSZONYCH w tym cyklu (blok -> powtorny Stop przepuszczony przez anty-petle).
+  // Czyste przejscie niczego nie wygasza: pozniejszy nowy dowod (np. agregacja INCOMPLETE) dalej blokuje.
+  const suppressed = reposFromReasons(state.reasons);
+  saveWatermarks(suppressed, state.reasons, ownedFor);
+  // Przepuszczenie przez anty-petle NIE jest ciche (ops-review 2026-10-01): uzytkownik widzi, co zostalo niezalatwione.
+  if (suppressed.length) nudgesOut.push(`[stop-gate] Przepuszczone bez naprawy (anty-petla) — wroci przy zmianie drzewa/nowym commicie: ${state.reasons.join(', ')}.`);
   clearState();
   log({ hook: HOOK, event: 'ran', reason: `${touched}/${repos.length} repos with code changes`, target: repos.join(';') });
 }

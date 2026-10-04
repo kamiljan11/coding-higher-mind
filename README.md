@@ -35,7 +35,18 @@ Counted on export day, not estimated: 212 files, ~23 400 lines, 39 tools, 11 tes
 
 ---
 
-## Install (5 minutes)
+## Just the skills (1 minute)
+
+18 working skills (architecture trade-offs, multi-department review, debugging, agent loops, frontend patterns, writing) as a Claude Code plugin. No hooks, no settings changes:
+
+```bash
+claude plugin marketplace add kamiljan11/coding-higher-mind
+claude plugin install higher-mind-skills@coding-higher-mind
+```
+
+Inside a session the same works as `/plugin marketplace add kamiljan11/coding-higher-mind`. Skills run as `/higher-mind-skills:<name>`, and Claude also picks them up by their descriptions. One skill only: copy `skills/<name>/` into `~/.claude/skills/`. The full list with one-line summaries is in [`skills.json`](skills.json) and on [kamiljan.com/claude](https://kamiljan.com/claude).
+
+## Install the whole system (5 minutes)
 
 Requirements: **Node ≥ 20**, **git**, Claude Code. Optional: Python 3 + `ruff` + `pyright` (Python repos), `gitleaks` (CI runs it anyway), PostgreSQL client tools (backup drill).
 
@@ -106,7 +117,7 @@ Per-repo overrides live in the repo's `CLAUDE.md`: `pg.tier_floor: T2`, `pg.phas
 | `bin/` | 39 zero-token tools + 11 test suites; [bin/README.md](bin/README.md) is generated from each tool's own header |
 | `agents/` | reviewer departments (read-only, fresh context, JSON schema, `how_to_check` per rubric line) |
 | `pg/` | doctrine: `paradigm`, `design`, `dod`, `prr`, `postmortem`, `cases`, `council`, `models`, `github-ready`, retro; `adr/`; `eval/` (golden set for the gates + reviewer calibration pairs) |
-| `skills/` | `pg-review`, `pg-council`, `anti-sycophancy`, `verify-audit`, `ultra-loop`, `gauntlet-build` |
+| `skills/` | 18 skills, listed in `skills.json` (also packaged as the `higher-mind-skills` plugin in `plugins/`) |
 | `templates/repo/` | everything a new repository gets: workflows, eslint/tsconfig, PR template, docs skeletons, ADR template |
 | `scheduled-tasks/` | Claude Code routines: fleet PR reviewer (weekday mornings), CVE watch (monthly, deterministic first), guard health (weekly), reviewer calibration (monthly) |
 | `routines/` | [routines/README.md](routines/README.md) — the routine layer of both runtimes, plus `cowork/`: the Claude Desktop routines (watchdog, backup with restore script, sessions → memory notes, weekly system report, opt-in self-evolution cycle) |

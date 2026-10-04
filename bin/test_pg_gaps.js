@@ -201,7 +201,7 @@ const stage = (dir, files) => { for (const [rel, content] of Object.entries(file
 
 // ---------- L3 / L14: skrypty Python — self-testy funkcji czystych ----------
 for (const script of ['backup-drill.py', 'usage-by-repo.py']) {
-  const r = spawnSync('python', [path.join(BIN, script), '--self-test'], { encoding: 'utf8', timeout: 60000 });
+  const r = spawnSync(process.platform === 'win32' ? 'python' : 'python3', [path.join(BIN, script), '--self-test'], { encoding: 'utf8', timeout: 60000 });
   check(`${script} --self-test => 0`, r.status === 0, (r.stdout + r.stderr).split('\n').filter((l) => /FAIL|Error/.test(l)).join(' | '));
 }
 

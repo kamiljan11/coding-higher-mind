@@ -1,0 +1,15 @@
+{
+  "name": "coding-higher-mind",
+  "description": "Skills and quality gates from kamiljan.com/claude",
+  "owner": {
+    "name": "Kamil Jan",
+    "url": "https://kamiljan.com"
+  },
+  "plugins": [
+    {
+      "name": "higher-mind-skills",
+      "source": "./plugins/higher-mind-skills",
+      "description": "Working skills from Coding Higher Mind: architecture trade-offs, multi-department review, debugging, agent loops, frontend patterns, writing."
+    }
+  ]
+}

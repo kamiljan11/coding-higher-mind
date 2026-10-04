@@ -52,7 +52,7 @@ const TEXT = {
     r7l: '7L. AUTO-LOOP (bez hasla): implementuj -> weryfikuj (build/testy/lint/typy) -> napraw -> az ZIELONE (max 5; ten sam blad 2x -> zmiana podejscia). Stop-gate liczy TIER T0-T3 z DIFFU (nie z promptu) i przy T2+ blokuje zakonczenie bez recenzentow dzialowych — wtedy skill pg-review (finderzy rownolegle, swiezy kontekst, read-only -> agregacja k-of-n -> weryfikator; zero czatu miedzy agentami). Findings napraw w tej samej turze. ZAKRES: tylko kod tego zadania (zero sprzatania starego dlugu — 2026-08-09). Drogi fan-out (Workflow/ultracode) NADAL tylko na jawne haslo.',
     r7u: '7U. AUTO-ULTRA: zadanie = doprowadzenie projektu do ukonczenia -> sam wywolaj skill ultra-loop (rubryka ukonczenia -> cykle do progu), oglos 1 linia i jedz.',
     router: 'SKILL-ROUTER (obowiazkowe): ',
-    routerIdx: 'SKILL-ROUTER: zadanie wieloetapowe/nietypowe -> ~/.claude/memory/SKILLS-INDEX.md, dobierz pipeline i oglos go 1 linia.',
+    routerIdx: 'SKILL-ROUTER: zadanie wieloetapowe/nietypowe -> ' + (process.platform === 'win32' ? '~/.claude/memory' : '~/Obsidian/MAIN') + '/Claude Memory/SKILLS-INDEX.md, dobierz pipeline i oglos go 1 linia.',
     token: 'TOKEN-ECONOMY: duzy plik -> grep + fragment; nie czytaj ponownie po wlasnej edycji; nie powtarzaj weryfikacji z tej sesji; deterministyczne checki skryptem/hookiem, nie rozumowaniem; subagent tylko gdy 2-3 wlasne tool calle nie wystarcza.',
     signal: 'SYGNAL WIDOCZNOSCI: zacznij odpowiedz od [PG].',
   },
@@ -141,6 +141,9 @@ const ROUTES = [
   [/\b(zaleznosc|dependencies|npm audit|pakiet[oy]?w|supply.?chain)/i, 'supply-chain-risk-auditor (Trail of Bits)'],
   [/\b(workflow|github actions|\.github|\bci\b|pipeline y[a]?ml)/i, 'agentic-actions-auditor (audyt workflows z agentami AI)'],
   [/\b(nowe repo|nowy projekt|zaczynamy projekt|init projektu|nowa apka|greenfield|od zera|new (repo|project|app)|from scratch)/i, 'architecture-advisor + pg/design.md (dzien 0 / day 0) -> bootstrap: mas-quality-init.ps1 + branch protection'],
+  // 2026-10-04 (uzytkownik: architektura pilnowana twardo przy T2+): planowanie/audyt/zmiana struktury systemu. Twarda czesc = stop-gate
+  // (nowa zaleznosc / tabela / plik infra przy T2+ bez ADR ani pg-council = blokada); tu wskazanie skilli na starcie pracy.
+  [/\b(architektur\w*|architecture|jak (to )?zaprojektowa\w*|zaprojektuj\w*|jaki stack|tech stack|stack technologiczn\w*|monolit\w*|monolith|mikroserwis\w*|microservices?|event bus|kolejk[aeiy] (zadan|wiadomosci)|message queue|over.?engineer\w*|przeprojektow\w*|redesign|struktur[aey] (systemu|projektu|aplikacji)|jak to rozwijac|how should (i|we) (build|structure))/i, 'architecture-advisor (trade-offy, „nie potrzebujesz tego jeszcze” / trade-offs first) -> decyzja T2+: pg-council (narada dzialow + catfish -> ADR w docs/adr/) | diagrams (rysunek) | divergent-thinking (2-3 warianty). Stop-gate przy T2+ z nowa zaleznoscia/tabela/infra bez ADR ani pg-council = BLOKADA'],
   [/\b(weryfikuj|zweryfikuj|audyt tego|czy to prawda|fact.?check|verify this|is it true)/i, 'verify-audit (niezalezny przebieg weryfikacji / independent verification pass)'],
   [/\b(release|wydanie|wersj[aei]|changelog|tag v)/i, 'pg/prr.md + flow release: CHANGELOG [Unreleased] -> tag vX.Y.Z -> push tag'],
   [/\b(case study|case-study|studium przypadku|job fit|interview coach|portfolio q&a|honest fit|recruiter analyze)/i, 'case-study-factory'],

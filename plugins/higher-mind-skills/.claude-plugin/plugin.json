@@ -1,0 +1,19 @@
+{
+  "name": "higher-mind-skills",
+  "displayName": "Higher Mind Skills",
+  "description": "Working skills from Coding Higher Mind: architecture trade-offs, multi-department review, debugging, agent loops, frontend patterns, writing.",
+  "author": {
+    "name": "Kamil Jan",
+    "url": "https://kamiljan.com/claude"
+  },
+  "homepage": "https://kamiljan.com/claude",
+  "repository": "https://github.com/kamiljan11/coding-higher-mind",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "code-review",
+    "architecture",
+    "debugging",
+    "agents"
+  ]
+}
