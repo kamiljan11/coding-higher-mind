@@ -648,6 +648,22 @@ try {
   const tLater = path.join(FIXTURE_ROOT, 'transcript-later.jsonl');
   write(tLater, JSON.stringify({ type: 'user', timestamp: new Date(Date.now() + 60000).toISOString(), message: { content: 'x' } }) + '\n');
   check('stop-gate #14: commit sprzed startu sesji => 0', runHook('stop-gate.js', { cwd: repoCommitted, transcript_path: tLater }).status === 0);
+  // 2026-10-04: zapis pliku IGNOROWANEGO przez repo (pamiec sesji w ~/.claude) nie wciaga repo do kontroli; zwykly plik — tak.
+  const repoIgn = makeRepo('ignored-edit', { 'package.json': JSON.stringify({ name: 'i' }), '.gitignore': 'mem/\n' });
+  write(path.join(repoIgn, 'supabase/migrations/001_t.sql'), 'create policy p on t for insert using (true);\n');
+  const outside = path.join(FIXTURE_ROOT, 'not-a-repo');
+  fs.mkdirSync(outside, { recursive: true });
+  const memFile = path.join(repoIgn, 'mem/notes.md');
+  write(memFile, 'x\n');
+  const tIgn = transcriptWith([{ name: 'Write', input: { file_path: memFile } }]);
+  const rIgn = runHook('stop-gate.js', { cwd: outside, transcript_path: tIgn });
+  check('stop-gate: edycja pliku ignorowanego (pamiec) nie recenzuje repo => 0', rIgn.status === 0, 'exit=' + rIgn.status + ' ' + (rIgn.stderr || '').slice(0, 160));
+  const tNotIgn = transcriptWith([{ name: 'Write', input: { file_path: path.join(repoIgn, 'supabase/migrations/001_t.sql') } }]);
+  const rNotIgn = runHook('stop-gate.js', { cwd: outside, transcript_path: tNotIgn });
+  check('stop-gate: edycja zwyklego pliku w tym repo => repo sprawdzane => 2', rNotIgn.status === 2, 'exit=' + rNotIgn.status);
+  try { fs.unlinkSync(stopGateState(repoIgn)); } catch (e) { /* brak = ok */ }
+  // 2026-10-04: atrybucja commitow po slowie „commit” cofnieta (security-review: agent kontroluje tekst komendy ->
+  // ukryty commit T3 omijal recenzje). Commit innej sesji dalej liczy sie do tieru = znana granica (pg/known-limits.md).
 
   // Znacznik per sesja x repo (fix petli 2026-10-01): sesja wielodniowa blokowala kazda ture od nowa tymi samymi
   // starymi commitami/cudzymi zmianami (limit czyscil stan, nowa tura = nowy cykl). Po przejsciu Stopu znaczniki
@@ -695,6 +711,8 @@ try {
   wmRun();
   write(path.join(repoWm, 'supabase/migrations/012_new.sql'), 'alter table f enable row level security;\n');
   check('znacznik: zmiana tresci nieśledzonego pliku => 2', wmRun().status === 2);
+  // reflog ma rozdzielczosc 1 s: znacznik zapisany w tej samej sekundzie co commit 'rls b' liczyl go jeszcze raz (flak).
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1100);
   wmRun();
   // Finding laptop 2026-10-02: cudzy nieśledzony plik zmienial odcisk -> znacznik gasl -> blokada za stare commity sesji.
   write(path.join(repoWm, 'supabase/migrations/013_cudzy.sql'), 'alter table g enable row level security;\n');

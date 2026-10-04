@@ -336,7 +336,14 @@ function discoverRepos(editedFiles) {
   if (cwdRoot) roots.add(cwdRoot);
   for (const file of editedFiles) {
     const dir = path.dirname(file);
-    if (fs.existsSync(dir)) { const root = gitRoot(dir); if (root) roots.add(root); }
+    if (!fs.existsSync(dir)) continue;
+    const root = gitRoot(dir);
+    if (!root || roots.has(root)) continue;
+    // Plik ignorowany przez git repo (np. pamiec sesji w ~/.claude/projects/*/memory) nie jest praca w tym repo: bez tego
+    // kazda sesja projektowa recenzowala caly PG (2026-10-04, falszywe [review] T3 w sesjach klienckich).
+    const ign = spawnSync('git', ['-C', root, 'check-ignore', '-q', '--', path.resolve(file)], { timeout: GIT_TIMEOUT_MS, env: CHILD_ENV });
+    if (ign.status === 0) { log({ hook: HOOK, event: 'skipped', reason: `edytowany plik ignorowany przez repo (${path.basename(file)}) — repo nie wchodzi do kontroli`, target: root }); continue; }
+    roots.add(root);
   }
   if (!cwdRoot) {
     try {

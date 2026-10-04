@@ -13,7 +13,7 @@ process.env.PG_GATE_LOG = path.join(TMP, 'gates.jsonl');
 process.env.PG_OVERRIDES_DIR = path.join(TMP, 'overrides');
 const CLAUDE = path.join(os.homedir(), '.claude');
 const overrides = require(path.join(CLAUDE, 'hooks', 'lib', 'overrides.js'));
-const { evaluate, fingerprint, filesOfPatch } = require(path.join(CLAUDE, 'bin', 'pg-self-approve.js'));
+const { evaluate, fingerprint, filesOfPatch, unboundVerdicts } = require(path.join(CLAUDE, 'bin', 'pg-self-approve.js'));
 const { evaluate: evaluateBash } = require(path.join(CLAUDE, 'hooks', 'lib', 'bash-rules.js'));
 
 let fails = 0;
@@ -120,6 +120,28 @@ check('evaluate: findings bez rule_id zapisanego przez recenzenta => odmowa', /p
 check('evaluate: findings z rule_id recenzenta => sid', evaluate({ ...base, transcripts: [{ ...tr[0], ruleIds: ['SEC-1'] }, tr[1]], findingsIds: { security: ['SEC-1'], code: [] } }).sid === 'S1');
 check('evaluate: verdicts.json bez transkryptu verifier => odmowa',/verifier/.test(evaluate({ ...base, findingsMtime: { security: 1000, code: 1000, verifier: 1000 } }).why || ''));
 check('evaluate: verdicts.json z transkryptem verifier => sid', evaluate({ ...base, transcripts: [...tr, { role: 'verifier', sid: 'S1', reviewedAt: 3000 }], findingsMtime: { security: 1000, code: 1000, verifier: 1000 } }).sid === 'S1');
+// 2026-10-04 (security r3 pg-merge): werdykty musza pochodzic z wyjscia weryfikatora, nie z przepisanego pliku.
+const verText = 'cat > verdicts.json <<EOF\n{"verdicts":[{"finding_id":"code-1","verdict":"reproduced"}]}\nEOF';
+const verTr = [...tr, { role: 'verifier', sid: 'S1', reviewedAt: 3000, ownText: verText }];
+const fmV = { security: 1000, code: 1000, verifier: 1000 };
+check('evaluate: werdykt zgodny z wyjsciem weryfikatora => sid',
+  evaluate({ ...base, transcripts: verTr, findingsMtime: fmV, verdicts: [{ finding_id: 'code-1', verdict: 'reproduced' }] }).sid === 'S1');
+check('evaluate: werdykt przepisany po weryfikatorze => odmowa',
+  /nie wydal/.test(evaluate({ ...base, transcripts: verTr, findingsMtime: fmV, verdicts: [{ finding_id: 'code-1', verdict: 'not_reproduced' }] }).why || ''));
+check('evaluate: werdykt dla findingu, ktorego weryfikator nie ocenil => odmowa',
+  /nie wydal/.test(evaluate({ ...base, transcripts: verTr, findingsMtime: fmV, verdicts: [{ finding_id: 'ops-9', verdict: 'reproduced' }] }).why || ''));
+check('unboundVerdicts: JSON escapowany w tool_use (\\") tez pasuje', unboundVerdicts([{ finding_id: 'code-1', verdict: 'reproduced' }], [JSON.stringify(verText)]).length === 0);
+check('unboundVerdicts: przepisane severity_after po weryfikatorze => obce', unboundVerdicts(
+  [{ finding_id: 'code-1', verdict: 'reproduced', severity_after: 'minor' }],
+  ['{"finding_id":"code-1","verdict":"reproduced","severity_after":"blocker"}']).length === 1);
+check('unboundVerdicts: severity_after zgodne => ok', unboundVerdicts(
+  [{ finding_id: 'code-1', verdict: 'reproduced', severity_after: 'minor' }],
+  ['{"finding_id":"code-1","verdict":"reproduced","severity_after":"minor","reason":"x"}']).length === 0);
+check('unboundVerdicts: proza poza obiektem JSON nie wystarcza', unboundVerdicts([{ finding_id: 'code-1', verdict: 'not_reproduced' }],
+  ['finding_id code-1 ... verdict not_reproduced']).length === 1);
+check('unboundVerdicts: verdicts nie-tablica => odmowa z opisem', unboundVerdicts({}, []).join().includes('tablica'));
+check('unboundVerdicts: id-prefiks nie pasuje (code-1 != code-10)', unboundVerdicts([{ finding_id: 'code-1', verdict: 'reproduced' }],
+  ['{"finding_id":"code-10","verdict":"reproduced"}']).length === 1);
 check('evaluate: diff.patch nowszy niz transkrypty => odmowa',!!evaluate({ ...base, patchMtime: 9000 }).why);
 check('evaluate: brak pliku findings roli => odmowa', !!evaluate({ ...base, findingsMtime: { security: Infinity, code: 1000 } }).why);
 check('evaluate: findings zapisany przez orkiestratora po recenzencie, z jego rule_id => sid',

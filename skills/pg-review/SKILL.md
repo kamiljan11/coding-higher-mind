@@ -22,7 +22,10 @@ git diff HEAD > "$RUN/diff.patch"; git status --porcelain > "$RUN/status.txt"
 FILES=$(git diff --name-only HEAD; git ls-files --others --exclude-standard)
 LINES=$(git diff --numstat HEAD | awk '{s+=$1+$2} END {print s+0}')
 node ~/.claude/hooks/lib/risk-tier.js "$(pwd)" $FILES --lines $LINES > "$RUN/tier.json"; cat "$RUN/tier.json"
+sha256sum "$RUN/diff.patch"   # -> <SHA> do promptu kazdego findera (diff_sha256=<SHA>)
 ```
+Recenzja PR pod auto-merge (`pg-merge-bezpieczny.py --recenzja <RUN>`): `diff.patch` = diff PR (`gh pr diff NR > "$RUN/diff.patch"`),
+a prompt findera MUSI zawierac `diff_sha256=<SHA>` — bez tego transkrypt nie jest dowodem dla tego diffu (bin/pg-merge-dowod.js).
 Bramki: `npx --no-install eslint --max-warnings=0 <pliki>` (lub oxlint), `tsc -b`/`--noEmit`, `npm test`,
 `node ~/.claude/bin/sql-migration-lint.js --repo . --strict` (gdy .sql), `node ~/.claude/bin/fleet-metrics.js --repo . --json > "$RUN/metrics.json"`.
 Czerwone => napraw NAJPIERW. Nie odpalaj agentow na czerwonym drzewie.
@@ -31,7 +34,7 @@ Czerwone => napraw NAJPIERW. Nie odpalaj agentow na czerwonym drzewie.
 Z `tier.json.reviewers` (+ `product-reviewer` na T3, na zadanie, ORAZ zawsze gdy diff dotyka `docs/`, `README*`, publicznego API/konfiguracji — routes, `.env.example`, eksporty pakietu, sygnatury edge fn — bo wtedy docs musza sie zgadzac z kodem w tym samym PR; how_to_check: `git diff --name-only origin/main...HEAD | rg "^docs/|README|\.env\.example|routes|supabase/functions"`). Model z `tier.json.models` (T3: security/data = opus).
 Prompt KAZDEGO findera (krotki; rola ma pelna rubryke w `~/.claude/agents/<rola>.md`):
 ```
-Repo: <sciezka>. Tier: <T>. Diff: <RUN>/diff.patch (czytaj CALY). Opis zadania: <1-3 linie / PRD-lite>.
+Repo: <sciezka>. Tier: <T>. Diff: <RUN>/diff.patch (czytaj CALY) diff_sha256=<SHA>. Opis zadania: <1-3 linie / PRD-lite>.
 Zapisz findings DOKLADNIE wg schematu z twojej definicji do: <RUN>/findings.<rola>.json.
 Odpowiedz <= 10 linii. Nie edytuj zadnego pliku w repo.
 ```

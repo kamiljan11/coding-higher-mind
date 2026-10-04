@@ -20,7 +20,7 @@ const PROTOTYPE_TIER_CAP = 'T1';
 // `.example/.sample/.template/.dist` (takze `.env.local.example`, konwencja Next.js) = dokumentacja, NIE T3.
 // False positive zgloszony przez agenta demo-site 2026-09-05 (docs/CI-only PR dostal T3 przez `.env.example`);
 // we flocie 24x `.env.example` + 2x `.env.local.example`. Nieznana kolejnosc sufiksow (`.env.example.local`) = strona bezpieczna (T3).
-const T3_PATH_RX = /supabase[\/\\](migrations|functions)|\.sql$|[\/\\](auth|rls|billing|payments?|checkout|rapyd|stripe|invoice|wallet|secrets?|middleware|polic(y|ies)|webhooks?|cron|scheduled)[\/\\.]|[\/\\](admin|super)[\/\\]|(^|[\/\\])\.env(?![\w.-]*\.(example|sample|template|dist)s?$)(\.[\w.-]+)?$|infisical/i;
+const T3_PATH_RX = /supabase[\/\\](migrations|functions)|\.sql$|[\/\\](auth|rls|billing|payments?|checkout|payment-gateway|stripe|invoice|wallet|secrets?|middleware|polic(y|ies)|webhooks?|cron|scheduled)[\/\\.]|[\/\\](admin|super)[\/\\]|(^|[\/\\])\.env(?![\w.-]*\.(example|sample|template|dist)s?$)(\.[\w.-]+)?$|infisical/i;
 // T2: wspolna logika, API, dane, zaleznosci, konfiguracja buildu/CI.
 const T2_PATH_RX = /[\/\\](api|routes?|server|services?|lib|hooks|store|db|data|models?|schema|integrations?)[\/\\]|package(-lock)?\.json$|pnpm-lock\.yaml$|tsconfig.*\.json$|vite\.config|next\.config|\.github[\/\\]workflows|Dockerfile|docker-compose/i;
 // T0: nic nie wykonuje sie na prod inaczej niz jako tekst/styl.
@@ -141,7 +141,7 @@ function classify(files, changedLines, root) {
 // N1 (landscape, tryb OBSERVE w stop-gate): tier z TRESCI dodanych linii. `src/lib/pay.ts` z wywolaniem platnosci nie
 // pasuje do T3_PATH_RX i przy 700 liniach + pg.phase prototype schodzilo do T1 (krytyk R1). Bez `createClient(` —
 // jest w kazdym froncie Supabase i zrobiloby T3 z kazdej zmiany UI. Zwraca pierwsze trafienie albo null.
-const T3_CONTENT_RX = /\bservice_role\b|\bstripe\.(charges|paymentIntents|refunds|checkout|subscriptions)\b|\brapyd\b|\bDROP\s+(TABLE|COLUMN|SCHEMA|POLICY)\b|^\+\s*(GRANT|REVOKE)\s|\bSECURITY\s+DEFINER\b|\bauth\.admin\./im;
+const T3_CONTENT_RX = /\bservice_role\b|\bstripe\.(charges|paymentIntents|refunds|checkout|subscriptions)\b|\bpayment-gateway\b|\bDROP\s+(TABLE|COLUMN|SCHEMA|POLICY)\b|^\+\s*(GRANT|REVOKE)\s|\bSECURITY\s+DEFINER\b|\bauth\.admin\./im;
 function contentEscalation(addedText) {
   const m = T3_CONTENT_RX.exec(String(addedText || ''));
   return m ? m[0].replace(/^\+\s*/, '').slice(0, 40) : null;

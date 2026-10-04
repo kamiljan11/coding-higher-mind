@@ -57,7 +57,7 @@ git revert <sha-zlego-commita> && git push   # -> redeploy automatyczny
 | Hosting | [Vercel team / Lovable projekt] | | | transfer projektu |
 | Baza | [Supabase org / projekt ref] | | | transfer org (Pro) / dump |
 | Poczta transakcyjna | [Resend domena] | | | weryfikacja DNS u nowego |
-| Platnosci | [Rapyd / Stripe konto] | | | konto klienta od poczatku |
+| Platnosci | [payment-gateway / Stripe konto] | | | konto klienta od poczatku |
 | Analityka / FB / Google | [GA4, GBP, FB Page] | | | |
 | Sekrety | menedzer sekretow (Infisical/1Password/Doppler) -> [prefix] | uzytkownik | | eksport do vaulta klienta |
 

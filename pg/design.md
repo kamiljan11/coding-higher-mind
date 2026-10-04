@@ -46,7 +46,7 @@ Nowa tabela z FK do encji tenantowej => `org_id` albo trigger `%same_org%` + **t
 - [ ] „U mnie dziala" != done (software-house 2027): sciezka krytyczna przechodzi na viewporcie `mobile-budget` (360x640) z matrycy `docs/CRITICAL-PATHS.md`, a nie tylko na monitorze deva; stary Android z slabym zasiegiem to klient klienta, ktory ma zaplacic — nie edge case do olania. Brak sprawdzenia = napisz to jawnie w raporcie.
 
 ## E. ADR — kiedy obowiazkowy
-Nowa zaleznosc runtime · nowa tabela/schemat · nowy modul/granica · zmiana auth/platnosci/i18n · wybor dostawcy (Rapyd vs Stripe, Resend vs Twilio) · odejscie od `paradigm.md`.
+Nowa zaleznosc runtime · nowa tabela/schemat · nowy modul/granica · zmiana auth/platnosci/i18n · wybor dostawcy (payment-gateway vs Stripe, Resend vs Twilio) · odejscie od `paradigm.md`.
 Szablon: `templates/repo/docs/adr/0000-template.md`. Tresc: kontekst, decyzja, odrzucone alternatywy z powodem, konsekwencje, data, jak cofnac. Bramka: stop-gate (T2+) pyta o ADR, gdy diff dodaje katalog/tabele/zaleznosc bez pliku w `docs/adr/` w tym samym diffie (nudge, nie blok — 2026-09-05).
 
 ## F. Dzien 0 (nowy projekt) — kolejnosc, nie lista zyczen
