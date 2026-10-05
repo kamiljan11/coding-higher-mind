@@ -38,14 +38,16 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 # WYLACZONE 2026-10-01 22:40 po pg-review v2 (security: 4 blockery — wstrzykniecie argv do risk-tier plikiem `--lines`,
 # sciezki wzgledne omijaly kotwice T3, tier_floor/phase z checkoutu agenta, T1 bez recenzji); poprawki sa ponizej.
-# 2026-10-04: poprawki v3 r1-r3 sa ponizej; r3 znalazla blocker (verdicts.json) — naprawiony, czeka na runde 4. Do tego czasu fraza.
-WYLACZONY = True
+# 2026-10-04: poprawki v3 r1-r8 sa ponizej. WLACZONE 2026-10-04 ~17:15 UTC decyzja uzytkownika („przyjmuje ryzyko, sledze modele na biezaco")
+# mimo werdyktu security r8: dowod z transkryptow agenta da sie podrobic (pg/known-limits.md). Wylacznik bez edycji: plik WYLACZNIK.
+WYLACZONY = False
 
 CLAUDE = Path.home() / '.claude'
 RISK_TIER = CLAUDE / 'hooks' / 'lib' / 'risk-tier.js'
@@ -103,25 +105,160 @@ def dodane_linie(pliki: list[dict]) -> str:
     return '\n'.join('+' + l[1:] for p in pliki for l in str(p.get('patch') or '').splitlines() if l[:1] in '+-')
 
 
-def odcisk_zmian(diff: str) -> str:
-    """Odcisk: linie `diff --git` (ktore pliki) + linie +/- wewnatrz hunkow — porownywalny miedzy `git diff` a diffem
-    z GitHuba (index/mode/numery hunkow pomijane). `---`/`+++` poza hunkiem = naglowek pliku, w hunku = tresc
-    (code-review v3: linia `+++EVIL()` i inny plik z tymi samymi liniami nie moga dac tego samego odcisku)."""
-    linie: list[str] = []
-    w_hunku = False
-    for surowa in diff.splitlines():
-        linia = surowa.rstrip('\r')
-        if linia.startswith('diff --git '):
-            linie.append(' '.join(linia.split()))
-            w_hunku = False
-        elif linia.startswith('@@'):
-            w_hunku = True
-        elif w_hunku and linia[:1] in '+-':
-            linie.append(linia)
-    return hashlib.sha256('\n'.join(linie).encode('utf-8')).hexdigest()
-
-
 WYMAGANE_ROLE = {'T1': ('code',), 'T2': ('code', 'ops')}
+
+CI_RECENZJA = 'pg-review'
+CI_WORKFLOW = '.github/workflows/pg-review.yml'
+
+
+def ocena_ci(checki: list[dict], workflow_w_bazie: bool | None, przebiegi: list[dict] | None,
+             joby: dict | None, nr: int, werdykty: list[tuple[int, str, str]] | None) -> str | None:
+    """Recenzja poza kontrola agenta (2026-10-04): zielony job `pg-review` z workflow `.github/workflows/pg-review.yml`
+    (Actions API: sciezka przebiegu, numer PR, PIERWSZA proba). Kazdy check run o nazwie pg-review spoza tych jobow =
+    odmowa (security-review: check run da sie utworzyc GITHUB_TOKEN-em z innego workflow). Wszystkie przebiegi tego
+    workflow dla head musza byc zielone (rerun do skutku nie dziala). None = dowod jest; inaczej powod."""
+    if workflow_w_bazie is None:
+        return f'nie sprawdzono {CI_WORKFLOW} na galezi bazowej (blad sieci/GitHuba) — sprobuj ponownie'
+    if not workflow_w_bazie:
+        return f'brak {CI_WORKFLOW} na galezi bazowej (bin/mas-quality-init.sh)'
+    if przebiegi is None or joby is None:
+        return 'nie pobrano przebiegow Actions (blad sieci/GitHuba) — sprobuj ponownie'
+    runy = [r for r in przebiegi if r.get('path') == CI_WORKFLOW]
+    if not runy:
+        return f'brak przebiegu {CI_WORKFLOW} dla head PR (sekret CLAUDE_CODE_OAUTH_TOKEN w repo? draft? sama dokumentacja?)'
+    if any(int(r.get('run_attempt') or 1) != 1 for r in runy):
+        return f'{CI_RECENZJA} uruchomiony ponownie (rerun) — recenzja nie jest jednorazowa; nowy commit albo fraza uzytkownika'
+    if nr and any(nr not in [p.get('number') for p in r.get('pull_requests') or []] for r in runy):
+        return f'przebieg {CI_WORKFLOW} nie nalezy do tego PR'
+    # Przebieg dla draftu (runner skipped przez `draft == false`) nie jest recenzja — pomijany, nie blokuje (code-review).
+    # + przebiegi anulowane przez concurrency (reopened/ready_for_review na tym samym sha) — tez bez dowodu i bez blokady.
+    draft = {r.get('id') for r in runy if r.get('conclusion') == 'cancelled' or any(
+        j.get('name') == 'pg-review-runner' and j.get('conclusion') == 'skipped' for j in joby.get(r.get('id')) or [])}
+    nasze: set[str] = {str(j.get('check_run_url') or '').rstrip('/').rsplit('/', 1)[-1]   # checki naszego workflow (takze draft)
+                        for r in runy for j in joby.get(r.get('id')) or [] if j.get('name') == CI_RECENZJA}
+    runy = [r for r in runy if r.get('id') not in draft]
+    if not runy:
+        return f'{CI_RECENZJA}: tylko przebiegi dla draftu — oznacz PR jako gotowy (ready for review)'
+    for r in runy:
+        prj = [j for j in joby.get(r.get('id')) or [] if j.get('name') == CI_RECENZJA]
+        if not prj:
+            return (f'{CI_RECENZJA}: skipped w przebiegu {r.get("id")} (brak sekretu, limit subskrypcji albo diff > 1500 linii — '
+                    'szczegoly w jobie pg-review-runner)')
+        zle = [j for j in prj if j.get('status') != 'completed' or j.get('conclusion') != 'success']
+        if zle and zle[0].get('conclusion') == 'skipped':
+            return (f'{CI_RECENZJA}: skipped (brak sekretu, limit subskrypcji, timeout albo diff > 1500 linii — '
+                    'szczegoly w jobie pg-review-runner; nowy commit uruchomi recenzje ponownie)')
+        if zle:
+            return f"check {CI_RECENZJA}: {zle[0].get('conclusion') or zle[0].get('status')}"
+    # Historia PR (werdykty runnerow z adnotacji): REQUEST_CHANGES na TYM SAMYM diffie co biezacy APPROVE = losowanie
+    # recenzji od nowa (pusty commit / reopen / usuniety przebieg) — odmowa (security-review 2026-10-04, best-of-N).
+    for _, w, opis in werdykty or []:
+        if w == 'LUKA':
+            return (f'luka w historii {CI_WORKFLOW} ({opis}): usuniety przebieg albo obciecie API — dowod CI niewiarygodny; '
+                    'stan trwaly (nie ponawiaj): --recenzja albo fraza uzytkownika')
+        if w == 'NIECZYTELNA':
+            return (f'nieczytelna adnotacja werdyktu ({opis}) — stan trwaly (nie ponawiaj): --recenzja albo fraza uzytkownika')
+    if werdykty is not None and any(w == 'REQUEST_CHANGES_PR' for _, w, _ in werdykty):
+        return ('ten PR dostal juz REQUEST_CHANGES od recenzenta CI — samo CI nie wystarcza (losowanie przez kosmetyczna zmiane); '
+                'lokalna recenzja --recenzja albo fraza uzytkownika')
+    if werdykty is None or any(w == 'BLAD' for _, w, _ in werdykty):
+        return 'nie pobrano historii werdyktow PR (blad sieci/GitHuba) — sprobuj ponownie'
+    teraz = {sha for rid, w, sha in werdykty or [] if rid in {r.get('id') for r in runy} and w == 'APPROVE'}
+    if not teraz:
+        return (f'brak adnotacji werdyktu w przebiegu {CI_WORKFLOW} dla head — dowod niepelny '
+                '(stary workflow? zaktualizuj pg-review.yml z ~/.claude/templates/repo)')
+    odrzucone = sorted({sha for _, w, sha in werdykty if w == 'REQUEST_CHANGES' and sha in teraz})
+    if odrzucone:
+        return (f'ten sam diff (sha256 {odrzucone[0][:12]}…) dostal juz REQUEST_CHANGES w historii repo — ponowne losowanie '
+                'recenzji; popraw kod (nowy diff) albo fraza uzytkownika')
+    obce = [c for c in checki if c.get('name') == CI_RECENZJA and str(c.get('id')) not in nasze]
+    if obce:
+        return f'check {CI_RECENZJA} spoza {CI_WORKFLOW} (id {obce[0].get("id")}) — mozliwa podrobka, scalenie tylko z fraza'
+    return None
+
+
+WERDYKT_RX = re.compile(r'^(APPROVE|REQUEST_CHANGES|INFRA) ([0-9a-f]{64}|-)$')
+
+
+OKNO_HISTORII_DNI = 90
+
+
+def werdykty_repo(repo: str, biezace: list[dict], nr: int = 0, galaz: str = '') -> list[tuple[int, str, str]]:
+    """(id przebiegu, werdykt, sha diffu albo opis) z adnotacji `pg-review-verdict` jobu pg-review-runner. Historia z CALEGO
+    repo (nowy PR z tym samym diffem nie zeruje odrzucen), WSZYSTKIE przebiegi z OKNO_HISTORII_DNI dni (security r9: okno
+    100 ostatnich dalo sie zapchac pustymi commitami). Kosztowne (joby + adnotacje) tylko biezace + nie-success.
+    Werdykty pseudo: LUKA (usuniety przebieg w oknie albo obciecie API), NIECZYTELNA (adnotacja spoza formatu), BLAD (siec/API)."""
+    sciezka = f'/repos/{repo}/actions/workflows/{CI_WORKFLOW.rsplit("/", 1)[-1]}/runs'
+    try:
+        od = (datetime.now(timezone.utc) - timedelta(days=OKNO_HISTORII_DNI)).strftime('%Y-%m-%d')
+        wszystkie = stronicuj(f'{sciezka}?created=%3E%3D{od}', 'workflow_runs')
+        # Zapytanie z filtrem `created` GitHub obcina do 1000 wynikow (strona 11 = 200 z pusta lista; security/data r10) —
+        # obcieta historia moze ukrywac REQUEST_CHANGES, wiec fail-closed.
+        if len(wszystkie) >= 1000:
+            return [(0, 'LUKA', f'ponad 1000 przebiegow w {OKNO_HISTORII_DNI} dni — historia obcieta przez API')]
+        numery = sorted({int(r['run_number']) for r in wszystkie if r.get('run_number')})
+        brak = sorted(set(range(numery[0], numery[-1] + 1)) - set(numery)) if numery else []
+        if brak:
+            return [(0, 'LUKA', 'brak #' + ', #'.join(map(str, brak[:5])))]
+        # Usuniety przebieg na GRANICY okna (najstarszy w oknie): ostatni przebieg sprzed okna musi miec numer o 1 mniejszy.
+        # Tylko okno, nie cala historia (data r10: globalny detektor = trwala LUKA po starym kasowaniu albo retencji GitHuba).
+        # Zalozenie: workflow ma wylacznie trigger pull_request (inaczej numeracja ma dziury — known-limits).
+        if numery:
+            kod, dane = api('GET', f'{sciezka}?created=%3C{od}&per_page=1')
+            if kod != 200 or not isinstance(dane, dict):
+                return [(0, 'BLAD', '-')]
+            poprzedni = int(((dane.get('workflow_runs') or [{}])[0]).get('run_number') or 0)
+            if poprzedni != numery[0] - 1:
+                return [(0, 'LUKA', f'granica okna: przed #{numery[0]} jest #{poprzedni or "brak"}')]
+        # Rerun nadpisuje conclusion proby 1 (security r9): przebieg z run_attempt > 1 czytany zawsze, joby WSZYSTKICH prob
+        # (`filter=all`) — adnotacja RC z proby 1 zostaje widoczna. Rerun po INFRA to zwykla operacja, nie powod do LUKA (code r10).
+        odrzucone = [r for r in wszystkie if r.get('conclusion') not in ('success', 'skipped') or int(r.get('run_attempt') or 1) > 1]
+        wynik: list[tuple[int, str, str]] = []
+        for r in {r.get('id'): r for r in biezace + odrzucone}.values():
+            for j in stronicuj(f"/repos/{repo}/actions/runs/{r.get('id')}/jobs?filter=all", 'jobs'):
+                if j.get('name') != 'pg-review-runner':
+                    continue
+                # Adnotacja powstaje tylko w kroku Werdykt — gdy sie nie wykonal (anulowany przez concurrency), adnotacji brak,
+                # wiec bez wywolania API (koszt, data r10). Brak kroku o tej nazwie (zmiana workflow) = pobierz (fail-closed).
+                werdykty_kroku = [k for k in j.get('steps') or [] if k.get('name') == 'Werdykt']
+                if werdykty_kroku and all(k.get('status') != 'completed' or k.get('conclusion') in ('skipped', 'cancelled')
+                                          for k in werdykty_kroku):
+                    continue
+                cid = str(j.get('check_run_url') or '').rstrip('/').rsplit('/', 1)[-1]
+                for a in stronicuj(f'/repos/{repo}/check-runs/{cid}/annotations') if cid else []:
+                    if a.get('title') != 'pg-review-verdict':
+                        continue
+                    rid = int(r.get('id') or 0)
+                    trafienie = WERDYKT_RX.match(str(a.get('message', '')).strip())
+                    if not trafienie:
+                        return [(rid, 'NIECZYTELNA', f"przebieg #{r.get('run_number')} (id {rid})")]  # fail-closed
+                    wynik.append((rid, trafienie.group(1), trafienie.group(2)))
+                    ten_pr = (nr and nr in [p.get('number') for p in r.get('pull_requests') or []]) or (galaz and r.get('head_branch') == galaz)
+                    if trafienie.group(1) == 'REQUEST_CHANGES' and ten_pr:
+                        wynik.append((rid, 'REQUEST_CHANGES_PR', trafienie.group(2)))
+        return wynik
+    except SystemExit:
+        return [(0, 'BLAD', '-')]
+
+
+def przebiegi_ci(repo: str, sha: str) -> tuple[list[dict] | None, dict | None]:
+    """Przebiegi workflow pg-review dla head + ich joby (Actions API); (None, None) = blad przejsciowy."""
+    # Endpoint workflow + stronicowanie (data-review: /actions/runs bez paginacji gubil przebiegi przy > 100 na sha).
+    runy = [r for r in stronicuj(f'/repos/{repo}/actions/workflows/{CI_WORKFLOW.rsplit("/", 1)[-1]}/runs?head_sha={sha}&event=pull_request',
+                                 'workflow_runs') if r.get('path') == CI_WORKFLOW]
+    joby: dict = {}
+    for r in runy:
+        kj, dj = api('GET', f"/repos/{repo}/actions/runs/{r.get('id')}/jobs?per_page=100")
+        if kj != 200 or not isinstance(dj, dict):
+            return None, None
+        joby[r.get('id')] = dj.get('jobs') or []
+    return runy, joby
+
+
+def workflow_w_bazie(repo: str, ref: str) -> bool | None:
+    """True = jest, False = 404, None = blad przejsciowy (siec/5xx) — nie mylic z brakiem workflow (ops-review)."""
+    kod, _ = api('GET', f'/repos/{repo}/contents/{CI_WORKFLOW}?ref={urllib.parse.quote(ref)}')
+    return True if kod == 200 else False if kod == 404 else None
 
 
 def ocena_recenzji(agregat: dict | None, diff_recenzji: str | None, diff_pr: str, wymagane: tuple[str, ...] = ('code', 'ops')) -> str | None:
@@ -133,8 +270,10 @@ def ocena_recenzji(agregat: dict | None, diff_recenzji: str | None, diff_pr: str
     brak = sorted(set(wymagane) - set(agregat.get('required_roles') or []) | set(wymagane) - set(agregat.get('roles') or []))
     if brak:
         return f"recenzja bez wymaganych rol: {', '.join(brak)} (pg-aggregate --tier <tier> --final)"
-    if odcisk_zmian(diff_recenzji) != odcisk_zmian(diff_pr):
-        return 'recenzja dotyczyla innej zmiany niz obecny diff PR'
+    # Bajt w bajt (oba boki dekodowane STRICT utf-8): kontekst, preambula i tekst po `@@` tez sa trescia, ktora
+    # widzial recenzent (security-review r4 AUTOMERGE-DIFF-CONTEXT-NOT-FINGERPRINTED). diff.patch = `gh pr diff NR`.
+    if diff_recenzji != diff_pr:
+        return 'recenzja dotyczyla innej zmiany niz obecny diff PR (diff.patch != `gh pr diff` bajt w bajt)'
     return None
 
 
@@ -143,37 +282,55 @@ MAX_WIEK_RECENZJI_MS = 2 * 3600 * 1000  # jak MAX_RUN_AGE_MS w pg-self-approve.j
 
 def ocena_dowodu(dowod: dict, wymagane: tuple[str, ...], patch_mtime_ms: float, teraz_ms: float,
                  diff_sha256: str = '') -> str | None:
-    """Recenzje zrobili prawdziwi subagenci PO zapisaniu diff.patch, findings zawieraja wszystko, co zglosili, a werdykt
-    jest policzony od nowa z findings (pg-aggregate), nie wziety z aggregated.json — te same reguly co
-    pg-self-approve.evaluate (code+security review v3: dwa pliki napisane recznie nie sa dowodem). None = dowod jest.
-    `dowod` = wynik bin/pg-merge-dowod.js; `diff_sha256` = sha diff.patch przeczytanego przez TEN skrypt (porownany z
-    diffem PR) — musi byc tym, ktory dostali recenzenci w prompcie (security-review v3 r2: recenzja przypieta do tresci)."""
+    """Lustro pg-self-approve.transcriptProblem (JS). None = dowod jest: kazda recenzja tego diffu (sha w prompcie, dowolny
+    RUN i wiek) oddala JSON findings, a jej rule_id i multizbior `rule_id|plik` sa w findings przebiegu; kazda wymagana rola
+    ma swiezy (< 2 h, z `timestamp` JSONL) transkrypt przypiety sha + sciezka diff.patch; recenzja TEGO przebiegu bez sha
+    albo z definicji agenta w projekcie = odmowa. Werdykt liczy pg-aggregate od nowa (verdicts.json ignorowany).
+    `diff_sha256` = sha diff.patch przeczytanego przez TEN skrypt (porownany bajtowo z diffem PR)."""
     if not diff_sha256 or dowod.get('diff_sha256') != diff_sha256:
         return 'diff.patch zmienil sie w trakcie oceny — powtorz'
     if teraz_ms - patch_mtime_ms > MAX_WIEK_RECENZJI_MS or patch_mtime_ms - teraz_ms > 60_000:
         return 'recenzja starsza niz 2 h (albo diff.patch z przyszlosci) — powtorz pg-review'
     transkrypty = dowod.get('transcripts') or []
     ids = dowod.get('findings_ids') or {}
+    # Kazda recenzja TEGO diffu (dowolny katalog przebiegu, dowolny wiek): JSON findings + jej rule_id w findings przebiegu
+    # (security-review r4: resampling w nowym RUN / `touch diff.patch`, usuniete findings roli opcjonalnej, wyjscie proza).
+    for t in transkrypty:
+        if not (t.get('sameDiff') or t.get('aboutRun')):
+            continue
+        if t.get('overridden'):
+            return f'{t.get("role")} (sesja {t.get("sid")}) z definicji agenta w projekcie (.claude/agents poza ~/.claude) — recenzent musi byc z ~/.claude/agents'
+        if t.get('role') != 'verifier' and not t.get('sameDiff'):
+            return (f'{t.get("role")}-reviewer (sesja {t.get("sid")}) recenzowal ten przebieg bez diff_sha256 obecnego diff.patch — '
+                    'nowy diff = nowy katalog RUN; recenzja bez sha nie znika z dowodu')
+    recenzenci = [t for t in transkrypty if t.get('role') != 'verifier' and t.get('sameDiff')]
+    for t in recenzenci:
+        rola = str(t.get('role'))
+        if not t.get('findingsJson'):
+            # tylko naprawde przerwany (brak wyniku koncowego i rule_id), > 2 h, nie blokuje; proza blokuje (data-review r5/r6)
+            if not t.get('completed') and not t.get('ruleIds') and teraz_ms - float(t.get('reviewedAt') or 0) > MAX_WIEK_RECENZJI_MS:
+                continue
+            return (f'{rola}-reviewer (sesja {t.get("sid")}) nie oddal JSON {{"findings": [...]}} dla tego diffu — wyjscie nieczytelne '
+                    'nie jest dowodem; zmien diff albo poczekaj, az przerwany transkrypt bedzie starszy niz 2 h')
+        if rola not in ids:
+            return f'transkrypt {rola}-reviewer dla tego diffu bez findings.{rola}.json w przebiegu — usuniete findings'
+        # multizbior kluczy `rule_id|plik` (data-review r5: dwa findingi z jednym rule_id, orkiestrator zostawial jeden)
+        mam = Counter(ids[rola])
+        zgubione = sorted(set(t.get('ruleIds') or []) - {str(k).split('|')[0] for k in ids[rola]})
+        zgubione += sorted(k for k, n in Counter(t.get('findingKeys') or []).items() if mam[k] < n)
+        if zgubione:
+            return (f'findings.{rola}.json nie zawiera findings recenzenta ({", ".join(zgubione[:5])}) — podmiana albo '
+                    'ponowne losowanie recenzji tego samego diffu')
     sesje: set[str] = set()
     for rola in wymagane:
-        swieze = [t for t in transkrypty if t.get('role') == rola and float(t.get('reviewedAt') or 0) >= patch_mtime_ms
-                  and teraz_ms - float(t.get('reviewedAt') or 0) <= MAX_WIEK_RECENZJI_MS]
-        if not swieze or rola not in ids:
-            return f'brak transkryptu subagenta {rola}-reviewer (albo findings.{rola}.json) dla tego przebiegu — odpal recenzenta'
-        swieze = [t for t in swieze if t.get('bound')]
+        swieze = [t for t in recenzenci if t.get('role') == rola and t.get('bound')
+                  and -60_000 <= teraz_ms - float(t.get('reviewedAt') or 0) <= MAX_WIEK_RECENZJI_MS]
         if not swieze:
-            return (f'prompt {rola}-reviewer nie zawiera diff_sha256={diff_sha256[:12]}… — recenzent dostal inny diff '
-                    '(pg-review: wpisz `diff_sha256=$(sha256sum diff.patch)` w prompt findera)')
-        zgubione = sorted({r for t in swieze for r in (t.get('ruleIds') or [])} - set(ids[rola]))
-        if zgubione:
-            return f'findings.{rola}.json nie zawiera findings recenzenta ({", ".join(zgubione[:5])}) — podmiana po recenzji'
+            if any(t.get('role') == rola and not t.get('sameDiff') for t in transkrypty):
+                return (f'prompt {rola}-reviewer nie zawiera diff_sha256={diff_sha256[:12]}… i sciezki diff.patch tego przebiegu — '
+                        'recenzent dostal inny diff (pg-review: `diff_sha256=$(sha256sum diff.patch)` w prompt findera)')
+            return f'brak swiezego (< 2 h) transkryptu subagenta {rola}-reviewer dla tego diffu — odpal recenzenta'
         sesje.update(str(t.get('sid')) for t in swieze)
-    if dowod.get('verdicts_mtime') is not None:
-        wer = [t for t in transkrypty if t.get('role') == 'verifier'
-               and float(t.get('reviewedAt') or 0) >= float(dowod['verdicts_mtime']) - 2000]
-        if not wer:
-            return 'verdicts.json bez transkryptu subagenta verifier — werdykty wydaje weryfikator, nie orkiestrator'
-        sesje.update(str(t.get('sid')) for t in wer)
     if len(sesje) != 1:
         return f'recenzenci z roznych sesji ({", ".join(sorted(sesje))})'
     return None
@@ -263,9 +420,13 @@ def api(metoda: str, sciezka: str, cialo: dict | None = None, akceptuj: str = 'a
     for proba in range(3):
         try:
             with urllib.request.urlopen(req, timeout=30) as odp:
-                surowe = odp.read().decode('utf-8', 'replace')
+                bajty = odp.read()
                 if akceptuj.endswith('diff'):
-                    return odp.status, surowe
+                    try:  # STRICT: porownanie z diff.patch ma byc bajtowe (r4), zly UTF-8 = brak diffu (fail-closed)
+                        return odp.status, bajty.decode('utf-8')
+                    except UnicodeDecodeError:
+                        return 0, None
+                surowe = bajty.decode('utf-8', 'replace')
                 try:
                     return odp.status, json.loads(surowe)
                 except ValueError:  # 200 z HTML-em (proxy/awaria) — nie traceback; PUT bez JSON = wynik niepewny
@@ -356,8 +517,8 @@ def wczytaj_recenzje(katalog: str | None) -> tuple[str | None, float, str]:
     try:
         patch = Path(katalog) / 'diff.patch'
         surowe = patch.read_bytes()
-        return surowe.decode('utf-8', 'replace'), patch.stat().st_mtime * 1000, hashlib.sha256(surowe).hexdigest()
-    except OSError:
+        return surowe.decode('utf-8'), patch.stat().st_mtime * 1000, hashlib.sha256(surowe).hexdigest()
+    except (OSError, UnicodeDecodeError):  # STRICT utf-8 jak diff PR z api() — porownanie bajtowe (r4)
         return None, 0.0, ''
 
 
@@ -386,9 +547,20 @@ def podloga_z_bazy(repo: str, ref: str) -> str | None:
         return 'T3'
 
 
-def odmowa(cel: str, powody: list[str], sha: str = '') -> int:
-    loguj('auto-merge-odmowa', ' | '.join(powody), cel, head_sha=sha)
-    print(f'NIE SCALAM {cel}:\n  - ' + '\n  - '.join(powody) + '\nTen PR wymaga frazy uzytkownika: pozwol ALLOW_MERGE.')
+def odmowa(cel: str, powody: list[str], sha: str = '', tier: str = '', sprawdz: bool = False, przejsciowe: bool = False,
+           zalogowane: bool = False) -> int:
+    """`--sprawdz` loguje osobne zdarzenie (statystyki prawdziwych odmow nie rosna od testow); tier w komunikacie;
+    blad przejsciowy (siec, head w ruchu, log) podpowiada ponowienie, nie fraze (ops-review 2026-10-04)."""
+    zdarzenie = 'auto-merge-ocena-odmowa' if sprawdz else 'auto-merge-odmowa'
+    if not zalogowane:  # odmowa GitHuba ma juz wlasny wpis auto-merge-github-odmowa — bez podwojnego liczenia
+        loguj(zdarzenie, ' | '.join(powody), cel, head_sha=sha, tier=tier)
+    if przejsciowe:
+        dalej = 'Blad przejsciowy — sprobuj ponownie (fraza nie jest potrzebna).'
+    elif sprawdz:
+        dalej = 'Scalenie wymagaloby frazy uzytkownika: pozwol ALLOW_MERGE.'
+    else:
+        dalej = 'Ten PR wymaga frazy uzytkownika: pozwol ALLOW_MERGE.'
+    print(f"NIE SCALAM {cel}{f' (tier {tier})' if tier else ''}:\n  - " + '\n  - '.join(powody) + '\n' + dalej)
     return 1
 
 
@@ -416,7 +588,7 @@ def main() -> int:
 
     kod, pr = api('GET', f'/repos/{repo}/pulls/{nr}')
     if kod != 200:
-        return odmowa(cel, [f'nie odczytano PR (HTTP {kod})'])
+        return odmowa(cel, [f'nie odczytano PR (HTTP {kod})'], sprawdz=tylko_ocena, przejsciowe=True)
     sha = pr['head']['sha']
     checki = stronicuj(f'/repos/{repo}/commits/{sha}/check-runs', 'check_runs')
     pliki = stronicuj(f'/repos/{repo}/pulls/{nr}/files')
@@ -426,12 +598,23 @@ def main() -> int:
     tier = {**tier, 'tier': tier_efektywny(tier, nazwy)}
     powod_recenzji = None
     if tier.get('tier') in ('T1', 'T2'):
-        kod_diff, diff_pr = api('GET', f'/repos/{repo}/pulls/{nr}', akceptuj='application/vnd.github.v3.diff')
         katalog = argument(argumenty, '--recenzja')
+        if not katalog:
+            # Bez lokalnego przebiegu: dowodem moze byc tylko check pg-review z CI (swiezy checkout, poza kontrola agenta).
+            wf = workflow_w_bazie(repo, (pr.get('base') or {}).get('ref', ''))
+            przebiegi, joby = przebiegi_ci(repo, sha) if wf else (None, None)
+            werdykty = werdykty_repo(repo, przebiegi, nr, str((pr.get('head') or {}).get('ref', ''))) if wf and przebiegi else None
+            powod_ci = ocena_ci(checki, wf, przebiegi, joby, nr, werdykty)
+            powod_recenzji = None if powod_ci is None else f'brak dowodu recenzji: {powod_ci} (albo --recenzja KATALOG_PG_REVIEW)'
+        kod_diff, diff_pr = api('GET', f'/repos/{repo}/pulls/{nr}', akceptuj='application/vnd.github.v3.diff') if katalog else (0, None)
         diff_recenzji, patch_mtime, diff_sha = wczytaj_recenzje(katalog)
         wymagane = WYMAGANE_ROLE[tier['tier']]
         dowod = dowod_z_przebiegu(katalog, wymagane) if katalog and diff_recenzji is not None else None
-        if kod_diff != 200 or not isinstance(diff_pr, str):
+        if not katalog:
+            pass  # powod_recenzji ustalony wyzej z checku CI
+        elif kod_diff == 0 and diff_pr is None:
+            powod_recenzji = 'diff PR nie jest poprawnym UTF-8 — porownanie bajtowe z diff.patch niemozliwe'
+        elif kod_diff != 200 or not isinstance(diff_pr, str):
             powod_recenzji = f'nie pobrano diffu PR (HTTP {kod_diff})'
         else:
             powod_recenzji = ocena_recenzji(dowod and dowod.get('agg'), diff_recenzji, diff_pr, wymagane)
@@ -439,11 +622,11 @@ def main() -> int:
             powod_recenzji = ocena_dowodu(dowod, wymagane, patch_mtime, time.time() * 1000, diff_sha)
     kod_st, statusy = api('GET', f'/repos/{repo}/commits/{sha}/status')
     if kod_st != 200:
-        return odmowa(cel, [f'nie odczytano commit status (HTTP {kod_st})'], sha)
+        return odmowa(cel, [f'nie odczytano commit status (HTTP {kod_st})'], sha, str(tier.get('tier', '')), tylko_ocena, przejsciowe=True)
     dodane = dodane_linie(pliki)
     powody = ocen(pr, repo, checki, pliki, tier, tresc_eskalacja(dodane) or tresc_lokalna(dodane), powod_recenzji, tylko_ocena, statusy)
     if powody:
-        return odmowa(cel, powody, sha)
+        return odmowa(cel, powody, sha, str(tier.get('tier', '')), tylko_ocena)
 
     if tylko_ocena:
         print(f"OCENA {cel}: MOZNA scalic bez frazy (tier {tier.get('tier')}, {len(nazwy)} plikow)")
@@ -451,9 +634,9 @@ def main() -> int:
     # Lista plikow i checki dotycza `sha`; push w trakcie oceny = inna zmiana (security-review v3: ABA) — PUT i tak przypiety.
     kod_teraz, pr_teraz = api('GET', f'/repos/{repo}/pulls/{nr}')
     if kod_teraz != 200 or (pr_teraz.get('head') or {}).get('sha') != sha:
-        return odmowa(cel, ['head PR zmienil sie w trakcie oceny — uruchom ponownie'], sha)
+        return odmowa(cel, ['head PR zmienil sie w trakcie oceny — uruchom ponownie'], sha, str(tier.get('tier', '')), przejsciowe=True)
     if not loguj('auto-merge-start', f"tier {tier.get('tier')}", cel, head_sha=sha):
-        return odmowa(cel, ['log bramek niezapisywalny — bez sladu nie scalam'], sha)
+        return odmowa(cel, ['log bramek niezapisywalny — bez sladu nie scalam'], sha, str(tier.get('tier', '')), przejsciowe=True)
     kod, wynik = api('PUT', f'/repos/{repo}/pulls/{nr}/merge', {'merge_method': 'squash', 'sha': sha})
     if kod in (-1, 500, 502, 503, 504):  # zerwane polaczenie / 5xx przy PUT — GitHub mogl jednak scalic, sprawdz
         kod_stan, stan = api('GET', f'/repos/{repo}/pulls/{nr}')
@@ -465,7 +648,7 @@ def main() -> int:
             return 3
     if kod != 200 or not wynik.get('merged'):
         loguj('auto-merge-github-odmowa', f"HTTP {kod}: {str(wynik.get('message', ''))[:120]}", cel, head_sha=sha)
-        return odmowa(cel, [f"GitHub odmowil scalenia (HTTP {kod}): {str(wynik.get('message', ''))[:120]}"], sha)
+        return odmowa(cel, [f"GitHub odmowil scalenia (HTTP {kod}): {str(wynik.get('message', ''))[:120]}"], sha, str(tier.get('tier', '')), zalogowane=True)
     merge_sha = str(wynik.get('sha', ''))
     loguj('auto-merge', f"tier {tier.get('tier')}, {len(nazwy)} plikow", cel, head_sha=sha, merge_sha=merge_sha)
     print(f"SCALONO {cel} (tier {tier.get('tier')}) merge={merge_sha[:7]}\n"

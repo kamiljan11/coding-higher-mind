@@ -74,9 +74,45 @@ with tempfile.TemporaryDirectory() as d:
     check("--out niepusty katalog bez klonu repo (i dowiazanie do niego) = odmowa, plik zostaje",
           r1.returncode == 2 and r2.returncode == 2 and os.path.exists(os.path.join(keep, "wazne.txt")), f"rc={r1.returncode}/{r2.returncode}")
 
+# 2026-10-05 (PR #20): diakrytyk omijal denyliste; pliki *.local.md i pieczec maszyny poza eksportem; wersja w README.
+check("fold: eid-provider -> eid-provider", exp.fold("eid-provider Þór") == "eid-provider Thor", exp.fold("eid-provider Þór"))
+check("scan: nazwa z diakrytykiem = DENY (fail-closed)", bool(exp.scan("eID " + "Au" + "ðkenni", "x.md")))
+check("substytucja: wariant z „ð” podmieniony", "eid-provider" in exp.substitute("Au" + "ðkenni")[0])
+check("scan: niewidoczny znak w nazwie (zero-width, soft hyphen) = DENY", bool(exp.scan("R\u200b" + "apyd", "x")) and bool(exp.scan("rap\u00ad" + "yd", "x")))
+check("substytucja: rental-site, second-machine, import @" + "DEV" + "ICES.md", all(w not in exp.substitute("mountain" + "-car-x zen" + "book\n@DEV" + "ICES.md\n")[0].lower()
+      for w in ("mountain" + "-car", "zen" + "book", "dev" + "ices.md")))
+check("skip_file: *.local.md i hooks/.seal.json poza eksportem",
+      exp.skip_file("skills/a/references/prywatne notatki floty (poza eksportem)") and exp.skip_file("hooks/.seal.json") and not exp.skip_file("skills/a/SKILL.md"))
+_hooks = json.loads(exp.settings_hooks_json(json.dumps({"hooks": {"SessionEnd": [{"hooks": [{"type": "command",
+        "command": 'python3 "/home/user/.claude/hooks/auto-doc.py"'}]}]}})))
+check("settings_hooks_json: python3 -> {{CLAUDE_DIR}}, bez sciezki domowej",
+      _hooks["hooks"]["SessionEnd"][0]["hooks"][0]["command"] == 'python3 "{{CLAUDE_DIR}}/hooks/auto-doc.py"', json.dumps(_hooks))
+with tempfile.TemporaryDirectory() as vd:
+    with open(os.path.join(vd, "CHANGELOG.md"), "w", encoding="utf-8") as fh:
+        fh.write("# Changelog\n\n## [1.3.0] — 2026-10-05\n- x\n")
+    def _readme(tresc: str) -> list[str]:
+        for rel in ("README.md", "README.pl.md"):
+            with open(os.path.join(vd, rel), "w", encoding="utf-8") as fh:
+                fh.write(tresc)
+        return exp.version_stamp_problems(vd)
+    check("version_stamp: brak wersji w README = problem (x2)", len(_readme("# Tytul\n")) == 2)
+    check("version_stamp: v1.3.0 + data = OK", _readme("# T\n**Version 1.3.0 — v1.3.0, 2026-10-05**\n") == [])
+    check("version_stamp: v1.3.01 nie udaje v1.3.0", len(_readme("# T\nv1.3.01 2026-10-05\n")) == 2)
+    os.makedirs(os.path.join(vd, "pg", ".github"))
+    with open(os.path.join(vd, "pg", "cases.md"), "w", encoding="utf-8") as fh:
+        fh.write("| ID | x |\n| A-ONE | y |\n| B-TWO | z |\n")
+    with open(os.path.join(vd, "pg", ".github", "w.yml"), "w", encoding="utf-8") as fh:
+        fh.write("x\n")
+    _readme("# T\n5 files, 3 scars, 26 template files\n")
+    check("count_problems: zgodne liczniki (5 plikow z .github, 3 blizny) = OK", exp.count_problems(vd) == [], repr(exp.count_problems(vd)))
+    _readme("# T\n99 files, 3 scars\n")
+    check("count_problems: reczny licznik plikow != eksport = problem", len(exp.count_problems(vd)) == 1, repr(exp.count_problems(vd)))
+
 with tempfile.TemporaryDirectory() as out:
     r = subprocess.run([sys.executable, os.path.join(HERE, "pg-export-public.py"), "--out", out], capture_output=True, text=True, check=False)
     check("eksport: exit 0, problemy 0", r.returncode == 0 and "problemy: 0" in r.stdout, r.stdout[-300:])
+    _lokalne = [os.path.join(dp, f) for dp, _, fs in os.walk(out) for f in fs if f.endswith(".local.md") or f == ".seal.json"]
+    check("eksport: zero plikow *.local.md i .seal.json", not _lokalne, repr(_lokalne[:3]))
     with open(os.path.join(out, "skills.json"), encoding="utf-8") as fh:
         data = json.load(fh)
     check("skills.json: schema_version + liczba = allowlista", data.get("schema_version") == 1 and data["count"] == len(exp.SKILLS), f"{data.get('count')} vs {len(exp.SKILLS)}")

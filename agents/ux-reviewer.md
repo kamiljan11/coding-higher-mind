@@ -34,5 +34,5 @@ model: sonnet
 </examples>
 <independence>Nie znasz innych recenzentow. Screenshot w opisie PR to twierdzenie o jednym viewportcie.</independence>
 <empty_ok>Pusta lista findings jest poprawnym wynikiem.</empty_ok>
-<budget>max 10 findings, max 25 tool calls. Odpowiedz <= 10 linii.</budget>
+<budget>max 10 findings, max 25 tool calls. Odpowiedz koncowa ZACZYNA SIE od obiektu JSON {"findings": [...]} (ten sam co w pliku; to dowod dla pg-self-approve/pg-merge), potem odpowiedz <= 10 linii.</budget>
 <model_delta>Sonnet: doslownie wg komend; brak komendy = brak findingu. Opus: nie przeprojektowuj UI; zero propozycji nowych bibliotek.</model_delta>

@@ -482,6 +482,18 @@ const RULES = [
       const p = normalizePath(expandVars(file, ctx.env), ctx.cwd);
       try { return ENV_SET_RX.test(fs.readFileSync(p, 'utf8').slice(0, 200000)); } catch (e) { return false; }
     } },
+  { id: 'claude-agent-override', esc: CONTROL_PLANE, mode: 'enforce',
+    why: 'Claude CLI z flaga podmieniajaca agentow/ustawienia/prompt systemowy (--agents, --plugin-dir, --settings, --system-prompt*) moze podstawic „recenzenta", ktory zawsze oddaje pusta liste findings — dowod dla pg-self-approve/pg-merge (security-review r6 2026-10-04). Tylko fraza uzytkownika.',
+    // security-review r7: alias/sciezka binarki (versions/2.1.x, $C, npx @anthropic-ai/claude-code, node cli.js) omijal nazwe
+    // programu — flagi specyficzne dla claude lapane w KAZDYM programie; --settings (wspolne, np. Django) tylko przy claude.
+    parsed: (cmd) => {
+      if (cmd.assigns.includes('CLAUDE_CONFIG_DIR')) return true;
+      // ops/security-review r8: `export|declare|typeset|setenv|env CLAUDE_CONFIG_DIR=...` w osobnej komendzie tej samej linii
+      if (/^(export|declare|typeset|setenv|env|set)$/.test(cmd.prog) && cmd.argv.slice(1).some((a) => /^CLAUDE_CONFIG_DIR(=|$)/.test(a))) return true;
+      const end = cmd.argv.indexOf('--');  // po `--` to argumenty, nie flagi (ops-review r7)
+      const args = cmd.argv.slice(1, end > 0 ? end : undefined);
+      return args.some((a) => CLAUDE_ONLY_FLAG_RX.test(a)) || (looksLikeClaude(cmd) && args.some((a) => CLAUDE_OVERRIDE_FLAG_RX.test(a)));
+    } },
   { id: 'readonly-agent', esc: null, mode: 'enforce',
     why: 'Recenzent/weryfikator jest READ-ONLY (blizna 2026-09-15: stash+checkout wykonany przez recenzenta). Zapis dozwolony tylko do findings/verdicts w katalogu przebiegu lub %TEMP%.',
     parsed: (cmd, ctx) => {
@@ -498,6 +510,11 @@ const RULES = [
 
 const ALLOW_TOKEN_RX = /ALLOW_[A-Z][A-Z_]*/g;
 const MINT_PHRASE_RX = /\b(pozw[oó]l|zezwalam|allow)\b[\s\S]*ALLOW_[A-Z]/i;
+const CLAUDE_OVERRIDE_FLAG_RX = /^--(agents|plugin-dir|plugin-url|settings|setting-sources|system-prompt(-file)?|append-system-prompt(-file)?|add-dir|mcp-config)(=|$)/;
+const CLAUDE_ONLY_FLAG_RX = /^--(agents|plugin-dir|plugin-url|setting-sources|append-system-prompt(-file)?)(=|$)/;
+// claude pod inna nazwa: binarka z versions/, pakiet claude-code (npx/bunx/node cli.js), program ze zmiennej ($C).
+const looksLikeClaude = (cmd) => isClaudeCli(cmd) || /^\$/.test(cmd.prog) || /[\/\\]claude[\/\\]versions[\/\\]/i.test(cmd.argv[0] || '')
+  || cmd.argv.slice(0, 3).some((a) => /claude-code/i.test(a));
 const isClaudeCli = (cmd) => cmd.prog === 'claude' || (/^(npx|bunx|pnpx)$/.test(cmd.prog) && /claude/i.test(cmd.argv[1] || ''));
 // Tresc pliku wzgledem wirtualnego cwd (po `cd`); '' gdy brak/nie plik. Limit 200 KB — wystarcza na fraze/przypisanie.
 function readSmall(file, ctx) {

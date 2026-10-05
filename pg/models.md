@@ -1,4 +1,4 @@
-# PG · Modele: delty per model + plan dryfu (2026-09-05)
+# PG · Modele: delty per model + plan dryfu (2026-09-05; lineup zaktualizowany 2026-10-05)
 
 Zrodlo: research A9 (Anthropic prompting reference + per-model pages; MAST arXiv 2503.13657; SWR-Bench).
 Zasada niezmienna: **rubryka + komendy weryfikacji + schemat JSON = cialo prompta, wspolne dla wszystkich
@@ -7,21 +7,21 @@ modeli. Quirki modelu zyja TYLKO w bloku delty ponizej.** Zmiana modelu = zmiana
 
 ## Delty (dolaczaj JEDEN blok na koncu prompta roli)
 
-### Sonnet-class (Sonnet 5 / 4.6) — domyslny finder, weryfikator T2
+### Sonnet-class (Sonnet 5.5; wczesniej 5 / 4.6) — domyslny finder, weryfikator T2
 - Instrukcje DOSLOWNE, bez implikatur; 3-5 krotkich punktow rubryki > 8 dlugich (udokumentowana delta: literal instruction following).
 - Wiecej few-shot: przyklad ODRZUCONEGO false-positive jest najwazniejszy.
 - Domyslnie zwiezly; jesli chcesz podsumowanie po tool-use, popros wprost.
 - Historycznie pod-uzywal narzedzi: „uzyj `rg` gdy X" nadal pomaga.
 - `<use_parallel_tool_calls>` podnosi rownolegle wywolania do ~100 %.
 
-### Opus-class (Opus 5 / 4.8) — security finder, adversarial, weryfikator T3
+### Opus-class (Opus 5.5; wczesniej 5 / 4.8) — security finder, adversarial, weryfikator T3
 - Potrzebuje TLUMIENIA, nie zachety: udokumentowane delty = task scope, over-verification, self-correction, subagent control.
 - Dodaj doslownie blok anty-over-engineering: „Nie dodawaj feature'ow, nie refaktoruj, nie rob 'ulepszen' poza tym, o co proszono".
 - Usun „jesli masz watpliwosci, uzyj narzedzia X" — powoduje over-triggering; ma sklonnosc do spawnowania subagentow tam, gdzie wystarczy `grep`.
 - Odpowiada dluzej niz trzeba; `effort` nie skraca wiarygodnie -> popros o zwiezlosc jawnie; nizszy `effort` = tani lewar przed edycja prompta.
 - 2 przyklady wystarcza; wiecej karmi over-engineering.
 
-### Frontier (Fable / Mythos 5.x) — orkiestrator, synteza, nie potrzebny w pipeline review
+### Frontier (Fable 5.1) — orkiestrator, synteza, nie potrzebny w pipeline review; uzytkownik od 2026-10 nie uzywa (Opus 5.5 zastapil go w sesjach glownych)
 - Adaptive thinking zawsze; nie promptuj o „dokladnosc".
 - Pisze MNIEJ komunikatow do usera — o postep prosic jawnie; usun linie „badz zwiezly" z delty (juz jest).
 - `budget_tokens` -> 400 na 4.7+; tylko `max_tokens` + adaptive thinking.

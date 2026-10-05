@@ -7,6 +7,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read   # kod PR (testy) nie dostaje tokenu z zapisem — check pg-review nie do podrobienia z testu (security-review 2026-10-04)
+
 jobs:
   quality:
     name: Build + Lint + Typecheck + Test

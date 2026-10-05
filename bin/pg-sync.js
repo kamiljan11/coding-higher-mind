@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Kopia PG na GitHubie (2026-09-26): ~/.claude na Zenbooku <-> prywatne repo <github-owner>/<your-private-pg-repo>.
-// Laptop z Linuksem dostaje ~/.claude przez Syncthing (folder claude-config, bez .git i settings.json — DEVICES.md);
-// git i commity sa tylko na Zenbooku. pull przydaje sie przy odtwarzaniu albo drugim klonie. Kierunki:
+// Kopia PG na GitHubie (2026-09-26): ~/.claude na second-machineu <-> prywatne repo <github-owner>/<your-private-pg-repo>.
+// Laptop z Linuksem dostaje ~/.claude przez Syncthing (folder claude-config, bez .git i settings.json — notatki maszyn (prywatne));
+// git i commity sa tylko na second-machineu. pull przydaje sie przy odtwarzaniu albo drugim klonie. Kierunki:
 //   status  — fetch + ile commitow do wyslania/pobrania; stan do logs/pg-sync-state.json (czyta go session-context).
 //   push    — wysyla lokalne commity PG (tylko fast-forward, nigdy force). Odmawia, gdy origin ma nowsze commity.
 //   pull    — pobiera zmiany z drugiej maszyny. To ZMIANA BRAMEK na tej maszynie, wiec wymaga zgody uzytkownika:
@@ -34,8 +34,8 @@ function log(event, reason) {
 }
 
 function status(quiet) {
-  // Laptop dostaje ~/.claude przez Syncthing BEZ .git (DEVICES.md) — tam nie ma czego sprawdzac.
-  if (!fs.existsSync(path.join(DIR, '.git'))) { if (!quiet) process.stdout.write('pg-sync: ~/.claude bez gita (maszyna na Syncthingu) — git tylko na Zenbooku.\n'); return null; }
+  // Laptop dostaje ~/.claude przez Syncthing BEZ .git (notatki maszyn (prywatne)) — tam nie ma czego sprawdzac.
+  if (!fs.existsSync(path.join(DIR, '.git'))) { if (!quiet) process.stdout.write('pg-sync: ~/.claude bez gita (maszyna na Syncthingu) — git tylko na second-machineu.\n'); return null; }
   const f = git(['fetch', '-q', 'origin', BRANCH], 30000);
   if (!f.ok) {
     if (!quiet) process.stdout.write(`pg-sync: fetch nieudany (${f.err.slice(0, 160)}) — brak sieci albo autoryzacji GitHuba\n`);

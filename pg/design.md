@@ -22,6 +22,13 @@ i nie bylo wypelniane (ADR = 0 w 6/7 repo, audyt 2026-09-05).
 5. **Co bedzie w logach, gdy sie wysypie**: komunikat z kontekstem (org, id, powod), correlation id, alert.
 Paradygmat wg `pg/paradigm.md`: functional core / imperative shell; klasy tylko dla stanu z niezmiennikami.
 
+## B+. Pojemnosc i tryby awarii (dzial: Architecture; kurs system design, 2026-10) — 5 linii, T2+ albo nowa kolejka/cache/realtime/integracja
+6. **Pojemnosc na serwetce** (`~/.claude/skills/architecture-advisor/references/sd/capacity.md`): uzytkownicy -> DAU -> akcje/dzien -> QPS sredni i szczytowy, storage/rok, transfer/dzien, liczba SEKWENCYJNYCH round tripow sciezki krytycznej. Zalozenia nazwane jako zalozenia; liczba bez zrodla = [NIEPEWNE]. Wynik: najwezsze gardlo + jeden sygnal „zaczyna bolec” (metryka/prog) + lista „nie potrzebujesz jeszcze”.
+7. **Spojnosc per przeplyw**: kazdy przeplyw przez cache, replike, indeks wyszukiwania, Realtime lub kolejke — C (platnosci, uprawnienia, stany) czy A (katalog, feed)? Co widzi uzytkownik przy nieswiezych danych? Decyzje stanu czytaj z bazy, nie z cache (`~/.claude/skills/architecture-advisor/references/sd/02 › Spójność per przepływ`).
+8. **Tryby awarii zaleznosci**: dla KAZDEJ zewnetrznej zaleznosci (payment-gateway, Twilio, Resend, LLM, Woo) — timeout, retry (tylko idempotentne, backoff+jitter, limit prob), komunikat dla uzytkownika, kill switch w RUNBOOK (`~/.claude/skills/architecture-advisor/references/sd/05 › Zależności zewnętrzne`).
+9. **Powtorzenia i wyscigi**: kazdy zapis, ktory moze przyjsc 2x (webhook, zadanie, retry klienta) ma klucz idempotencji; check-then-act jest atomowy w bazie (UNIQUE / ON CONFLICT / UPDATE z warunkiem / FOR UPDATE), nie w kodzie (`~/.claude/skills/architecture-advisor/references/sd/05 › Idempotentność i deduplikacja`, `sd/05 › Współbieżność i wyścigi`). Test: to samo zdarzenie 2x -> jeden efekt.
+10. **„Nie potrzebujesz jeszcze” jest decyzja**: kolejka, cache, realtime, silnik wyszukiwania, replika, shard, podzial na uslugi, ktorych NIE dodajemy — 1 linia w ADR z sygnalem powrotu (`architecture-advisor`, `tradeoff-catalog`); dodanie czegokolwiek z listy bez nazwanego OBECNEGO problemu = pytanie „czy w ogole budowac?”.
+
 ## C. Threat-model-lite (dzial: Security) — STRIDE w 6 pytaniach, tylko T2+
 | Litera | Pytanie | Domyslna odpowiedz floty |
 |---|---|---|
@@ -45,8 +52,10 @@ Nowa tabela z FK do encji tenantowej => `org_id` albo trigger `%same_org%` + **t
 - [ ] Sciezki krytyczne: nowy flow uzytkownika = wiersz w `docs/CRITICAL-PATHS.md` (persona, kroki, oczekiwany wynik) — inaczej QA nie ma czego klikac.
 - [ ] „U mnie dziala" != done (software-house 2027): sciezka krytyczna przechodzi na viewporcie `mobile-budget` (360x640) z matrycy `docs/CRITICAL-PATHS.md`, a nie tylko na monitorze deva; stary Android z slabym zasiegiem to klient klienta, ktory ma zaplacic — nie edge case do olania. Brak sprawdzenia = napisz to jawnie w raporcie.
 
+- [ ] Skala i awarie: mini-design ma szacunek QPS/storage i budzet opoznien (nie „skalowalne”); nowa zewnetrzna zaleznosc ma timeout + retry + komunikat; nowy publiczny endpoint/formularz ma limit (rate limit) i cap kosztu AI/SMS per org.
+
 ## E. ADR — kiedy obowiazkowy
-Nowa zaleznosc runtime · nowa tabela/schemat · nowy modul/granica · zmiana auth/platnosci/i18n · wybor dostawcy (payment-gateway vs Stripe, Resend vs Twilio) · odejscie od `paradigm.md`.
+Nowa zaleznosc runtime · nowa tabela/schemat · nowy modul/granica · zmiana auth/platnosci/i18n · wybor dostawcy (payment-gateway vs Stripe, Resend vs Twilio) · odejscie od `paradigm.md` · dodanie kolejki/cache/realtime/silnika wyszukiwania/repliki · swiadome „nie dodajemy” dla czegos z tej listy (1 linia).
 Szablon: `templates/repo/docs/adr/0000-template.md`. Tresc: kontekst, decyzja, odrzucone alternatywy z powodem, konsekwencje, data, jak cofnac. Bramka: stop-gate (T2+) pyta o ADR, gdy diff dodaje katalog/tabele/zaleznosc bez pliku w `docs/adr/` w tym samym diffie (nudge, nie blok — 2026-09-05).
 
 ## F. Dzien 0 (nowy projekt) — kolejnosc, nie lista zyczen

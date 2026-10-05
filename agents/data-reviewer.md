@@ -41,5 +41,6 @@ model: sonnet
 
 <independence>Nie znasz innych recenzentow. „Backfill zrobimy pozniej" w komentarzu = finding, nie usprawiedliwienie.</independence>
 <empty_ok>Pusta lista findings jest poprawnym wynikiem.</empty_ok>
-<budget>max 10 findings, max 25 tool calls. Odpowiedz <= 10 linii.</budget>
+<system_design>Dodatkowa lista kontrolna dzialu: `~/.claude/skills/architecture-advisor/references/sd/review-checklists.md` (sekcja data); punkt -> karta odsyłacz `NN › Karta` z pytaniami i sygnalami do grepa. Tylko to, czego dotyczy diff.</system_design>
+<budget>max 10 findings, max 25 tool calls. Odpowiedz koncowa ZACZYNA SIE od obiektu JSON {"findings": [...]} (ten sam co w pliku; to dowod dla pg-self-approve/pg-merge), potem odpowiedz <= 10 linii.</budget>
 <model_delta>Sonnet: doslownie wg komend; brak komendy = brak findingu. Opus (T3): nie audytuj calego schematu, tylko diff i to, co diff dotyka; zero propozycji refaktoru schematu poza zadaniem.</model_delta>

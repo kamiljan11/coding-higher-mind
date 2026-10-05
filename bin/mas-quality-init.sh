@@ -12,7 +12,7 @@ REPO="$(cd "$REPO" && pwd)"
 mkdir -p "$REPO/.github/workflows" "$REPO/docs/adr"
 
 # Workflows: CREATE-ONLY (nadpisanie skasowalo lokalne utwardzenia w workshop-app, 2026-09-05).
-for wf in quality.yml claude-review.yml release.yml; do
+for wf in quality.yml claude-review.yml pg-review.yml release.yml; do
   src="$TPL/.github/workflows/$wf"; dst="$REPO/.github/workflows/$wf"
   if [ ! -e "$dst" ]; then cp "$src" "$dst"; echo "[+] .github/workflows/$wf dodany"; continue; fi
   if cmp -s "$src" "$dst"; then echo "[=] $wf identyczny z szablonem"; continue; fi
@@ -63,4 +63,4 @@ if [ -d "$REPO/supabase/migrations" ] && [ -e "$BIN/sql-migration-lint.js" ]; th
   echo "[i] sql-migration-lint: HIGH powyzej = dlug T3; pre-commit blokuje tylko HIGH w nowych/stagowanych plikach"
 fi
 echo "[+] Bootstrap PG v3 gotowy. Nastepne: git add -A; commit 'chore(quality): PG v3 bootstrap' (commit-msg wymaga conventional commits)"
-echo "[i] Sekret repo (raz, opcjonalnie): CLAUDE_CODE_OAUTH_TOKEN: bez niego claude-review.yml grzecznie sie pomija"
+echo "[i] Sekret repo (raz): CLAUDE_CODE_OAUTH_TOKEN — wymagany dla auto-merge T1/T2 (check pg-review), opcjonalny dla claude-review; bez niego oba sie pomijaja (SKIPPED)"

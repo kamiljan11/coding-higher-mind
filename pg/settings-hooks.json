@@ -1,5 +1,5 @@
 {
-  "$comment": "Wpiecia PG z settings.json Zenbooka (bin/pg-wire.js --export). Na innym komputerze: pg-wire.js --apply.",
+  "$comment": "Wpiecia PG z settings.json autora (bin/pg-wire.js --export). Na innym komputerze: pg-wire.js --apply.",
   "exported_at": "2026-09-27T08:25:30.978Z",
   "hooks": {
     "SessionStart": [

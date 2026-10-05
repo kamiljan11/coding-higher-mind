@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Wpiecia PG w settings.json na kazdym komputerze (2026-09-26). Pliki PG jada Syncthingiem (DEVICES.md), ale settings.json
+// Wpiecia PG w settings.json na kazdym komputerze (2026-09-26). Pliki PG jada Syncthingiem (notatki maszyn (prywatne)), ale settings.json
 // jest per komputer (inne sciezki), wiec bez wpiec Claude Code na laptopie nie odpala zadnej bramki.
-//   --export  (Zenbook): hooks + permissions.deny z settings.json -> pg/settings-hooks.json (jedzie Syncthingiem)
+//   --export  (second-machine): hooks + permissions.deny z settings.json -> pg/settings-hooks.json (jedzie Syncthingiem)
 //   --apply   (laptop):  wpina je do lokalnego settings.json ze sciezkami tego komputera, kopia .bak, core.hooksPath,
 //                        chmod git-hooks, test na zywo (bash-guard MUSI zablokowac force-push). Zmienia bramki = wymaga
 //                        frazy uzytkownika: `pozwol ALLOW_CONTROL_PLANE`, potem ALLOW_CONTROL_PLANE=1 node ~/.claude/bin/pg-wire.js --apply
@@ -41,7 +41,7 @@ const escRx = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const PG_HOOK_CMD_RX = new RegExp('^node "(?:' + escRx(CANON) + '|' + escRx(LOCAL) + ')hooks/[\\w.-]+\\.js"$'); // dokladnie jedna spacja, bez \s (LF)
 const isPgHook = (h) => PG_HOOK_CMD_RX.test(String((h && h.command) || '').replace(/\\/g, '/'));
 
-// Komenda ze sciezkami Zenbooka -> sciezki tego komputera. Sciezka Windows spoza ~/.claude (np. <backup-drive>:\agent-os) na
+// Komenda ze sciezkami second-machinea -> sciezki tego komputera. Sciezka Windows spoza ~/.claude (np. <backup-drive>:\agent-os) na
 // Linuksie nie istnieje -> null (hook pominiety, zgloszony). Litera dysku tylko na poczatku slowa/cudzyslowu (nie `https://`).
 function localize(cmd) {
   const out = String(cmd).split(CANON).join(LOCAL);
@@ -89,7 +89,7 @@ const localDeny = (deny) => (deny || []).map((d) => (process.platform === 'win32
 
 function exportSnap() {
   const s = readJson(SETTINGS);
-  const snap = { $comment: 'Wpiecia PG z settings.json Zenbooka (bin/pg-wire.js --export). Na innym komputerze: pg-wire.js --apply.',
+  const snap = { $comment: 'Wpiecia PG z settings.json second-machinea (bin/pg-wire.js --export). Na innym komputerze: pg-wire.js --apply.',
     // TYLKO hooki PG (~/.claude/hooks/*): hook spoza PG w migawce = dowolna komenda wpieta na drugim komputerze bez sladu w --check (security-review 2026-09-27).
     exported_at: new Date().toISOString(), hooks: filterHooks(s.hooks, isPgHook), deny: (s.permissions && s.permissions.deny) || [] };
   writeAtomic(SNAP, JSON.stringify(snap, null, 2) + '\n');

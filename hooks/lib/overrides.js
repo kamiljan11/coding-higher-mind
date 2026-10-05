@@ -169,7 +169,7 @@ function mintSelf(sid, dir, names, meta, now = Date.now()) {
   withLock(RUNS_SID, () => {
     const used = read(RUNS_SID);
     used.runs = used.runs || {};
-    if (used.runs[run]) throw new Error('overrides: przebieg recenzji juz zuzyty — puść pg-review ponownie');
+    if (used.runs[run]) throw new Error('overrides: przebieg recenzji juz zuzyty — ten diff w tej sesji dal juz wyjatek; nowy wymaga zmiany diffu albo frazy uzytkownika');
     for (const [k, t] of Object.entries(used.runs)) if (now - Number(t) > RETENTION_MS) delete used.runs[k]; // przyciecie ksiegi
     used.runs[run] = now;
     write(RUNS_SID, used);

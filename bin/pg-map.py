@@ -99,7 +99,7 @@ def render_root() -> str:
               "-> PR -> CI z `templates/repo/.github/workflows/*` -> `bin/mas_merge_prs.py` (merge tylko na aktualnym merge-ref) -> `bin/wait_prod_multi.py` (dowod z produkcji).",
               "Zakonczenie sesji: `hooks/stop-gate.js` (tier z diffu, T2+ wymaga recenzentow z `agents/` przez skill `pg-review`).",
               "", "## Katalogi", "", "| Katalog | Rola |", "|---|---|"]
-    # Bez licznikow plikow (2026-10-04): liczby roznily sie miedzy laptopem i Zenbookiem (skille-junctiony, porty),
+    # Bez licznikow plikow (2026-10-04): liczby roznily sie miedzy laptopem i second-machineiem (skille-junctiony, porty),
     # wiec --check byl zawsze czerwony na jednej z maszyn. Mapa opisuje role katalogow, nie ich rozmiar.
     for d, role in SECTIONS:
         lines.append(f"| `{d}/` | {role} |")

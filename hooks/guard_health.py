@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Guard-health: deterministyczny audyt calego systemu jakosci (0 tokenow AI).
 # Sprawdza, czy bramki NADAL sa wpiete — hooki, git-hooki, taski, blokada platnych tokenow —
 # i (v3) czy REALNIE dzialaja: log bramek gates.jsonl + bateria testow pozytywnych.
@@ -20,7 +21,7 @@ HOME = Path(os.environ.get("USERPROFILE", str(Path.home())))
 CLAUDE = HOME / ".claude"
 _OWNER_LOG_DIR = Path(r"~/.claude/memory/log")  # vault wlasciciela; brak dysku (wersja publiczna PG) -> ~/.claude/memory/log
 # Linux (laptop, 2026-10-02): vault z Syncthinga ~/Obsidian/MAIN; osobny plik logu per komputer, bo deferred-task-runner na
-# Zenbooku czyta ogon guard-health.md jako stan Zenbooka, a rownolegly zapis z dwoch komputerow daje sync-conflict.
+# second-machineu czyta ogon guard-health.md jako stan second-machinea, a rownolegly zapis z dwoch komputerow daje sync-conflict.
 _LINUX_LOG_DIR = Path.home() / "Obsidian" / "MAIN" / "Claude Memory" / "Log"
 LOG_DIR = next((d for d in (_OWNER_LOG_DIR, _LINUX_LOG_DIR) if d.exists()), CLAUDE / "memory" / "log")
 LOG = LOG_DIR / ("guard-health.md" if os.name == "nt" else f"guard-health-{platform.node() or 'linux'}.md")
@@ -65,6 +66,7 @@ HOOK_WIRING = [
     ("PostToolUse", "loop-monitor.js"),
     ("PreCompact", "precompact-snapshot.js"),
     ("SessionStart", "session-context.js"),
+    ("SessionEnd", "auto-doc.py"),  # notatka sesji w Obsidianie (od 2026-10-05; wczesniej auto_doc.py nie byl wpiety)
 ]
 LIB_FILES = ["lib/gate-log.js", "lib/lint-file.js", "lib/shell-parse.js", "lib/bash-rules.js", "lib/overrides.js", "lib/protected-paths.js"]
 # `tsc --noEmit` przy project references sprawdza NIC — kazde miejsce z typecheckiem musi znac `tsc -b`
@@ -74,6 +76,15 @@ TSC_B_SITES = [
     CLAUDE / "templates" / "repo" / ".github" / "workflows" / "quality.yml",
     CLAUDE / "scheduled-tasks" / "fleet-pr-reviewer" / "SKILL.md",
 ]
+
+# auto-doc (2026-10-05): bledy hooka z ostatnich 24 h = RED (poprzedni auto_doc nie dzialal 2 tygodnie niezauwazony)
+_ad_log = CLAUDE / "logs" / "auto-doc.log"
+try:
+    _ad_recent = [ln for ln in _ad_log.read_text(encoding="utf-8").splitlines()[-50:]
+                  if ln[:19] >= (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()[:19]]
+except OSError:
+    _ad_recent = []
+check("auto-doc: brak bledow w logs/auto-doc.log z ostatnich 24 h", not _ad_recent, (_ad_recent or [""])[-1][:160])
 
 # 1. settings.json: hooki wpiete, pliki istnieja, matchery i timeouty (v3)
 try:
@@ -161,7 +172,8 @@ if GATES_LOG.exists():
     # Merge bez frazy (pg-merge-bezpieczny v2, ops-review 2026-10-01): rozklad zawsze widoczny; start bez wyniku albo wynik
     # niepewny (zerwane polaczenie przy PUT /merge) = RED — ktos musi sprawdzic, czy PR wszedl na main.
     start, scalone, odmowy, niepewne, gh_odmowy = (counts[("pg-merge-bezpieczny", "auto-merge" + s)] for s in ("-start", "", "-odmowa", "-niepewny", "-github-odmowa"))
-    info.append(f"auto-merge 7 dni: start={start} scalone={scalone} odmowy={odmowy} niepewne={niepewne} github-odmowy={gh_odmowy}, "
+    ocena = counts[("pg-merge-bezpieczny", "auto-merge-ocena-odmowa")]  # --sprawdz: tylko info, bez RED
+    info.append(f"auto-merge 7 dni: start={start} scalone={scalone} odmowy={odmowy} ocena-odmowy={ocena} niepewne={niepewne} github-odmowy={gh_odmowy}, "
                 f"stop-gate suppressed={counts[('stop-gate', 'suppressed')]}")
     check("auto-merge: kazdy start ma pewny wynik", niepewne == 0 and start <= scalone + gh_odmowy,
           f"start={start} scalone={scalone} niepewne={niepewne} — sprawdz PR-y w gates.jsonl")
@@ -202,7 +214,7 @@ check("test_dup_literals: 8 przypadkow", _rc_out(_r)[0] == 0, (_rc_out(_r)[1].st
 _r = sh([sys.executable, str(CLAUDE / "bin" / "pg-map.py"), "--check"], timeout=60)
 check("pg-map: README.md + bin/README.md aktualne, kazde narzedzie w bin/ ma samoopis", _rc_out(_r)[0] == 0 and "bez opisu: 0" in _rc_out(_r)[1], (_rc_out(_r)[1].strip().splitlines() or ["brak wyniku"])[-1])
 
-# Wpiecia hookow tego komputera = migawka pg/settings-hooks.json (pg-wire.js, 2026-09-26). Rozjazd na Zenbooku = laptop
+# Wpiecia hookow tego komputera = migawka pg/settings-hooks.json (pg-wire.js, 2026-09-26). Rozjazd na second-machineu = laptop
 # dostanie stare wpiecia (brak --export); na laptopie = czesc bramek nie dziala (brak --apply). Widoczne tez w zadaniu bez sesji.
 _w = sh(["node", str(CLAUDE / "bin" / "pg-wire.js"), "--check"], timeout=60)
 check("pg-wire: wpiecia hookow w settings.json = pg/settings-hooks.json", _rc_out(_w)[0] == 0, (_rc_out(_w)[1].strip().splitlines() or ["brak wyniku"])[-1])
@@ -299,7 +311,7 @@ try:
     with _ur.urlopen(_ur.Request("http://<secret-manager-url>/api/status", headers={"User-Agent": "pg-guard-health"}), timeout=8) as _resp:
         check("Infisical vault odpowiada (<secret-manager-url>)", _resp.status == 200, f"HTTP {_resp.status}")
 except Exception as _err:  # noqa: BLE001 — kazda awaria sieci/kontenera = RED z powodem
-    check("Infisical vault odpowiada (<secret-manager-url>)", False, f"{type(_err).__name__}: {str(_err)[:80]} -> " + ("cd <secret-manager> && docker compose -f docker-compose.prod.yml -p infisical-vault up -d" if os.name == "nt" else "systemctl --user restart zenbook-infisical (tunel SSH do Zenbooka); dalej pada = Infisical na Zenbooku"))
+    check("Infisical vault odpowiada (<secret-manager-url>)", False, f"{type(_err).__name__}: {str(_err)[:80]} -> " + ("cd <secret-manager> && docker compose -f docker-compose.prod.yml -p infisical-vault up -d" if os.name == "nt" else "systemctl --user restart second-machine-infisical (tunel SSH do second-machinea); dalej pada = Infisical na second-machineu"))
 
 # 2i. Widocznosc repo z sekretami w historii: MUSZA byc prywatne (bez tokena API zwraca 404).
 #     Incydent 2026-09-05: agency-site wrocilo do public z haslami admina w historii (Log/incidents.md).
@@ -314,10 +326,21 @@ if PRIVATE_LIST.exists():
                 code = resp.status
         except urllib.error.HTTPError as err:
             code = err.code
+            # 403/429 = limit API bez tokena (x-ratelimit-remaining: 0), NIE publiczne repo (falszywy RED 2026-10-04) —
+            # wtedy strona WWW repo (bez limitu API): 404 = prywatne, 200 = publiczne.
+            if code in (403, 429):
+                try:
+                    with urllib.request.urlopen(urllib.request.Request(f"https://github.com/<github-owner>/{name}", method="HEAD",
+                                                                       headers={"User-Agent": "pg-guard-health"}), timeout=15) as www:
+                        code = www.status
+                except urllib.error.HTTPError as err2:
+                    code = err2.code
+                except (urllib.error.URLError, TimeoutError, OSError):
+                    code = None
         except (urllib.error.URLError, TimeoutError, OSError):
             code = None
-        if code is None:
-            info.append(f"visibility {name}: brak sieci — nie sprawdzono")
+        if code is None or code in (403, 429):
+            info.append(f"visibility {name}: {'limit API/WWW' if code else 'brak sieci'} — nie sprawdzono")
         else:
             check(f"repo {name} prywatne (API bez tokena -> 404)", code == 404, f"HTTP {code} = PUBLICZNE! sekrety w historii")
 

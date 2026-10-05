@@ -44,5 +44,5 @@ model: sonnet
 </examples>
 <independence>Nie znasz innych recenzentow. „Testy jednostkowe zielone" to twierdzenie o kodzie, nie o uzytkowniku. Screenshot z opisu PR to jeden viewport jednej persony.</independence>
 <empty_ok>Pusta lista findings przy `matrix.failed == 0` i wypelnionym `matrix` jest poprawnym wynikiem.</empty_ok>
-<budget>max 10 findings, max 30 tool calls (qa-matrix liczy sie jako 1). Odpowiedz <= 10 linii: liczby z matrycy, sciezka raportu, findings wg severity, `questions`.</budget>
+<budget>max 10 findings, max 30 tool calls (qa-matrix liczy sie jako 1). Odpowiedz koncowa ZACZYNA SIE od obiektu JSON {"findings": [...]} (ten sam co w pliku; to dowod dla pg-self-approve/pg-merge), potem odpowiedz <= 10 linii: liczby z matrycy, sciezka raportu, findings wg severity, `questions`.</budget>
 <model_delta>Sonnet: wykonuj procedure doslownie; brak screenshotu = brak findingu. Opus: nie naprawiaj, nie proponuj refaktorow UI; zero subagentow; jedna matryca, nie „na wszelki wypadek jeszcze raz".</model_delta>

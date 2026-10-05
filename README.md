@@ -2,6 +2,8 @@
 
 # Coding Higher Mind — PG (PROMPT-GUARD) for Claude Code
 
+**Version v1.3.0 — last updated 2026-10-05.** 10 public releases since 1.0.0 (2026-09-12). Every system needs time to mature: this one is young, changes fast and is honest about its limits ([known limits](pg/known-limits.md)).
+
 **Quality gates, reviewer agents, routines and an anti-hallucination protocol for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Claude Desktop — enforced by events, not by willpower.**
 
 The name comes from the author's other long project, a free guidebook on practical spirituality ([kamiljan.com](https://kamiljan.com)): practice over belief. A rule you *intend* to follow is a belief. A gate that fires on an event is a practice. This repository is the practice — the "higher mind" that sits above every coding session and refuses to let a good intention be the only safeguard.
@@ -26,12 +28,15 @@ This repository is that system, exported and sanitized so you can install it on 
 | **Git gates** | commit / push (global `core.hooksPath`) | conventional commit message; secret scan; base freshness (`merge-base` — a clone on an unrelated history is blocked); duplicate literals in new code; new dependency must exist on npm/PyPI and not be a typosquat; commented-out code; new `TODO` without a ledger entry; PII column without a privacy inventory row; SQL migration lint (RLS `USING` + `WITH CHECK`, `SECURITY DEFINER` hygiene, tenant FK); GitHub's own workflow parser on workflow files; diff size > 400 source lines; **new import cycle or import against declared layers** | `git-hooks/pre-commit`, `git-hooks/pre-push`, `git-hooks/commit-msg`, `bin/*` |
 | **Reviewer departments** | T1+ (recommended) / T2+ (required) | 9 read-only agents with **fresh context** and a JSON schema: code, security, data, ops, ux, product, qa, verifier, catfish (devil's advocate). A finding without an executed command in `evidence` does not exist. Aggregation is code (`bin/pg-aggregate.js`, k-of-n), not a model; a verifier tries to *refute* findings; no chat between agents | `agents/`, `skills/pg-review` |
 | **Council** | architecture decisions | facts → positions → a mandatory dissenter → aggregation → ADR; the catfish role exists because "quiet agreement" is the top failure mode of agent groups | `skills/pg-council`, `bin/pg-council.js`, `pg/council.md` |
-| **Doctrine** | loaded on the event that needs it | `design.md` (before code: PRD-lite incl. sponsor/ROI, mini-design, STRIDE-lite, ADR), `dod.md` (definition of done per tier), `prr.md` (before deploy), `postmortem.md` (incident → new gate or new scar), `paradigm.md` (functional core / imperative shell; a stranger takes the repo over in one day), `cases.md` (**149 scars** — every gate points at the real failure that created it) | `pg/` |
+| **Merge with proof of review** | merging a PR (only through the script) | `bin/pg-merge-bezpieczny.py` merges without a typed phrase when all checks are green and there is proof: none for docs (T0), a code review of the exact diff (T1), code + ops (T2); T3 and sensitive paths still need the human phrase. A second proof comes from the PR review in CI (`pg-review.yml`) read through the Actions API; a kill-switch file turns it off | `bin/pg-merge-bezpieczny.py`, `bin/pg-merge-dowod.js`, `templates/repo/.github/workflows/pg-review.yml`, `pg/adr/0003-*.md` |
+| **Session notes** | end of every session (`SessionEnd`) | appends a short note (first request, changed files, commits, clipped last answer; secrets, e-mail addresses and national ID numbers redacted; phone numbers and names are not) to `~/.claude/session-notes` or `AUTO_DOC_DIR`; never blocks | `hooks/auto-doc.py` |
+| **System design** | a prompt that makes an engineering decision; step B+ of `design.md` | decision cards per building block (when it pays for itself, default "you don't need it yet", cost, how it fails, review questions with a search command), a capacity worksheet and reviewer checklists; the prompt-guard points at them | `skills/architecture-advisor/references/sd/`, `pg/design.md` |
+| **Doctrine** | loaded on the event that needs it | `design.md` (before code: PRD-lite incl. sponsor/ROI, mini-design, STRIDE-lite, ADR), `dod.md` (definition of done per tier), `prr.md` (before deploy), `postmortem.md` (incident → new gate or new scar), `paradigm.md` (functional core / imperative shell; a stranger takes the repo over in one day), `cases.md` (**165 scars** — every gate points at the real failure that created it) | `pg/` |
 | **Repo template** | new repository | CI (`quality.yml`, mutation testing on changed files, release, optional Claude review that *skips* without a token instead of faking green), strict eslint/tsconfig, PR template with docs-parity checkbox, `docs/ARCHITECTURE.md` with a **parsed module-boundary block**, `GLOSSARY`, `RUNBOOK`, `PRIVACY`, `CRITICAL-PATHS` QA matrix, ADR template | `templates/repo/`, `bin/mas-quality-init.ps1` |
 | **Fleet tools** | on demand / scheduled | strict branch protection from workflow job names, PR merge only on an up-to-date merge-ref, single-file rollouts as PRs, production proof from the Vercel API (never a hand-typed URL), session and git-history mining, weekly guard health, monthly reviewer calibration (the same defect in two wrappers must get the same verdict) | `bin/mas_*.py`, `scheduled-tasks/` |
 | **Self-tests** | `node bin/pg-selftest.js` | every gate has a **positive** test (it must block) and the rule→gate coverage is checked by script; the README index of tools is generated from the tools' own headers (a tool without a self-description shows up as debt) | `bin/test_*.js`, `bin/pg-rule-coverage.js`, `bin/pg-map.py` |
 
-Counted on export day, not estimated: 212 files, ~23 400 lines, 39 tools, 11 test suites, 10 hooks, 3 git hooks, 9 reviewer agents, 160 scars, 25 template files, 7 Claude Code routines + 7 desktop routines.
+Counted on export day, not estimated: 345 files, ~45 800 lines, 43 tools, 15 test suites, 11 hooks, 3 git hooks, 9 reviewer agents, 165 scars, 26 template files, 18 skills, 7 Claude Code routines + 7 desktop routines.
 
 ---
 
@@ -58,7 +63,7 @@ node install.mjs               # copies into ~/.claude, merges hooks into settin
 node install.mjs --yes         # ...and sets `git config --global core.hooksPath ~/.claude/git-hooks`
 ```
 
-What the installer promises (read `install.mjs`, it is 150 lines):
+What the installer promises (read `install.mjs`, it is about 210 lines):
 
 - **Never overwrites a file you changed** unless `--force` (then a backup goes to `~/.claude/_pg-backup-<timestamp>/`); differing package versions are written next to yours as `*.pg-new`.
 - `settings.json`: **merges** the `hooks` key — your other hooks and keys stay; paths are absolute for your machine.
@@ -90,7 +95,7 @@ Any red result stops the change right there. Every escape hatch is a named env v
 ## Three ideas the whole thing rests on
 
 1. **Gates, not prose.** A rule the agent can forget is not a rule. Everything that matters fires on an event (prompt, edit, command, stop, commit, push, CI) and has a test proving it blocks its own case. Rules that only exist in a document are checked by `bin/pg-rule-coverage.js` — a rule without a gate fails the audit.
-2. **Scar → gate.** `pg/cases.md` holds 160 real failures from the fleet (RLS gate on the wrong state, a fallback that silently changed the seller on an invoice, green CI on a stale merge-ref that broke `main`, a hook that read stdin twice and never ran, …). Every checklist item and every gate cites the scar it came from — the Google SRE rule. Postmortems end with a new gate or a new scar, never with "be more careful".
+2. **Scar → gate.** `pg/cases.md` holds 165 real failures from the fleet (RLS gate on the wrong state, a fallback that silently changed the seller on an invoice, green CI on a stale merge-ref that broke `main`, a hook that read stdin twice and never ran, …). Every checklist item and every gate cites the scar it came from — the Google SRE rule. Postmortems end with a new gate or a new scar, never with "be more careful".
 3. **Proof, not prose.** "Done" means a command, an exit code and an observed state. Reports end with `VERIFIED` (evidence cited) / `UNVERIFIED` (what is missing) / `FAILED` (what happened). This matters most where agents are known to overstate success (75.8 % of agent "successes" in one benchmark were claims without evidence) and to fold under pushback. See [docs/VERIFIED-PROTOCOL.md](docs/VERIFIED-PROTOCOL.md) — it is the single most useful thing to paste into any Claude Cowork or scheduled-task prompt.
 
 ---
@@ -112,9 +117,9 @@ Per-repo overrides live in the repo's `CLAUDE.md`: `pg.tier_floor: T2`, `pg.phas
 
 | Path | What is in it |
 |---|---|
-| `hooks/` | Claude Code hooks (7) + `lib/` (risk tier, lint runner, gate telemetry, trusted roots) + `guard_health.py` (audit of the system itself) |
+| `hooks/` | Claude Code hooks (11) + `lib/` (risk tier, lint runner, gate telemetry, trusted roots) + `guard_health.py` (audit of the system itself) |
 | `git-hooks/` | `commit-msg`, `pre-commit`, `pre-push` — installed once via `core.hooksPath`, active in every repo |
-| `bin/` | 39 zero-token tools + 11 test suites; [bin/README.md](bin/README.md) is generated from each tool's own header |
+| `bin/` | 43 zero-token tools + 15 test suites; [bin/README.md](bin/README.md) is generated from each tool's own header |
 | `agents/` | reviewer departments (read-only, fresh context, JSON schema, `how_to_check` per rubric line) |
 | `pg/` | doctrine: `paradigm`, `design`, `dod`, `prr`, `postmortem`, `cases`, `council`, `models`, `github-ready`, retro; `adr/`; `eval/` (golden set for the gates + reviewer calibration pairs) |
 | `skills/` | 18 skills, listed in `skills.json` (also packaged as the `higher-mind-skills` plugin in `plugins/`) |
@@ -142,6 +147,7 @@ Everything that was specific to the author's machine was removed or made configu
 
 ## Honest limits
 
+- Auto-merge rests on a probabilistic proof: one LLM reviewer in CI (open to prompt injection from the diff, no k-of-n) plus a local review; an agent with push rights can change the workflow in an abandoned PR and read the secret. Read [pg/known-limits.md](pg/known-limits.md) before switching it on; the kill switch is one file.
 - Built and proven at SME scale (dozens of repos, one owner, tens of thousands of lines), not at hyperscale.
 - Messages are in Polish today.
 - Reviewer agents cost tokens (T2 ≈ 4×, T3 ≈ 8–10× the cost of one diff review); zero-token gates run first so agents never see red lint.

@@ -1,11 +1,11 @@
 name: pg-review
-# Recenzja PR poza kontrola agenta (decyzja Kamila 2026-10-04): swiezy runner GitHuba, checkout head PR, `claude -p`
+# Recenzja PR poza kontrola agenta (decyzja uzytkownika 2026-10-04): swiezy runner GitHuba, checkout head PR, `claude -p`
 # TYLKO z narzedziami odczytu (Read/Grep/Glob) na diffie base...head. Check `pg-review` jest zielony WYLACZNIE przy
 # werdykcie APPROVE bez findings blocker/major — pg-merge-bezpieczny.py traktuje go jako dowod recenzji T1/T2
 # (lokalne transkrypty agenta da sie podrobic, ten check — nie bez zmiany workflow, a zmiana .github wymaga frazy).
 # Bez sekretu, przy bledzie infrastruktury (limit subskrypcji, timeout, nieczytelny wynik) albo za duzym diffie check
 # `pg-review` jest SKIPPED: brak dowodu (pg-merge odmowi T1/T2), ale bez czerwieni blokujacej inne PR (ops-review).
-# TYLKO OAuth/subskrypcja (`claude setup-token`) — zero platnych tokenow API (decyzja Kamila 2026-08-09).
+# TYLKO OAuth/subskrypcja (`claude setup-token`) — zero platnych tokenow API (decyzja uzytkownika 2026-08-09).
 # NIE ustawiaj `pg-review` jako required status check w ochronie galezi: GitHub traktuje SKIPPED (INFRA) jak zaliczony.
 # Dowod czyta wylacznie pg-merge-bezpieczny.py (skipped = brak dowodu = odmowa); mas_branch_protect.py go nie wymaga.
 # Read poza katalogiem roboczym i $RUNNER_TEMP konczy sie permission_denials -> INFRA (sprawdzone na CLI 2.1.283).
@@ -138,15 +138,16 @@ jobs:
                   koniec('INFRA', f"odmowy narzedzi w recenzji: {str(out.get('permission_denials'))[:200]}")
               surowy = str(out.get('result', ''))
               # JSON na poczatku, w bloku ```json albo od pierwszej `{` (pilot: recenzent pisal zdanie przed blokiem).
-              obj = None
+              obj, zakres = None, (0, 0)
               plot = re.search(r'```(?:json)?\s*(\{)', surowy)
               for start in [len(surowy) - len(surowy.lstrip())] + ([plot.start(1)] if plot else []) + [surowy.find('{')]:
                   try:
-                      kandydat, _ = json.JSONDecoder().raw_decode(surowy[start:]) if start >= 0 else (None, 0)
+                      kandydat, dlugosc = json.JSONDecoder().raw_decode(surowy[start:]) if start >= 0 else (None, 0)
                   except ValueError:
                       continue
-                  if isinstance(kandydat, dict):
-                      obj = kandydat
+                  # Tylko obiekt wyniku recenzji (ops r12: `{"a": 1}` w prozie zaslanial token REQUEST_CHANGES).
+                  if isinstance(kandydat, dict) and ('verdict' in kandydat or 'findings' in kandydat):
+                      obj, zakres = kandydat, (start, start + dlugosc)
                       break
               # Odrzucenie w DOWOLNYM formacie (proza, inna pisownia werdyktu) = REQUEST_CHANGES, nie INFRA — inaczej darmowe
               # ponowne losowanie recenzji (data-review r9). Zapisywane przed kontrolami kompletnosci.
@@ -155,7 +156,14 @@ jobs:
               # Proza: tylko dokladny token z kontraktu (r11: „I would not reject" nie jest odrzuceniem; proza = INFRA).
               # RC tylko dla znanych wartosci odrzucenia; null/nieznany werdykt = INFRA (r11: flake formatu nie zamyka PR na stale).
               odrzucenie = werdykt in ('REQUEST_CHANGES', 'CHANGES_REQUESTED', 'REJECT', 'REJECTED')
-              if odrzucenie or (not isinstance(obj, dict) and re.search(r'\bREQUEST_CHANGES\b', surowy)):
+              # Ciezkie findings = odrzucenie NIEZALEZNIE od verdict i PRZED kontrolami kompletnosci (ops r12: niepelny odczyt
+              # albo zly sha z blockerem dawal INFRA = ponowne losowanie).
+              fs_wczesne = obj.get('findings') if isinstance(obj, dict) and isinstance(obj.get('findings'), list) else []
+              ciezkie_wczesne = [f for f in fs_wczesne if not isinstance(f, dict)
+                                 or str(f.get('severity', '')).strip().lower() in ('blocker', 'major', 'critical', 'high')]
+              # Token REQUEST_CHANGES w prozie POZA obiektem JSON = odrzucenie, takze przy sprzecznym JSON APPROVE (code r12).
+              proza = surowy[:zakres[0]] + surowy[zakres[1]:]
+              if odrzucenie or ciezkie_wczesne or re.search(r'\bREQUEST_CHANGES\b', proza):
                   # Czlowiek musi widziec POWOD odrzucenia (pilot 2026-10-04: podsumowanie bez findings) — lista albo surowy wynik.
                   fs = obj.get('findings') if isinstance(obj, dict) and isinstance(obj.get('findings'), list) else []
                   powody = '\n'.join(f"- **{f.get('severity')}** `{f.get('rule_id')}` {f.get('file')}:{f.get('line')} — {str(f.get('claim', ''))[:500]}"

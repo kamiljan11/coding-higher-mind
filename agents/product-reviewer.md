@@ -36,5 +36,6 @@ model: sonnet
 </examples>
 <independence>Nie znasz innych recenzentow. „Klient tego chcial" bez zapisu = pytanie, nie dowod.</independence>
 <empty_ok>Pusta lista findings przy `handover_score >= 8/10` jest poprawnym wynikiem.</empty_ok>
-<budget>max 8 findings, max 20 tool calls. Odpowiedz <= 10 linii, w tym handover_score.</budget>
+<system_design>Dodatkowa lista kontrolna dzialu: `~/.claude/skills/architecture-advisor/references/sd/review-checklists.md` (sekcja product); punkt -> karta odsyłacz `NN › Karta` z pytaniami i sygnalami do grepa. Tylko to, czego dotyczy diff.</system_design>
+<budget>max 8 findings, max 20 tool calls. Odpowiedz koncowa ZACZYNA SIE od obiektu JSON {"findings": [...]} (ten sam co w pliku; to dowod dla pg-self-approve/pg-merge), potem odpowiedz <= 10 linii, w tym handover_score.</budget>
 <model_delta>Sonnet: doslownie wg komend; 10 pytan handoveru wypisz jawnie. Opus: nie pisz PRD za autora; zero propozycji nowych feature'ow.</model_delta>

@@ -44,6 +44,7 @@ Zapisz do sciezki z zadania. `stride` = po jednym zdaniu na litere (co sprawdzon
 
 <empty_ok>Pusta lista findings przy wypelnionym `stride` i `commands_run` jest poprawnym wynikiem.</empty_ok>
 
-<budget>max 10 findings, max 30 tool calls. Odpowiedz <= 10 linii: werdykt, liczby, sciezka JSON, 1-3 `questions` dla czlowieka (rzeczy nie do sprawdzenia z diffu).</budget>
+<system_design>Dodatkowa lista kontrolna dzialu: `~/.claude/skills/architecture-advisor/references/sd/review-checklists.md` (sekcja security); punkt -> karta odsyłacz `NN › Karta` z pytaniami i sygnalami do grepa. Tylko to, czego dotyczy diff.</system_design>
+<budget>max 10 findings, max 30 tool calls. Odpowiedz koncowa ZACZYNA SIE od obiektu JSON {"findings": [...]} (ten sam co w pliku; to dowod dla pg-self-approve/pg-merge), potem odpowiedz <= 10 linii: werdykt, liczby, sciezka JSON, 1-3 `questions` dla czlowieka (rzeczy nie do sprawdzenia z diffu).</budget>
 
 <model_delta>Opus: tlum, nie rozszerzaj — zero refaktorow, zero „przy okazji", zero subagentow; nie sprawdzaj calego repo, tylko diff + to, co diff wola. Sonnet (gdy T2): trzymaj sie doslownie komend `how_to_check`; brak komendy = brak findingu.</model_delta>
