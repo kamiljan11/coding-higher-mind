@@ -111,6 +111,17 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"{{CLAUDE_DIR}}/hooks/auto-doc.py\"",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }

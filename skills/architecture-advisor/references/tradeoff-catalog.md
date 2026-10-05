@@ -90,7 +90,7 @@ the boring option is usually right until a specific constraint says otherwise.
 ### 1.7 Custom auth vs managed identity
 - **Buys (custom):** total control over the flow.
 - **Costs (custom):** security is unforgiving and you own every mistake — password storage, reset flows, session handling, MFA, account takeover, audits. Enormous, permanent liability for almost no product value.
-- **Cheaper default:** managed auth — **Supabase Auth**, or an identity provider. For Icelandic legal identity, **esign-provider + esign-provider-b + eid-provider (CIBA)** — never build eID yourself.
+- **Cheaper default:** managed auth — **Supabase Auth**, or an identity provider. For legal identity (eID), use an eID provider — never build eID yourself.
 - **Earn it when:** essentially never for app login. Only with a hard requirement no provider can meet.
 - **Breaks/bites when:** the homegrown system meets its first real attacker, or a compliance audit.
 
@@ -214,7 +214,7 @@ low-maintenance defaults.
 ### 3.5 Build vs integrate a third party
 - **Buys (build):** exact fit, no per-use fee. **(integrate):** done today, maintained by someone else.
 - **Costs (build):** every feature you build is a feature you maintain forever — booking, payments, chat, reviews, maps.
-- **Cheaper default:** **integrate** the proven service (Cal.com for booking, Stripe/local-acquirer/payment-gateway for payments, a reviews widget, embedded maps). Build only the thing that is actually the client's differentiator.
+- **Cheaper default:** **integrate** the proven service (Cal.com for booking, a hosted-checkout payment provider, a reviews widget, embedded maps). Build only the thing that is actually the client's differentiator.
 - **Earn it when:** the capability is the client's core value and no off-the-shelf option fits.
 - **Breaks/bites when:** time is spent rebuilding a commodity (a booking calendar, a payment flow) that a mature service already solved.
 

@@ -37,7 +37,7 @@ model: sonnet
 </severity>
 
 <schema>
-Zapisz DOKLADNIE ten JSON do sciezki wyjsciowej z zadania (i tylko krotkie podsumowanie w odpowiedzi):
+Zapisz DOKLADNIE ten JSON do sciezki wyjsciowej z zadania; odpowiedz koncowa zaczyna sie od tego samego JSON, potem krotkie podsumowanie:
 {"role":"code","tier":"T2","commands_run":["..."],"findings":[{"file":"src/x.ts","line_range":[42,51],"rule_id":"SILENT-CATCH","severity":"blocker","claim":"...","evidence":"rg -n 'catch (' src/x.ts -A3 -> 44: catch (e) {} ","repro_cmd":"rg -n 'catch \\(e\\) \\{\\}' src/x.ts","confidence":0.9}],"questions":["..."]}
 rule_id: z `pg/cases.md` gdy pasuje, inaczej UPPER-KEBAB opisowy.
 </schema>
@@ -53,6 +53,7 @@ rule_id: z `pg/cases.md` gdy pasuje, inaczej UPPER-KEBAB opisowy.
 
 <empty_ok>`{"findings": []}` jest poprawnym i oczekiwanym wynikiem czystego diffu. Napisz wtedy jedno zdanie: co sprawdziles i czego nie znalazles.</empty_ok>
 
-<budget>max 12 findings, max 25 tool calls. Potem zapisz JSON i zakoncz. Odpowiedz tekstowa <= 10 linii: APPROVE / REQUEST CHANGES, liczba blocker/major/minor, sciezka JSON.</budget>
+<system_design>Dodatkowa lista kontrolna dzialu: `~/.claude/skills/architecture-advisor/references/sd/review-checklists.md` (sekcja code); punkt -> karta odsyłacz `NN › Karta` z pytaniami i sygnalami do grepa. Tylko to, czego dotyczy diff.</system_design>
+<budget>max 12 findings, max 25 tool calls. Potem zapisz JSON i zakoncz. Odpowiedz koncowa ZACZYNA SIE od obiektu JSON {"findings": [...]} (ten sam co w pliku; to dowod dla pg-self-approve/pg-merge), potem odpowiedz tekstowa <= 10 linii: APPROVE / REQUEST CHANGES, liczba blocker/major/minor, sciezka JSON.</budget>
 
 <model_delta>Sonnet: trzymaj sie DOSLOWNIE rubryki i schematu; gdy nie masz komendy — nie ma findingu. Opus: NIE rozszerzaj zakresu (zero refaktorow „przy okazji", zero nowych narzedzi), NIE spawnuj subagentow, odpowiedz zwiezle.</model_delta>

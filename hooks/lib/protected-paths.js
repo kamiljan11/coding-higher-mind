@@ -70,6 +70,11 @@ const CONTROL_FILES_RX = [
   /\/documents\/(windows)?powershell\/[^/]*profile\.ps1$/,
   /\/\.git\/(config|hooks\/.*)$/,          // lokalny core.hooksPath / podmienione hooki repo
   /\/\.claude\/settings(\.local)?\.json$/, // projektowe settings moga wylaczyc hooki
+  // projektowe definicje agentow: agent o nazwie recenzenta podmienia dzial (security-review r6: TOCTOU — plik tworzony
+  // na czas recenzji i kasowany przed ocena dowodu). Kazdy .claude/agents/*.md poza ~/.claude = fraza uzytkownika.
+  // r7: takze caly katalog (ln -s / mv / rm -r / cp -r na .claude/agents albo .claude) i podkatalogi agents/.
+  /\/\.claude\/agents(\/.*)?$/,
+  /\/\.claude$/,
 ];
 
 function escapeRx(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }

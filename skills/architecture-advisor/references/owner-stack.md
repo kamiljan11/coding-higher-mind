@@ -1,93 +1,91 @@
-# uzytkownik's default toolbox & boring-default architectures
+# Stack uzytkownika i domyślne architektury (stan zweryfikowany 2026-10-05)
 
-Recommend what uzytkownik actually runs. The cheapest, most maintainable architecture almost always
-extends the existing stack and the team's existing knowledge. Introduce something new only when
-a named present constraint requires it — and when you do, **state the adoption + maintenance cost
-out loud** as part of "what do we lose". Treat this as the default to defend or consciously
-override, not a mandate.
+Rekomenduj to, co flota faktycznie uruchamia. Najtańsza w utrzymaniu architektura prawie zawsze rozszerza istniejący stack i wiedzę zespołu. Nowy element dopiero z nazwanym, OBECNYM ograniczeniem — i z kosztem adopcji oraz utrzymania nazwanym głośno w „co tracimy". To domyślna ścieżka do obrony lub świadomego odstępstwa, nie nakaz.
 
-> Keep this current. If the stack changes, update this file (and cross-check the `tech-stack`,
-> `agency-site`, `project-c`, and `lovable-build` context skills, which hold live details).
+> Utrzymanie: stan zweryfikowany 2026-10-05 wg `package.json`, `vercel.json`, `docs/ARCHITECTURE.md` i ADR na gałęzi domyślnej sprawdzonych repo. Pozycje oznaczone `[niezweryfikowane]` nie zostały potwierdzone w kodzie. Szczegóły floty (repo, rozbieżności, słabości, środowisko właściciela): `prywatne notatki floty (poza eksportem)` (prywatne, poza eksportem). Skille kontekstowe mogą być przeterminowane — nie traktuj ich jako dowodu.
 
-## The toolbox (as of mid-2026)
+## Środowisko pracy i stack floty
+- Praca i usługi wewnętrzne (automatyzacje, menedżer sekretów, lokalne bazy) działają na jednym komputerze właściciela. Nic produkcyjnego dla klientów nie powinno od niego zależeć (→ `sd/01 › Własny host`). Szczegóły: `prywatne notatki floty (poza eksportem)`.
+- Produkty floty to kilka repo na wspólnym zestawie: Vite+React lub Next (też z Payload 3) na Vercelu, Supabase (Postgres, Auth, RLS, Storage, Edge Functions) jako dane i backend, płatności przez hostowany checkout dostawcy płatności, poczta transakcyjna przez dostawcę poczty. Tabela repo z dowodami (hosting, wersje, integracje): `prywatne notatki floty (poza eksportem)`; ścieżka wdrożenia i sposoby sprawdzenia: `sd/07 › Platforma i ścieżka wdrożenia`.
 
-**Data & backend**
-- **Supabase (Postgres)** — default database, auth, storage, and auto-APIs. First choice for anything needing data or accounts. Postgres does JSON, full-text search, geo, and embeddings (pgvector) — reach for it before any specialized store.
-- **Cloudflare Workers / Pages** — default compute and hosting; deploy by git push, edge runtime, minimal ops. Default home for APIs, small services, and sites.
-- **Pinecone** (index: `pinecone-index`) — dedicated vector DB for semantic memory/RAG **at scale**. Below scale, prefer pgvector in Supabase.
+## Skrzynka narzędzi
 
-**Automation & AI**
-- **n8n** — default orchestration/glue for automations. Keep workflows small and single-purpose; push heavy logic into Workers/scripts.
-- **Claude (Opus / Sonnet / Haiku)** — match tier to step via the `model-router` skill. Haiku for classify/extract, Sonnet default, Opus for hard reasoning.
-- **Fal.ai** — raster image generation. **Recraft** — vector/SVG generation (print, icons, logos). **HeyGen** — video avatars.
-- **Bright Data** — primary scraping/SERP. **Firecrawl** — secondary/free-tier fallback.
-- **MCP servers** — build with the `mcp-builder` skill only when a capability is reused across sessions/agents; otherwise call the API directly from n8n or a script.
+**Dane i backend**
+- **Supabase (Postgres)** — domyślna baza, Auth, Storage, RLS i funkcje brzegowe (potwierdzone w większości sprawdzonych repo). Postgres robi JSON, pełny tekst (`pg_trgm`, `unaccent`), geo (PostGIS) i embeddingi (pgvector) — sięgaj po to przed jakimkolwiek wyspecjalizowanym magazynem.
+- **Payload 3 + Postgres** — gdy klient potrzebuje panelu treści/sklepu; autoryzacja przez `access`, nie RLS.
+- **Pinecone** `[niezweryfikowane — brak w sprawdzonych repo]`; poniżej skali preferuj pgvector.
 
-**Payments & identity (Iceland)**
-- **payment-gateway** — cards / subscriptions. **local-acquirer** — domestic ISK payments. **Stripe** — exploratory BaaS. Always use the processor; never handle raw card data (keeps you out of PCI scope).
-- **esign-provider + esign-provider-b + eid-provider (CIBA)** — legal Icelandic eID and e-signature. Never build identity verification yourself.
+**Hosting i dostarczanie**
+- **Vercel** — hosting frontu i aplikacji (push na `main` = deploy, podgląd per PR). **Edge Functions Supabase deployujemy osobno** (nie z gita).
+- **Cloudflare Workers/Pages** — w sprawdzonych repo nie jest hostem; bywa tylko pozostałością scaffoldu (`wrangler.jsonc`). Cloudflare jako DNS/CDN [niezweryfikowane: sprawdź `dig NS <domena>`].
+- **GitHub Actions** — `quality.yml`, `claude-review.yml`, `release.yml` w repo (+ `mutation.yml`, `pg-review.yml` w części). Ochrona `main` i review PR — zob. `sd/07 › CI/CD`.
+- **Lovable** — tylko tam, gdzie `package.json` ma `lovable-tagger` (stare/proste strony klientów; wykrywanie: `rg -n "lovable-tagger" package.json`). Zależność typu `@lovable.dev/vite-tanstack-config` oznacza pochodzenie ze scaffoldu, nie projekt Lovable. Dla projektu Lovable nie dodawaj `vercel.json`, ręcznych migracji ani poleceń CLI Vercel/Supabase (reguła z CLAUDE.md).
 
-**Comms & ops**
-- **Twilio** — SMS / OTP / notifications. **RetellAI** — AI voice phone agents (reserve for genuine real-time phone needs).
-- **Sentry** — error monitoring. If a production system has no error monitoring, that's an AUDIT finding *and* the fix is already in the stack.
-- **Gmail multi-account** — email send/receive in automations.
+**Automatyzacja i AI**
+- **n8n** — klej i orkiestracja do pracy wewnętrznej. Logika → kod; n8n woła (→ `sd/04 › Orkiestracja n8n`).
+- **Claude przez Vercel AI SDK** (`ai`, `@ai-sdk/anthropic`) tam, gdzie produkt ma funkcję AI; routing Haiku/Sonnet per krok i embeddingi z zewnętrznego dostawcy. Dobór modelu per krok: skill `model-router`.
+- fal.ai, Recraft, HeyGen, Bright Data, Firecrawl, MCP `[niezweryfikowane w tych repo]` — narzędzia używane poza produktami floty; używaj tylko przy realnej potrzebie.
 
-**Web / frontend**
-- **Lovable + React/TypeScript** — default for client sites and simple apps (agency-site builds).
-- **Cloudflare Pages** hosting; **ISNIC** for `.is` domains; **Artlist** for media licensing.
+**Płatności i tożsamość (Islandia)**
+- **Dostawca płatności** — hostowany checkout, webhooki z podpisem HMAC, subskrypcje; nigdy nie obsługuj surowych danych kart (poza zakresem PCI). Konkretny dostawca i status integracji per produkt: `prywatne notatki floty (poza eksportem)`.
+- **Dostawca eID/podpisu** — legalne eID i podpis elektroniczny kupuj, nie buduj weryfikacji tożsamości samodzielnie.
 
-**Environment**
-- Windows workstation; Python scripts; "agent-os" / agent-os local automation system. Prefer solutions a solo maintainer can operate.
+**Komunikacja i operacje**
+- **Dostawca poczty transakcyjnej** (np. Resend) i **Twilio** (SMS/IVR) tam, gdzie produkt tego potrzebuje. Stos głosowy `[niezweryfikowane w repo]`.
+- **Śledzenie błędów (Sentry)** — nie każdy produkt floty je ma; brak error trackingu przy produkcji to finding klasy „brak error trackingu" (→ `sd/05 › Obserwowalność`). Stan per repo: `prywatne notatki floty (poza eksportem)`.
+- **Menedżer sekretów (Infisical)** — sekrety. **Gmail multi-account** — poczta w automatyzacjach.
 
-## Boring-default architectures per domain
+## Domyślne architektury per domena
 
-Start here. Deviate only where a context constraint forces it, and record the deviation as an ADR.
+Zacznij tutaj. Odstępstwo tylko przy ograniczeniu z kontekstu, zapisane w ADR.
 
-### New web app / SaaS (small)
+### Aplikacja / SaaS (multi-tenant)
 ```
-Lovable/React (Cloudflare Pages)
-  → Cloudflare Worker API
-    → Supabase (Postgres + Auth + Storage)
-  → payments via payment-gateway/local-acquirer (hosted checkout)
-  → identity via esign-provider/eid-provider only if legal eID is required
-  → Sentry for errors
+Vite+React (lub Next) na Vercel
+  → Supabase: Postgres + RLS (org_id + trigger same-org) + Auth + Storage
+  → Edge Functions (Deno) dla webhooków, płatności i integracji (wdrażane osobno)
+  → płatności: hostowany checkout dostawcy; webhook
+  → eID tylko gdy wymagane prawem (dostawca eID)
+  → Sentry od dnia 0
 ```
-No microservices, no queue, no cache, no separate vector DB until a named constraint appears.
-A modular monolith Worker (or a single Supabase-backed app) covers the vast majority of cases.
+Bez mikroserwisów, kolejki zewnętrznej, Redisa i osobnej bazy wektorowej, dopóki nazwane OBECNE ograniczenie tego nie wymusi. Wzorzec referencyjny: najdojrzalszy produkt SaaS floty (→ `prywatne notatki floty (poza eksportem)`).
 
-### Automation / AI pipeline
+### Sklep / panel treści
 ```
-Trigger (webhook / schedule / inbound message)
-  → n8n orchestration (small, single-purpose workflow)
-    → Claude at the right tier (model-router)
-    → heavy logic / transforms offloaded to a Cloudflare Worker or script
-    → retrieval: prompt-stuffing → pgvector → Pinecone (only as scale demands)
-  → store results in Supabase; log/alert via Sentry/Gmail
+Next + Payload na Vercel → Postgres (Supabase) · pliki: Supabase Storage (adapter)
+  → płatności: hostowany checkout dostawcy (waluta lokalna), webhook z HMAC, atomowe przejęcie transakcji
+  → poczta: Resend · stan magazynu jako księga ruchów, nie tylko licznik
 ```
-Return webhooks fast and make handlers idempotent. Reach for a queue/store-first pattern only
-when volume is spiky or lost events are costly (e.g. payments).
+Wzorzec referencyjny: sklep floty na Payload (→ `prywatne notatki floty (poza eksportem)`). Uwaga: Local API Payload domyślnie omija `access`.
 
-### Client website (agency-site)
+### Pipeline automatyzacji / AI
 ```
-Lovable/React static-ish build (Cloudflare Pages) · ISNIC domain
-  → forms → email or n8n webhook (no backend by default)
-  → Supabase only if real accounts/data are needed
-  → integrate commodities: Cal.com (booking), Stripe/local-acquirer (pay), reviews widget, embedded maps
-  → hardcoded content unless the client truly self-edits → then a light CMS
+Wyzwalacz (webhook / harmonogram / wiadomość)
+  → n8n (tylko praca wewnętrzna) lub Edge Function (produkcja klienta)
+    → Claude na właściwym poziomie (model-router); wyjście walidowane zod
+    → retrieval: treść w prompcie → FTS → pgvector → (dopiero potem) osobna baza
+  → wynik w Postgresie; błędy i budżety: Sentry + cap per organizacja
 ```
-SEO and load speed matter; the client usually won't maintain anything complex. Simplicity is the
-feature.
+Zwracaj webhooki szybko i rób handlery idempotentnymi; kolejka (tabela `jobs`) dopiero przy wolnych/zawodnych krokach.
 
-### Voice / phone (RetellAI)
+### Strona klienta
 ```
-RetellAI voice agent → webhook → n8n → Claude (intent/qualify) → Cal.com booking / Supabase log
+Statyczny build / TanStack Start / Next na Vercel · domena (ISNIC dla .is)
+  → formularz → e-mail (Resend) lub webhook n8n; bez backendu domyślnie
+  → Supabase tylko przy realnych kontach/danych
+  → treści zmieniane przez klienta jako DANE (tabela/CMS), nie kod
+  → gotowe komponenty: rezerwacje, płatności, mapy zamiast pisania od zera
 ```
-Only when a real-time phone interaction is genuinely needed; otherwise a form + automated
-follow-up is cheaper and more reliable.
+SEO i szybkość są funkcją; klient zwykle nie utrzyma niczego skomplikowanego. Lovable tylko dla istniejących/prostych stron z `lovable-tagger`.
 
-## How to apply this
+### Telefon / głos
+```
+Agent głosowy → webhook → n8n/Edge Function → Claude (intencja) → rezerwacja/Supabase
+```
+Tylko przy realnej potrzebie rozmowy w czasie rzeczywistym; inaczej formularz + automatyczny follow-up jest tańszy i pewniejszy. Stos głosowy `[niezweryfikowane w repo]`.
 
-- Map the project to the nearest boring default above; that's your baseline recommendation.
-- For each thing you'd add beyond it, point to the present constraint forcing it (`tradeoff-catalog.md`).
-- For each thing you'd remove (AUDIT), check it against these defaults — if the default is simpler and the constraint isn't there, that's an over-engineering finding.
-- When recommending anything outside the toolbox, name the adoption and maintenance cost explicitly. Familiar-and-managed beats novel-and-powerful for a small team almost every time.
+## Jak stosować
+- Dopasuj projekt do najbliższej architektury powyżej — to rekomendacja bazowa.
+- Każdy dodatek ponad nią uzasadnij obecnym ograniczeniem (`tradeoff-catalog.md`, `sd/README.md`).
+- Przy AUDIT sprawdź, czy repo odbiega od domyślnej bez ADR; jeśli domyślna jest prostsza, a ograniczenia nie ma — to finding „nadmiarowa złożoność".
+- Poza skrzynką narzędzi: nazwij koszt adopcji i utrzymania. Znane i zarządzane bije nowe i potężne dla małego zespołu niemal zawsze.

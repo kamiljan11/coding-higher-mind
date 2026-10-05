@@ -106,6 +106,7 @@ function preflight() {
   rows.push(['node >= 20', ver[0] >= 20, process.version]);
   const probe = (cmd, a = ['--version']) => { const r = spawnSync(cmd, a, { encoding: 'utf8', shell: process.platform === 'win32' }); return r.status === 0 ? (r.stdout || r.stderr).trim().split('\n')[0].slice(0, 40) : null; };
   rows.push(['git', !!probe('git'), probe('git') || 'MISSING — required']);
+  rows.push(['python3 (auto-doc hook, Python tools)', !!probe('python3'), probe('python3') || 'needed by the SessionEnd auto-doc hook: install Python 3']);
   rows.push(['python3 + ruff (Python repos)', !!probe('ruff'), probe('ruff') || 'optional: pip install ruff']);
   rows.push(['pyright (Python repos)', !!probe('pyright'), probe('pyright') || 'optional: npm i -g pyright']);
   rows.push(['gitleaks (CI does it too)', !!probe('gitleaks', ['version']), probe('gitleaks', ['version']) || 'optional']);

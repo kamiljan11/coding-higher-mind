@@ -2,6 +2,8 @@
 
 # Coding Higher Mind — PG (PROMPT-GUARD) dla Claude Code
 
+**Wersja v1.3.0 — ostatnia zmiana 2026-10-05.** 10 wydań publicznych od 1.0.0 (2026-09-12). Każdy system potrzebuje czasu, żeby dojrzeć: ten jest młody, szybko się zmienia i mówi wprost o swoich granicach ([znane granice](pg/known-limits.md)).
+
 **Bramki jakości, recenzenci-agenci, rutyny i protokół anty-halucynacyjny dla [Claude Code](https://docs.anthropic.com/en/docs/claude-code) i Claude Desktop — egzekwowane przez zdarzenia, nie przez silną wolę.**
 
 Nazwa pochodzi od drugiego długiego projektu autora, darmowego przewodnika po praktycznej duchowości ([kamiljan.com](https://kamiljan.com)): praktyka ponad przekonanie. Reguła, której *zamierzasz* przestrzegać, to przekonanie. Bramka, która odpala się na zdarzeniu, to praktyka. To repozytorium jest praktyką — „wyższym umysłem", który stoi ponad każdą sesją kodowania i nie pozwala, żeby dobre chęci były jedynym zabezpieczeniem.
@@ -21,17 +23,20 @@ To repozytorium jest tym systemem, wyeksportowanym i zsanityzowanym, żeby dało
 | **Utwardzanie promptu** | każdy niebanalny prompt (`UserPromptSubmit`) | wstrzykuje PG-core: niejasność → pytania, nie wykonanie; read-before-assert; „gotowe" tylko z dowodem (exit code / diff / HTTP); status `VERIFIED / UNVERIFIED / FAILED`; raport dla sponsora, nie „dobrze" | `hooks/prompt-guard.js` |
 | **Bramka edycji** | każda edycja pliku, także przez Bash (`PostToolUse`) | eslint / oxlint / `tsc -b` / ruff / pyright na zmienionym pliku; błędy wracają prosto do agenta | `hooks/post-edit-check.js`, `hooks/post-bash-edit-check.js` |
 | **Strażnik komend** | każda komenda shellowa (`PreToolUse`) | blokuje `--no-verify`, force-push, `reset --hard`, `rm -rf` poza katalogami buildu, `gh pr merge`, sekrety w linii komendy, `curl \| sh`; wyjątki wydaje człowiek, nie agent: piszesz w czacie `pozwól ALLOW_X`, dopiero wtedy komenda z `ALLOW_X=1` przechodzi (30 min / 3 użycia; `ALLOW_CONTROL_PLANE` 60 min); każde użycie jest logowane | `hooks/bash-guard.js` |
-| **Strażnik edycji, monitor pętli, migawka przed kompakcją** | edycje plików (`PreToolUse`), każde wywołanie narzędzia (`PostToolUse`), przed kompakcją (`PreCompact`) | ta sama reguła warstwy kontrolnej dla Edit/Write; 4 identyczne wywołania z rzędu = sygnał stop; migawka ostatnich poleceń i edytowanych plików przeżywa `/compact` (sekrety i dane osobowe maskowane) | `hooks/edit-guard.js`, `hooks/loop-monitor.js`, `hooks/precompact-snapshot.js` |
+| **Strażnik edycji, monitor pętli, migawka przed kompakcją** | edycje plików (`PreToolUse`), każde wywołanie narzędzia (`PostToolUse`), przed kompakcją (`PreCompact`) | ta sama reguła warstwy kontrolnej dla Edit/Write; 4 identyczne wywołania z rzędu = sygnał stop; migawka ostatnich poleceń i edytowanych plików przeżywa `/compact` (sekrety, adresy e-mail i numery identyfikacyjne maskowane; telefony i nazwiska nie) | `hooks/edit-guard.js`, `hooks/loop-monitor.js`, `hooks/precompact-snapshot.js` |
 | **Bramka stop** | koniec sesji (`Stop`) | liczy **tier ryzyka T0–T3 z diffu** (ścieżki + rozmiar), odpala lint/typy/testy na wszystkim, co się zmieniło, i odmawia zamknięcia sesji T2+ bez wymaganych działów recenzentów | `hooks/stop-gate.js`, `hooks/lib/risk-tier.js` |
 | **Bramki gita** | commit / push (globalny `core.hooksPath`) | konwencjonalny opis commita; skan sekretów; świeżość bazy (`merge-base` — klon o niepowiązanej historii jest blokowany); powtórzone literały w nowym kodzie; nowa zależność musi istnieć w npm/PyPI i nie być typosquatem; zakomentowany kod; nowe `TODO` bez wpisu w rejestrze; kolumna PII bez wiersza w inwentarzu prywatności; lint migracji SQL (RLS `USING` + `WITH CHECK`, higiena `SECURITY DEFINER`, klucze obce tenantów); parser workflowów GitHuba na plikach workflow; diff > 400 linii źródłowych; **nowy cykl importów lub import wbrew zadeklarowanym warstwom** | `git-hooks/pre-commit`, `git-hooks/pre-push`, `git-hooks/commit-msg`, `bin/*` |
 | **Działy recenzentów** | T1+ (zalecane) / T2+ (wymagane) | 9 agentów tylko-do-odczytu ze **świeżym kontekstem** i schematem JSON: code, security, data, ops, ux, product, qa, weryfikator, catfish (adwokat diabła). Finding bez wykonanej komendy w `evidence` nie istnieje. Agregacja to kod (`bin/pg-aggregate.js`, k-z-n), nie model; weryfikator próbuje findingi *obalić*; zero czatu między agentami | `agents/`, `skills/pg-review` |
 | **Narada** | decyzje architektoniczne | fakty → stanowiska → obowiązkowy dysydent → agregacja → ADR; rola catfish istnieje, bo „cicha zgoda" to główny tryb awarii grup agentów | `skills/pg-council`, `bin/pg-council.js`, `pg/council.md` |
-| **Doktryna** | ładowana na zdarzenie, które jej potrzebuje | `design.md` (przed kodem: PRD-lite ze sponsorem/ROI, mini-design, STRIDE-lite, ADR), `dod.md` (definition of done per tier), `prr.md` (przed deployem), `postmortem.md` (incydent → nowa bramka albo nowa blizna), `paradigm.md` (functional core / imperative shell; obcy senior przejmuje repo w jeden dzień), `cases.md` (**149 blizn** — każda bramka wskazuje realną awarię, z której powstała) | `pg/` |
+| **Merge z dowodem recenzji** | scalanie PR (tylko przez skrypt) | `bin/pg-merge-bezpieczny.py` scala bez wpisywanej frazy, gdy wszystkie kontrole są zielone i jest dowód: żadnego dla dokumentacji (T0), recenzja kodu dokładnie tego diffu (T1), kod + ops (T2); T3 i ścieżki wrażliwe nadal wymagają frazy człowieka. Drugi dowód to recenzja PR w CI (`pg-review.yml`) czytana przez API Actions; plik-wyłącznik wyłącza całość | `bin/pg-merge-bezpieczny.py`, `bin/pg-merge-dowod.js`, `templates/repo/.github/workflows/pg-review.yml`, `pg/adr/0003-*.md` |
+| **Notatki z sesji** | koniec każdej sesji (`SessionEnd`) | dopisuje krótką notatkę (pierwsze polecenie, zmienione pliki, commity, skrót ostatniej odpowiedzi; sekrety i dane osobowe zamaskowane) do `~/.claude/session-notes` albo `AUTO_DOC_DIR`; nigdy nie blokuje | `hooks/auto-doc.py` |
+| **System design** | prompt z decyzją inżynierską; krok B+ w `design.md` | karty decyzyjne per element architektury (kiedy się opłaca, domyślnie „jeszcze tego nie potrzebujesz", koszt, jak pada, pytania kontrolne z komendą do wyszukania), arkusz pojemności i listy kontrolne recenzentów; prompt-guard na nie wskazuje | `skills/architecture-advisor/references/sd/`, `pg/design.md` |
+| **Doktryna** | ładowana na zdarzenie, które jej potrzebuje | `design.md` (przed kodem: PRD-lite ze sponsorem/ROI, mini-design, STRIDE-lite, ADR), `dod.md` (definition of done per tier), `prr.md` (przed deployem), `postmortem.md` (incydent → nowa bramka albo nowa blizna), `paradigm.md` (functional core / imperative shell; obcy senior przejmuje repo w jeden dzień), `cases.md` (**165 blizn** — każda bramka wskazuje realną awarię, z której powstała) | `pg/` |
 | **Szablon repo** | nowe repozytorium | CI (`quality.yml`, testy mutacyjne na zmienionych plikach, release, opcjonalne review Claude, które bez tokenu *pomija się* zamiast udawać zieleń), ścisły eslint/tsconfig, szablon PR z checkboxem docs-parity, `docs/ARCHITECTURE.md` z **parsowanym blokiem granic modułów**, `GLOSSARY`, `RUNBOOK`, `PRIVACY`, matryca QA `CRITICAL-PATHS`, szablon ADR | `templates/repo/`, `bin/mas-quality-init.ps1` |
 | **Narzędzia floty** | na żądanie / cyklicznie | ścisła ochrona gałęzi z nazw jobów workflow, merge PR tylko na aktualnym merge-ref, rollout pojedynczego pliku jako PR, dowód z produkcji z API Vercela (nigdy z ręcznie wpisanego URL), kopanie sesji i historii gita, cotygodniowe zdrowie strażników, miesięczna kalibracja recenzentów (ten sam defekt w dwóch opakowaniach musi dostać ten sam werdykt) | `bin/mas_*.py`, `scheduled-tasks/` |
 | **Samotesty** | `node bin/pg-selftest.js` | każda bramka ma test **pozytywny** (musi zablokować), pokrycie reguła→bramka sprawdza skrypt; indeks narzędzi w README jest generowany z nagłówków samych narzędzi (narzędzie bez samoopisu pokazuje się jako dług) | `bin/test_*.js`, `bin/pg-rule-coverage.js`, `bin/pg-map.py` |
 
-Policzone w dniu eksportu, nie szacowane: 212 plików, ~23 400 linii, 39 narzędzi, 11 zestawów testów, 10 hooków, 3 hooki gita, 9 agentów-recenzentów, 160 blizn, 25 plików szablonu, 7 rutyn kodowych + 7 pulpitowych.
+Policzone w dniu eksportu, nie szacowane: 345 plików, ~45 800 linii, 43 narzędzia, 15 zestawów testów, 11 hooków, 3 hooki gita, 9 agentów-recenzentów, 165 blizn, 26 plików szablonu, 18 skilli, 7 rutyn kodowych + 7 pulpitowych.
 
 ---
 
@@ -59,7 +64,7 @@ node install.mjs --yes         # ...i ustawia `git config --global core.hooksPat
 node install.mjs --lang=pl     # protokół po polsku niezależnie od locale maszyny
 ```
 
-Co obiecuje instalator (przeczytaj `install.mjs`, to 160 linii):
+Co obiecuje instalator (przeczytaj `install.mjs`, to około 210 linii):
 
 - **Nigdy nie nadpisuje pliku, który zmieniłeś**, chyba że `--force` (wtedy backup do `~/.claude/_pg-backup-<data>/`); różniące się wersje z paczki lądują obok Twoich jako `*.pg-new`.
 - `settings.json`: **scala** klucz `hooks` — Twoje inne hooki i klucze zostają; ścieżki są absolutne dla Twojej maszyny; `env.PG_LANG` z locale.
@@ -91,7 +96,7 @@ Każdy czerwony wynik zatrzymuje zmianę w tym miejscu. Każdy wyjątek to nazwa
 ## Trzy idee, na których stoi całość
 
 1. **Bramki, nie proza.** Reguła, którą agent może zapomnieć, nie jest regułą. Wszystko, co ważne, odpala się na zdarzeniu (prompt, edycja, komenda, stop, commit, push, CI) i ma test dowodzący, że blokuje swój przypadek. Reguły istniejące tylko w dokumencie sprawdza `bin/pg-rule-coverage.js` — reguła bez bramki oblewa audyt.
-2. **Blizna → bramka.** `pg/cases.md` trzyma 160 realnych awarii floty (bramka RLS na złym stanie, fallback, który po cichu zmienił sprzedawcę na fakturze, zielone CI na nieaktualnym merge-ref, które rozwaliło `main`, hook, który dwa razy czytał stdin i nigdy nie ruszył, …). Każdy punkt checklisty i każda bramka cytuje bliznę, z której powstała — reguła Google SRE. Postmortem kończy się nową bramką albo nową blizną, nigdy „będziemy uważniejsi".
+2. **Blizna → bramka.** `pg/cases.md` trzyma 165 realnych awarii floty (bramka RLS na złym stanie, fallback, który po cichu zmienił sprzedawcę na fakturze, zielone CI na nieaktualnym merge-ref, które rozwaliło `main`, hook, który dwa razy czytał stdin i nigdy nie ruszył, …). Każdy punkt checklisty i każda bramka cytuje bliznę, z której powstała — reguła Google SRE. Postmortem kończy się nową bramką albo nową blizną, nigdy „będziemy uważniejsi".
 3. **Dowód, nie proza.** „Gotowe" to komenda, exit code i obejrzany stan. Raport kończy się `VERIFIED` (dowód zacytowany) / `UNVERIFIED` (czego brakuje) / `FAILED` (co się stało). To ma największe znaczenie tam, gdzie agenci zmierzalnie zawyżają sukces (w jednym benchmarku 75,8 % zgłoszonych „sukcesów" to deklaracje bez dowodu) i ustępują pod naciskiem. Patrz [docs/pl/VERIFIED-PROTOCOL.md](docs/pl/VERIFIED-PROTOCOL.md) — to jedna rzecz, którą warto wkleić do każdego promptu w Claude Cowork.
 
 ---
@@ -113,7 +118,7 @@ Nadpisania per repo w `CLAUDE.md` repozytorium: `pg.tier_floor: T2`, `pg.phase: 
 
 | Ścieżka | Co tam jest |
 |---|---|
-| `hooks/` | hooki Claude Code (7) + `lib/` (tier ryzyka, uruchamianie lintu, telemetria bramek, zaufane katalogi) + `guard_health.py` (audyt samego systemu) |
+| `hooks/` | hooki Claude Code (11) + `lib/` (tier ryzyka, uruchamianie lintu, telemetria bramek, zaufane katalogi) + `guard_health.py` (audyt samego systemu) |
 | `git-hooks/` | `commit-msg`, `pre-commit`, `pre-push` — instalowane raz przez `core.hooksPath`, aktywne w każdym repo |
 | `bin/` | narzędzia 0-tokenowe + zestawy testów; [bin/README.md](bin/README.md) jest generowany z nagłówka każdego narzędzia |
 | `agents/` | działy recenzentów (tylko odczyt, świeży kontekst, schemat JSON, `how_to_check` przy każdej regule rubryki) |
@@ -144,6 +149,7 @@ Wszystko, co było specyficzne dla maszyny autora, zostało usunięte albo stał
 
 ## Uczciwe granice
 
+- Auto-merge opiera się na dowodzie probabilistycznym: jeden recenzent LLM w CI (podatny na prompt injection z diffu, bez k-z-n) plus recenzja lokalna; agent z prawem push może zmienić workflow w porzuconym PR i odczytać sekret. Przeczytaj [pg/known-limits.md](pg/known-limits.md), zanim to włączysz; wyłącznik to jeden plik.
 - Zbudowane i sprawdzone w skali MŚP (dziesiątki repo, jeden właściciel, dziesiątki tysięcy linii), nie hyperscale.
 - Doktryna i rubryki są po polsku; protokół i komunikaty blokad są dwujęzyczne.
 - Agenci-recenzenci kosztują tokeny (T2 ≈ 4×, T3 ≈ 8–10× kosztu jednej recenzji diffu); bramki 0-tokenowe idą pierwsze, żeby agenci nigdy nie widzieli czerwonego lintu.

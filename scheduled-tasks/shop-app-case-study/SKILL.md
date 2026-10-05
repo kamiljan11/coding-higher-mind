@@ -6,7 +6,7 @@ model: sonnet
 <!-- WERSJA LINUX (laptop user). Wygenerowano 2026-10-03 (F6, a_make_linux.py) z wersji Windows: local/shop-app-case-study. Oryginal Windows bez zmian. -->
 SRODOWISKO WYKONANIA: LAPTOP Z LINUKSEM (obowiazuje od przelaczenia tego zadania na laptopa)
 - Komputer uzytkownika to laptop z Ubuntu (uzytkownik user). Narzedzia desktop-commander (mcp__remote-devices__desktop-commander__*) dzialaja tam w Linuksie. start_process uruchamia /bin/sh: skladnia z wersji Windows (polecenia PowerShella) tu NIE dziala.
-- Sciezki w tym pliku sa bezwzgledne (~/...). Dawna karta <backup-drive>: = ~/D, vault Obsidiana = ~/Obsidian/MAIN, dawny Pulpit Zenbooka = ~/Desktop/Zenbook (<second-domain>), Dokumenty = ~/Documents, ustawienia Claude Desktop = ~/.config/Claude. Sciezki ze spacjami zawsze w cudzyslowie.
+- Sciezki w tym pliku sa bezwzgledne (~/...). Dawna karta <backup-drive>: = ~/D, vault Obsidiana = ~/Obsidian/MAIN, dawny Pulpit second-machinea = ~/Desktop/second-machine (<second-domain>), Dokumenty = ~/Documents, ustawienia Claude Desktop = ~/.config/Claude. Sciezki ze spacjami zawsze w cudzyslowie.
 - Python: python3 (polecenia "python" nie ma). Linux pisze UTF-8. Node: node (jest w PATH desktop-commandera).
 - Kazde wywolanie start_process to nowy proces: katalog roboczy nie przechodzi do nastepnego wywolania, wiec polecenie zaczynaj od cd "<katalog>" && ...
 - Wywolanie urzadzenia zrywa sie po okolo 60 s. Dluzsze polecenia uruchamiaj w tle: cd "<katalog>" && setsid nohup python3 -u <skrypt> <argumenty> > <plik_wyjscia> 2> <plik_bledow> < /dev/null &  potem sprawdzaj plik krotkimi wywolaniami (tail -n 5 <plik>; sleep najwyzej 45). Czy proces dziala: pgrep -af <nazwa_skryptu>.
@@ -22,7 +22,7 @@ KROK 0 — LOG: dopisz (append, NIE nadpisuj) "STARTED <data ISO>" do ~/Obsidian
 
 KROK 1 — STAN NA DZIS (najpierw czytaj, potem pisz):
 - Sekrety tylko przez most: cd ~/infisical && python3 infisical run --env=dev --<komenda>. Nigdy nie wypisuj tokena.
-- Repo prywatne <github-owner>/shop-app (lokalnie tez ~/Desktop/Zenbook (<second-domain>)/shop-app). Zrob git fetch albo swiezy klon do ~/qa-sweep/shop-app-case. Przeczytaj README, CHANGELOG, docs/ (ARCHITECTURE, ADR), git log od 2026-09-01, strukture danych katalogu, testy.
+- Repo prywatne <github-owner>/shop-app (lokalnie tez ~/Desktop/second-machine (<second-domain>)/shop-app). Zrob git fetch albo swiezy klon do ~/qa-sweep/shop-app-case. Przeczytaj README, CHANGELOG, docs/ (ARCHITECTURE, ADR), git log od 2026-09-01, strukture danych katalogu, testy.
 - Sklep: curl https://shop-app (musi byc 200) i obejrzyj go w przegladarce (render JS). Sprawdz, czy nadal dziala to, co bylo we wrzesniu: produkty w kolejnosci drukowanego katalogu (pole catalogRank), podpisy pod nazwa w 3 jezykach EN/IS/PL (cookie shop-app-locale), zero opublikowanych produktow bez kategorii (we wrzesniu z 51 w koszu "Other equipment" zeszlo do 0), straznik cen sprawdzajacy produkty po kazdym zapisie, filtr marki zachowany przy stronicowaniu i sortowaniu. Dla kazdego punktu zapisz dowod (plik:linia, komenda, wynik).
 - Kontekst we wrzesniowych notatkach: ~/Obsidian/MAIN/Claude Memory/RESUME.md (sekcja shop-app, 2026-09-20) i Projects.md. Traktuj je jako tropy do sprawdzenia.
 
@@ -35,12 +35,12 @@ KROK 2 — TRESC (skill case-study-factory, tryby RESEARCH -> WRITE -> AUDIT):
 - Styl: skill humanizer (zero myslnikow — i —, zero "nie X, tylko Y" jako puenty, bez intensyfikatorow). Polski naturalny, nie tlumaczony.
 - Wersja PL i EN. Ksztalt danych dokladnie jak w istniejacych wpisach w src/data/caseStudies.pl.ts i src/data/caseStudies.ts (te same pola, ta sama kolejnosc). Dodaj jako nastepny wpis.
 
-KROK 3 — KOD I BRAMKI (repo ~/Desktop/Zenbook (<second-domain>)/demo-site):
+KROK 3 — KOD I BRAMKI (repo ~/Desktop/second-machine (<second-domain>)/demo-site):
 - git fetch && git checkout main && git merge --ff-only origin/main; nowa galaz content/shop-app-case-study. Nie pushuj na main (jest chroniony).
 - Zaktualizuj wszystko, co liczy case studies: src/server/bot.server.ts ("<N> write-ups of real builds" — test bot.prompt.test.ts porownuje z CASE_STUDIES.pl.length) oraz inne testy/teksty z liczba case studies (grep "20 " / "dwadzie" w src).
 - Wpis w CHANGELOG.md [Unreleased].
 - Bramki (musza byc zielone, max 5 iteracji napraw): npm run lint, npx tsc -b, npm test, rm -rf .output && npm run build (bez ALLOW_RM: `.output` = katalog build, bash-guard przepuszcza od 2026-09-26), E2E_PORT=5240 npx playwright test (porty 4122-4221 sa zarezerwowane na Windows).
-- Commit (Conventional Commits, stage tylko jawne sciezki, przed zmiana galezi: git checkout -- src/routeTree.gen.ts). Push: python3 ~/infisical/infisical (CLI) git-push --secret GITHUB_Token --remote github.com/<github-owner>/demo-site --refspec content/shop-app-case-study:content/shop-app-case-study --repo "~/Desktop/Zenbook (<second-domain>)/demo-site" --env dev
+- Commit (Conventional Commits, stage tylko jawne sciezki, przed zmiana galezi: git checkout -- src/routeTree.gen.ts). Push: python3 ~/infisical/infisical (CLI) git-push --secret GITHUB_Token --remote github.com/<github-owner>/demo-site --refspec content/shop-app-case-study:content/shop-app-case-study --repo "~/Desktop/second-machine (<second-domain>)/demo-site" --env dev
 - PR przez GitHub REST API (przez most), opis z pliku: co, skad kazdy fakt (dowody z kroku 1), jak sprawdzone.
 
 KROK 4 — WYPUSZCZENIE NA PROD:
