@@ -3,6 +3,12 @@
 All notable changes to the public PG export. Dates are the export dates; the private system moves faster and is squashed
 into these releases.
 
+## [Unreleased]
+
+### Added
+
+- `pg-review` CI workflow (`.github/workflows/pg-review.yml`): every pull request gets a read-only Claude review on a fresh GitHub runner; a green `pg-review` check counts as review evidence for auto-merge. Runs on the `CLAUDE_CODE_OAUTH_TOKEN` subscription secret; without the secret or on an infrastructure error the check is skipped, not red. It is not a required status check.
+
 ## [1.2.6] — 2026-09-28
 
 - The wrapper and the probe put the absolute working directory back on `sys.path` (like `python -m pytest`), not `''`: a test that calls `monkeypatch.chdir` and then imports a project module passes again. The repo entry is removed only when it is the first one (`PYTHONSAFEPATH`).
