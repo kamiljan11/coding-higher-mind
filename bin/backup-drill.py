@@ -167,7 +167,7 @@ def count_rows(tools: Tools, url: str, tables: list[str]) -> dict[str, int | Non
 def run_drill(args: argparse.Namespace) -> int:
     source_url = os.environ.get(args.source_env, "")
     if not source_url:
-        raise SystemExit(f"backup-drill: zmienna {args.source_env} pusta — uruchom przez menedzer sekretow (np. Infisical CLI) (`infisical (CLI) run --secrets {args.source_env} -- ...`).")
+        raise SystemExit(f"backup-drill: zmienna {args.source_env} pusta — uruchom przez menedzer sekretow (np. Infisical CLI) (`infisical run --secrets {args.source_env} -- ...`).")
     forbidden = is_forbidden_target(source_url, args.target_url, allow_remote=args.allow_remote_target)
     if forbidden:
         raise SystemExit(f"backup-drill: ODMOWA — {forbidden}.")

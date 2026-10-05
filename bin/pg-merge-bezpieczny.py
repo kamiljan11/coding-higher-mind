@@ -7,7 +7,7 @@ bez frazy ALLOW_CONTROL_PLANE. Wersja 2 (2026-10-01 wieczor) po pg-review code+o
 utwardzony 2026-10-04 w pg-review v3 (3 rundy); wlaczenie po rundzie 4 (poprawka blockera r3 bez recenzji).
 
 Uruchomienie (token z menedzer sekretow (np. Infisical CLI), nigdy w argv):
-    python3 ~/infisical/infisical run --env=dev --\
+    infisical run --env=dev -- \
         python3 ~/.claude/bin/pg-merge-bezpieczny.py OWNER/REPO NR --repo-path CHECKOUT [--recenzja KATALOG_PG_REVIEW] [--sprawdz]
 
 `--sprawdz` = tylko ocena (bez scalania; pomija warunek „otwarty/clean") — do testow na historycznych PR.
@@ -411,7 +411,7 @@ def ocen(pr: dict, repo: str, checki: list[dict], pliki: list[dict], tier: dict,
 def api(metoda: str, sciezka: str, cialo: dict | None = None, akceptuj: str = 'application/vnd.github+json') -> tuple[int, Any]:
     token = os.environ.get('GITHUB_Token')
     if not token:
-        raise SystemExit('Brak GITHUB_Token — uruchom przez most: infisical run --env=dev --')
+        raise SystemExit('Brak GITHUB_Token — uruchom przez most: infisical run --env=dev -- ...')
     req = urllib.request.Request(
         f'https://api.github.com{sciezka}', method=metoda,
         data=json.dumps(cialo).encode() if cialo is not None else None,

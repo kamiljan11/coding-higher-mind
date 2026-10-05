@@ -16,7 +16,7 @@ Budzet: T1 ~1x, T2 ~4x, T3 ~8-10x kosztu jednej recenzji diffu. Wszystko w jedny
 
 ## 0. Przygotowanie (0 tokenow)
 ```bash
-RUN="$TEMP/pg-review-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$RUN"
+RUN="${TEMP:-${TMPDIR:-/tmp}}/pg-review-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$RUN"
 cd <repo>
 node ~/.claude/bin/pg-self-approve.js --diff . > "$RUN/diff.patch" && [ -s "$RUN/diff.patch" ] || { echo "diff.patch pusty/blad — STOP"; exit 1; }
 git status --porcelain > "$RUN/status.txt"   # kanoniczny diff (HEAD + nieśledzone) — pg-self-approve porownuje go bajt w bajt

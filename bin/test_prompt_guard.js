@@ -8,6 +8,8 @@
 const { spawnSync } = require('child_process');
 const os = require('os');
 const path = require('path');
+// Znaczniki raz-na-sesje testow w katalogu tymczasowym, nie w prawdziwym logs/pg-seen (data-review 2026-10-05).
+process.env.PG_SEEN_DIR = path.join(os.tmpdir(), 'pg-seen-test-' + process.pid);
 const HOOK = path.join(os.homedir(), '.claude', 'hooks', 'prompt-guard.js');
 
 // [prompt, oczekiwany werdykt, opis]
@@ -74,5 +76,41 @@ for (const [prompt, sid, want] of OV) {
   console.log(`${ok ? 'ok  ' : 'FAIL'} override: ${JSON.stringify(prompt).slice(0, 60)} -> [${got.join(',')}] (oczekiwane [${want.join(',')}])`);
 }
 fs.rmSync(ovDir, { recursive: true, force: true });
+// Budzet tokenow (2026-10-05): pelny protokol raz na sesje, potem skrot; reset po starcie/compact; fail-safe = pelny.
+{
+  const seenDir = process.env.PG_SEEN_DIR;
+  const sid = 'test-once-' + process.pid;
+  const mark = path.join(seenDir, sid);
+  const run = (s) => spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ prompt: 'napraw bug w api i dodaj testy do funkcji logowania', session_id: s }), encoding: 'utf8', env: Object.assign({}, process.env, { PG_LANG: 'pl' }) }).stdout || '';
+  const chk = (name, cond, detail) => { if (!cond) failures++; console.log(`${cond ? 'ok  ' : 'FAIL'} once: ${name}${cond ? '' : ' -> ' + detail}`); };
+  fs.rmSync(mark, { force: true });
+  const first = run(sid);
+  const again = run(sid);
+  chk('1. prompt sesji = pelne 1-6 i 7. KOD', /^1\. NIEJASNOSC/m.test(first) && /^7\. KOD: grep-first/m.test(first), first.slice(0, 120));
+  chk('kolejny prompt = skroty (core + 7 KOD skrot), bez pelnego 1.', !/^1\. NIEJASNOSC/m.test(again) && /^1-6 \(pelne/m.test(again) && /7\. KOD \(pelne wyzej/.test(again), again.slice(0, 160));
+  chk('skrot krotszy niz polowa pelnego', again.length * 2 < first.length, `${again.length} vs ${first.length}`);
+  chk('skrot 7L zachowuje fan-out tylko na haslo', /fan-out \(Workflow\/ultracode\) tylko na jawne haslo/.test(again), again.slice(-400));
+  spawnSync(process.execPath, [path.join(__dirname, '..', 'hooks', 'session-context.js')], { input: JSON.stringify({ source: 'compact', session_id: sid }), encoding: 'utf8' });
+  chk('po /compact znowu pelny protokol', /^1\. NIEJASNOSC/m.test(run(sid)), 'brak pelnego');
+  fs.writeFileSync(mark, '{zepsuty json');
+  chk('uszkodzony znacznik = pelny (fail-safe)', /^1\. NIEJASNOSC/m.test(run(sid)), 'brak pelnego');
+  chk('brak session_id = pelny (fail-safe)', /^1\. NIEJASNOSC/m.test(run('')) && /^1\. NIEJASNOSC/m.test(run('')), 'brak pelnego');
+  fs.rmSync(seenDir, { recursive: true, force: true });
+}
+// session-context: ogon RESUME od granicy wpisu + spis pominietych (otwarte zawsze) + spis sekcji ucietego pliku.
+{
+  const memDir = path.join(os.tmpdir(), 'pg-mem-test-' + process.pid);
+  fs.mkdirSync(memDir, { recursive: true });
+  const entry = (i, status) => `RESUME 2026-10-0${i} — sesja s${i} — ${status}\n` + `- tresc wpisu ${i} `.repeat(60) + '\n';
+  fs.writeFileSync(path.join(memDir, 'RESUME.md'), [entry(1, 'W TOKU'), entry(2, 'ZAMKNIETE'), entry(3, 'ZAMKNIETE'), entry(4, 'ZAMKNIETE'), entry(5, 'ZAMKNIETE'), entry(6, 'ZAMKNIETE'), entry(7, 'ZAMKNIETE'), entry(8, 'najnowszy')].join('\n'));
+  fs.writeFileSync(path.join(memDir, 'Active Systems.md'), '# AS\n' + 'x'.repeat(7000) + '\n## Sekcja Pozna\ntresc\n');
+  const r = spawnSync(process.execPath, [path.join(__dirname, '..', 'hooks', 'session-context.js')], { input: JSON.stringify({ source: 'startup', session_id: 'mem-test' }), encoding: 'utf8', env: Object.assign({}, process.env, { MAS_MEMORY_DIR: memDir }) });
+  const out = r.stdout || '';
+  const chk = (name, cond) => { if (!cond) failures++; console.log(`${cond ? 'ok  ' : 'FAIL'} session-context: ${name}`); };
+  chk('ogon RESUME zaczyna sie od naglowka wpisu', /^RESUME 2026-10-08 — sesja s8/m.test(out) && !/poczatek wpisu uciety/.test(out));
+  chk('otwarty wpis (W TOKU) jest w spisie pominietych', /^  - RESUME 2026-10-01 — sesja s1 — W TOKU/m.test(out));
+  chk('uciety plik podaje dalsze sekcje', /dalsze sekcje \(indeks\):\]\n  - Sekcja Pozna — tresc/.test(out));
+  fs.rmSync(memDir, { recursive: true, force: true });
+}
 console.log(failures ? `TESTY: ${failures} FAIL` : 'TESTY DONE');
 process.exit(failures ? 1 : 0);

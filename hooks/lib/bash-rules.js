@@ -21,7 +21,7 @@ const MUTATING_GIT = new Set(['stash', 'checkout', 'switch', 'reset', 'restore',
 const WRITE_PROGS = new Set(['rm', 'del', 'erase', 'remove-item', 'ri', 'rmdir', 'rd', 'mv', 'move', 'move-item', 'mi', 'cp', 'copy', 'copy-item', 'cpi', 'tee', 'touch', 'set-content', 'sc', 'add-content', 'ac', 'out-file', 'new-item', 'ni', 'truncate', 'ln', 'install', 'rename-item', 'rni', 'unlink', 'shred', 'dd']);
 // Zapis przez interpreter (python -c / node -e / heredoc): slowa API zapisu. Goly `>` liczy parser (redirects), nie ten regex.
 // + chronione pliki pg/ (security-review 2026-10-02: `python -c os.remove(...self-approval.off)` przechodzilo).
-const CONTROL_TRACE_RX = /\/\.claude\/(hooks|git-hooks|bin|agents|scheduled-tasks|logs\/(gates|overrides|stop-gate-wm))\b|\/\.claude\/pg\/(trusted-roots\.txt|private-repos\.txt|deny-baseline\.json|settings-hooks\.json|self-approval\.off)|\/\.claude\/settings(\.local)?\.json|\.gitconfig\b|\/\.git\/(config|hooks)\b|profile\.ps1|\/\.(bashrc|bash_profile|zshrc|profile)\b|\.claude['"]?\s*[/,)+]\s*['"]?(hooks|git-hooks|bin|agents|scheduled-tasks|settings)|['"]pg['"]\s*[,)+/]\s*['"](trusted-roots|private-repos|deny-baseline|settings-hooks|self-approval)/;
+const CONTROL_TRACE_RX = /\/\.claude\/(hooks|git-hooks|bin|agents|scheduled-tasks|logs\/(gates|overrides|stop-gate-wm|pg-seen))\b|\/\.claude\/pg\/(trusted-roots\.txt|private-repos\.txt|deny-baseline\.json|settings-hooks\.json|self-approval\.off)|\/\.claude\/settings(\.local)?\.json|\.gitconfig\b|\/\.git\/(config|hooks)\b|profile\.ps1|\/\.(bashrc|bash_profile|zshrc|profile)\b|\.claude['"]?\s*[/,)+]\s*['"]?(hooks|git-hooks|bin|agents|scheduled-tasks|settings)|['"]pg['"]\s*[,)+/]\s*['"](trusted-roots|private-repos|deny-baseline|settings-hooks|self-approval)/;
 const API_WRITE_RX = /open\([^)]*['"][wax]\+?b?['"]|\.write_(text|bytes)\(|writeFileSync|appendFileSync|unlinkSync|rmSync|renameSync|copyFileSync|os\.(remove|unlink|rename|replace)\(|shutil\.|\.unlink\(|\.rename\(|Set-Content|Out-File|Add-Content|Remove-Item|Move-Item|Copy-Item/;
 
 // Cele zapisu w kodzie interpretera (python/node w -c/-e albo heredocu). Zwraca { targets, unresolved }:
@@ -554,7 +554,7 @@ function ghMergeFromFile(cmd, ctx) {
   return files.some((f) => { if (f === '-') return true; const txt = readSmall(f, ctx); return !txt || MERGE_BODY_RX.test(txt); });
 }
 // Merge schowany w SKRYPCIE (2026-10-01, v2 po pg-review code+ops+security): `python merge-pr.py 45`, `python -c "..."`,
-// `bash x.sh`, `pwsh -File x.ps1`, `uv run x.py`, takze za mostem `infisical (CLI) run -- python x.py`.
+// `bash x.sh`, `pwsh -File x.ps1`, `uv run x.py`, takze za mostem `infisical run -- python x.py`.
 // Czytane sa TYLKO skrypty faktycznie uruchamiane (pierwszy argument pozycyjny po flagach interpretera) i kod inline
 // (-c/-e/--eval/-Command). Wzorzec merge + realne wywolanie sieci/procesu = blokada. Istniejacy, a nieczytelny skrypt =
 // blokada (fail closed). ZNANA GRANICA (pg/known-limits.md): kod importowany z innego modulu (`-m pakiet`, import)

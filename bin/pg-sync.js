@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Kopia PG na GitHubie (2026-09-26): ~/.claude na second-machineu <-> prywatne repo <github-owner>/<your-private-pg-repo>.
-// Laptop z Linuksem dostaje ~/.claude przez Syncthing (folder claude-config, bez .git i settings.json — notatki maszyn (prywatne));
+// Laptop z Linuksem dostaje ~/.claude przez Syncthing (folder synchronizacji, bez .git i settings.json — notatki maszyn (prywatne));
 // git i commity sa tylko na second-machineu. pull przydaje sie przy odtwarzaniu albo drugim klonie. Kierunki:
 //   status  — fetch + ile commitow do wyslania/pobrania; stan do logs/pg-sync-state.json (czyta go session-context).
 //   push    — wysyla lokalne commity PG (tylko fast-forward, nigdy force). Odmawia, gdy origin ma nowsze commity.

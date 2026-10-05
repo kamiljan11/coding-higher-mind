@@ -46,7 +46,7 @@ Miernik: `node ~/.claude/bin/repo-readiness.js --repo <sciezka>` (0 tokenow) PRZ
    brak zrodla -> uzyj nazwy ze stopki i oznacz w PR `[NIEPEWNE: podmiot]`.
 7b. Przed pushem sprawdz vault: `curl -s -o /dev/null -w "%{http_code}" http://<secret-manager-url>/api/status` musi dac 200;
    inaczej push przez most pada TimeoutError. Retry co 90 s, max 4; potem raport „push pending" (commity sa bezpieczne).
-7c. **Most przez lock, gdy pracuje wiecej niz 1 agent:** `python infisical (CLI) ...`
+7c. **Most przez lock, gdy pracuje wiecej niz 1 agent:** `python infisical ...`
    (mutex w %TEMP%, czeka do 10 min). 2026-09-05: 13 rownoleglych wywolan mostu = wyczerpana pula Postgresa vaulta = padly
    WSZYSTKIE pushe floty. Jeden most naraz kosztuje sekundy; padniety vault kosztuje godziny.
 8. Push branchu przez most: `cd <secret-manager> && git push  # token z menedzera sekretow (np. `infisical run -- git push`)"<wt>" --env dev`

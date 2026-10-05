@@ -68,23 +68,72 @@ $wf: linie z narzedziem security ${rem} usuniete vs ${add} dodane"; fi
   # Dlatego kazde DODANE wystapienie sprawdzamy w kontekscie: okno 6 linii nad nim w wersji STAGOWANEJ pliku.
   # (2026-09-06: bramka blokowala 4 PR-y z szablonowym jscpd/knip — agent musial uzyc ALLOW_CI_DOWNGRADE=1,
   # czyli falszywy alarm uczyl obchodzenia bramki. To gorsze niz brak bramki.)
-  neutered=$(printf '%s\n' "$wf_added" | grep -iE 'audit[^#]*\|\|\s*true' || true)
-  if printf '%s\n' "$wf_added" | grep -qiE 'continue-on-error:\s*true'; then
-    for wf in $wf_changed; do
-      staged=$(MSYS_NO_PATHCONV=1 git show ":$wf" 2>/dev/null) || continue
-      # Granica kroku, nie okno linii: krok zaczyna sie od `- ` na swoim wcieciu i trwa do nastepnego `- `.
-      # `continue-on-error` liczy sie tylko wtedy, gdy narzedzie security jest w TYM SAMYM kroku.
-      hit=$(printf '%s\n' "$staged" | awk -v sec="$SEC_TOOLS_RX" '
-        function flush() { if (coe && s) print line; coe = 0; s = 0 }
-        /^[[:space:]]*-[[:space:]]/ { flush(); line = NR }
-        { if (tolower($0) ~ /continue-on-error:[[:space:]]*true/) coe = 1; if (tolower($0) ~ sec) s = 1 }
-        END { flush() }')
-      for n in $hit; do
-        neutered="$neutered
-$wf:$n: continue-on-error w kroku z narzedziem security"
-      done
-    done
-  fi
+  # Granica kroku, nie okno linii: krok zaczyna sie od `- ` na swoim wcieciu i trwa do nastepnego `- ` ALBO do linii
+  # o mniejszym wcieciu (nowy job, `steps:` innego joba). Bez tego ostatni krok joba z `continue-on-error` (knip)
+  # sklejal sie z nastepnym jobem `secrets-scan` (Gitleaks) — falszywy alarm na swiezym szablonie (2026-10-05).
+  # Tryb `coe`: continue-on-error + narzedzie security w TYM SAMYM kroku. Tryb `or`: `audit ... || true` w kroku,
+  # ktory NIE przekazuje wyniku do .github/scripts/audit-gate.mjs (szablon: `npm audit --json > plik || true`,
+  # a decyzje podejmuje bramka floty w tym samym kroku — to nie neutralizacja).
+  # security-review 2026-10-05 (runda 2): `-` bez spacji (goly myslnik, poprawny YAML) to tez poczatek kroku;
+  # continue-on-error liczy sie przy kazdej wartosci innej niz false ("true", ${{ true }}); bramka audytu tylko jako
+  # POLECENIE `node .github/scripts/audit-gate.mjs ...` na poczatku linii, bez `||` (echo/inna sciezka/|| true = brak bramki).
+  step_hits() {
+    awk -v sec="$SEC_TOOLS_RX" -v mode="$1" '
+      function ind(s) { match(s, /^[[:space:]]*/); return RLENGTH }
+      function coe_on(c) { return c ~ /continue-on-error:/ && c !~ /continue-on-error:[[:space:]]*["'\'']?false["'\'']?[[:space:]]*$/ }
+      function flush() {
+        if (in_step && mode == "coe" && coe && s) print line
+        if (in_step && mode == "or" && orT && !gate) print line
+        coe = 0; s = 0; orT = 0; gate = 0; in_step = 0
+      }
+      # `- ` zaczyna NOWY krok tylko na wcieciu kroku (albo plycej); glebsze `- ` (lista w `with:`, linia w `run: |`)
+      # nalezy do biezacego kroku (code-review 6ec38f9: wczesniej ucinalo krok i gubilo dalsze continue-on-error).
+      /^[[:space:]]*-([[:space:]]|$)/ && (!in_step || ind($0) <= step_ind) { flush(); line = NR; step_ind = ind($0); in_step = 1 }
+      !/^[[:space:]]*(#|$)/ && in_step && NR != line && ind($0) <= step_ind { flush() }
+      in_step {
+        low = tolower($0)
+        code = low; sub(/(^|[[:space:]])#.*/, "", code)   # komentarz nie uruchamia bramki ani audytu
+        if (coe_on(code)) coe = 1
+        if (code ~ sec) s = 1
+        if (code ~ /audit[^#]*\|\|[[:space:]]*true/) orT = 1
+        if (code ~ /^[[:space:]]*(-[[:space:]]*)?(run:[[:space:]]*)?node[[:space:]]+(\.\/)?\.github\/scripts\/audit-gate\.mjs[^|;&]*$/) gate = 1
+      }
+      END { flush() }'
+  }
+  # continue-on-error na poziomie JOBA (przed albo po `steps:`) neutralizuje kazdy krok joba: job z narzedziem security
+  # i takim continue-on-error = downgrade (security-review 2026-10-05; stary kod lapal przypadek „po steps”).
+  job_coe_hits() {
+    awk -v sec="$SEC_TOOLS_RX" '
+      function ind(s) { match(s, /^[[:space:]]*/); return RLENGTH }
+      function coe_on(c) { return c ~ /continue-on-error:/ && c !~ /continue-on-error:[[:space:]]*["'\'']?false["'\'']?[[:space:]]*$/ }
+      function flush() { if (in_job && jc && s) print line; jc = 0; s = 0; in_job = 0 }
+      /^jobs:[[:space:]]*$/ { in_jobs = 1; job_ind = -1; next }
+      in_jobs && /^[^[:space:]#]/ { flush(); in_jobs = 0 }
+      in_jobs && !/^[[:space:]]*(#|$)/ {
+        i = ind($0)
+        if (job_ind < 0) job_ind = i
+        if (i == job_ind) { flush(); line = NR; in_job = 1; next }
+        low = tolower($0); code = low; sub(/(^|[[:space:]])#.*/, "", code)
+        if (i == job_ind + 2 && coe_on(code)) jc = 1
+        if (code ~ sec) s = 1
+      }
+      END { flush() }'
+  }
+  neutered=""
+  for wf in $wf_changed; do
+    staged=$(MSYS_NO_PATHCONV=1 git show ":$wf" 2>/dev/null) || continue
+    wf_add_one=$(git diff --cached -U0 --diff-filter=ACMR -- "$wf" | grep -E '^\+' | grep -vE '^\+\+\+')
+    if printf '%s\n' "$wf_add_one" | grep -qiE 'audit[^#]*\|\|\s*true'; then
+      for n in $(printf '%s\n' "$staged" | step_hits or); do neutered="$neutered
+$wf:$n: audit || true bez bramki audit-gate.mjs w tym samym kroku"; done
+    fi
+    if printf '%s\n' "$wf_add_one" | grep -qiE 'continue-on-error:'; then
+      for n in $(printf '%s\n' "$staged" | step_hits coe); do neutered="$neutered
+$wf:$n: continue-on-error w kroku z narzedziem security"; done
+      for n in $(printf '%s\n' "$staged" | job_coe_hits); do neutered="$neutered
+$wf:$n: continue-on-error na poziomie joba z narzedziem security"; done
+    fi
+  done
   # `uses: owner/action@v4` = mutable tag (supply chain: trivy-action, kics). Agent ODPIAL SHA w release.yml
   # workshop-app (2026-09-05) — semgrep to zlapal dopiero w CI. Nowe/zmienione `uses:` musza miec 40-hex SHA
   # (komentarz `# v4.4.0` obok mowi, co to za wersja). Lokalne akcje `./x` i `docker://` bez `@` przechodza.

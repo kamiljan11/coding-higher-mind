@@ -17,7 +17,7 @@ raport dla uzytkownika zaczyna sie od sprzeciwu, nie od zgody.
 
 ## 0. Specyfikacja (0 tokenow) — MAST: 41,8 % porazek to zla specyfikacja
 ```bash
-RUN="$TEMP/pg-council-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$RUN"
+RUN="${TEMP:-${TMPDIR:-/tmp}}/pg-council-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$RUN"
 # decision.json: id, question (1 pytanie), context, options (>= 2, w tym status quo), constraints, tier, irreversible, evidence_pointers, deadline
 node ~/.claude/bin/pg-council.js validate "$RUN/decision.json"     # exit 2 = popraw spec, nie odpalaj agentow
 ```

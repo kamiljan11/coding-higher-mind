@@ -50,7 +50,13 @@ jobs:
 
       - name: Dependency audit (high+)
         if: hashFiles('package-lock.json') != ''
-        run: npm audit --audit-level=high
+        env:
+          # Swiadome wyjatki GHSA:data-wygasniecia (uzytkownik 2026-10-05: braces 3.0.4 z poprawka nie istnieje w npm).
+          # Po dacie wyjatek wygasa i podatnosc znowu blokuje; kazda inna high/critical blokuje zawsze.
+          AUDIT_ALLOW: "GHSA-vfj7-8cjw-p6xm:2026-11-05"
+        run: |
+          npm audit --json > "$RUNNER_TEMP/audit.json" || true
+          node .github/scripts/audit-gate.mjs "$RUNNER_TEMP/audit.json"
 
       - name: License check (copyleft blokuje sprzedaz)
         if: hashFiles('package-lock.json') != ''

@@ -119,17 +119,19 @@ const r8 = (envExample) => {
   } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
 };
 const r8Clean = (name, envExample) => { const r = r8(envExample); check(`R8 czyste: ${name}`, r && r.points === 5, JSON.stringify(r)); };
+// Przykladowy klucz z dokumentacji Stripe, sklejany: literal w publicznym eksporcie wywolywal alert secret scanning (2026-10-05).
+const FAKE_STRIPE = 'sk' + '_live_' + '4eC39HqLyjWDarjtT1zdp7dc';
 const r8Leak = (name, envExample) => { const r = r8(envExample); check(`R8 wyciek: ${name}`, r && r.points === 2 && /realna wartosc/.test(r.why), JSON.stringify(r)); };
 r8Clean('puste wartosci LF, dlugie nazwy obok siebie (calculator-app)', 'SUPABASE_PROJECT_ID=\nSUPABASE_PUBLISHABLE_KEY=\nSUPABASE_URL=\n\nVITE_SUPABASE_PROJECT_ID=\nVITE_SUPABASE_PUBLISHABLE_KEY=\nVITE_SUPABASE_URL=\n');
 r8Clean('puste wartosci CRLF (rental-site)', 'FOO=\r\nBAR_BAZ_QUX_LONG_NAME=\r\nNEXT_PUBLIC_SUPABASE_ANON_KEY=\r\n');
 r8Clean('komentarze + placeholdery', '# klucz z dashboardu\nAPI_KEY=your_api_key_here_replace_me_now\nTOKEN=<your-token-goes-here-xxxxxxxx>\nPASSWORD=changeme_changeme_changeme_changeme\n');
 r8Leak('JWT w tej samej linii', 'SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSJ9.abc\n');  // gitleaks:allow (fikstura testu skanera, nie sekret)
-r8Leak('sk_live_ w tej samej linii', 'STRIPE_KEY=sk_live_4eC39HqLyjWDarjtT1zdp7dc\n');
+r8Leak('sk_live_ w tej samej linii', 'STRIPE_KEY=' + FAKE_STRIPE + '\n');
 r8Leak('hex 40 w tej samej linii', 'SECRET=3f786850e387550fdab836ed7e6dc881de23001b\n');
 r8Leak('CRLF nie ukrywa JWT miedzy pustymi', 'FOO=\r\nSUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSJ9.abc\r\nBAR=\r\n');  // gitleaks:allow (fikstura testu skanera, nie sekret)
 // Luki z weryfikacji peer-sesji 2026-09-06 (false negatives w tym samym bloku R8):
-r8Leak('export KEY=sekret (dotenv-style)', 'export STRIPE_KEY=sk_live_4eC39HqLyjWDarjtT1zdp7dc\n');
-r8Leak('mala litera w nazwie zmiennej', 'api_key=sk_live_4eC39HqLyjWDarjtT1zdp7dc\n');
+r8Leak('export KEY=sekret (dotenv-style)', 'export STRIPE_KEY=' + FAKE_STRIPE + '\n');
+r8Leak('mala litera w nazwie zmiennej', 'api_key=' + FAKE_STRIPE + '\n');
 r8Leak('sk- (OpenAI/Anthropic) z cyframi — przyklad akceptacyjny z taska', 'API_KEY=sk-abc123def456ghi789\n');
 r8Clean('sk- placeholder bez cyfr', 'OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxxxxxxxxx\n');
 r8Clean('export + pusta wartosc', 'export API_KEY=\nexport DB_URL=\n');

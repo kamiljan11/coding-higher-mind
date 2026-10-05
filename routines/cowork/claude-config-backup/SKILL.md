@@ -498,7 +498,7 @@ same way as `args` copies that ~90MB node.exe / python.exe into every server's o
 5+ duplicate copies, ~870MB wasted, discovered and removed on 2026-09-03.
 
 **The rule.** In STEP 1, only back up paths from `args` (the actual server script: server.py,
-proxy.js, index.js, cli.js, server.js, infisical (CLI), etc.) plus the sibling files list.
+proxy.js, index.js, cli.js, server.js, infisical, etc.) plus the sibling files list.
 Do NOT back up `command` itself when it points to a shared runtime executable (node.exe,
 python.exe, python3, node, npx, or any path under `Program Files`, `Python3*`, or a bare
 interpreter name with no server-specific content) - that binary is reinstalled by the Node.js /

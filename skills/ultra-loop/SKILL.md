@@ -70,7 +70,7 @@ ScheduleWakeup jako fallback-heartbeat na wypadek zgubionej notyfikacji).
   writer→reviewer. Zakończenie = notyfikacja, która pcha łańcuch.
 - **verify / code-review / security-review / architecture-advisor / mobile-optimization / jack-quality-gate** — gotowe bramki jakości między BUILD a SHIP.
 - **Preview (Playwright/preview_*)** — bramka „b": realne odpalenie, nie typy.
-- Deploy sekretów/DB: przez ustalony most (u uzytkownika: Infisical `infisical (CLI)`).
+- Deploy sekretów/DB: przez ustalony most (u uzytkownika: Infisical `infisical`).
 
 ## Antywzorce (nie rób)
 - Pętla bez rubryki → dryf, nigdy nie „done".

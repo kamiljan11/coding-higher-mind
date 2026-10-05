@@ -11,7 +11,7 @@ SRODOWISKO WYKONANIA: LAPTOP Z LINUKSEM (obowiazuje od przelaczenia tego zadania
 - Kazde wywolanie start_process to nowy proces: katalog roboczy nie przechodzi do nastepnego wywolania, wiec polecenie zaczynaj od cd "<katalog>" && ...
 - Wywolanie urzadzenia zrywa sie po okolo 60 s. Dluzsze polecenia uruchamiaj w tle: cd "<katalog>" && setsid nohup python3 -u <skrypt> <argumenty> > <plik_wyjscia> 2> <plik_bledow> < /dev/null &  potem sprawdzaj plik krotkimi wywolaniami (tail -n 5 <plik>; sleep najwyzej 45). Czy proces dziala: pgrep -af <nazwa_skryptu>.
 - Czekanie: sleep 40 (jedno wywolanie najwyzej ok. 45 s). Rekord MX domeny: dig +short MX <domena>.
-- Sekrety z Infisicala: python3 ~/infisical/infisical run --env=dev --<polecenie> (nigdy nie wypisuj wartosci).
+- Sekrety z Infisicala: infisical run --env=dev -- <polecenie> (nigdy nie wypisuj wartosci).
 - Jesli sciezka z tego pliku nie istnieje na laptopie: nie zgaduj i nie szukaj na slepo, zakoncz ze statusem FAILED i podaj brakujaca sciezke.
 - guard_health.py na laptopie sam pisze do pliku per komputer: Claude Memory/Log/guard-health-user.md (galaz Linux w skrypcie, 2026-10-02).
 <!-- KONIEC NAGLOWKA LINUX -->
