@@ -38,11 +38,22 @@ fi
 # Wyjatek zdejmuje TYLKO blokade pushu na main — limit rozmiaru i granice modulow nizej dzialaja dalej (recenzja 2026-09-26).
 # Cel sprawdzany po $2 = URL, pod ktory git faktycznie pcha (pushurl), nie po nazwie remote'a. Force-push blokuje bash-guard.
 pg_main_ok=0
+pg_main_why="main -> <github-owner>/<your-private-pg-repo> (kopia PG, pg-sync)"
 pg_top=$(git rev-parse --show-toplevel 2>/dev/null)
 if [ -n "$pg_top" ] && [ -d "$HOME/.claude" ] && [ "$(cd "$pg_top" && pwd -P)" = "$(cd "$HOME/.claude" && pwd -P)" ] &&
    printf '%s' "$2" | grep -Eq '^(https://|git@)github\.com[:/]<github-owner>/<your-private-pg-repo>(\.git)?$'; then
   pg_main_ok=1
 fi
+# Repo tresci prowadzone przez codzienne zadania (sesje nauki, uzytkownik 2026-10-05): bez PR-ow i CI, agent dopisuje
+# jedna sesje dziennie. Wyjatek tylko dla lokalnego klonu w ~/Documents/<repo> i pushurl na <github-owner>/<repo>.
+# Po przejsciu na Linuksa blokada main zatrzymala te pushe na 3 dni (S85-S87 tylko lokalnie).
+for content_repo in code-reading-quest mas-learning-system; do
+  if [ -n "$pg_top" ] && [ "$(cd "$pg_top" && pwd -P)" = "$(cd "$HOME/Documents/$content_repo" 2>/dev/null && pwd -P)" ] &&
+     printf '%s' "$2" | grep -Eq "^(https://([^@/]+@)?|git@)github\.com[:/]<github-owner>/$content_repo(\.git)?\$"; then
+    pg_main_ok=1
+    pg_main_why="main -> <github-owner>/$content_repo (dziennik nauki, zadanie dzienne)"
+  fi
+done
 
 if [ -f package.json ] && grep -q "lovable-tagger" package.json 2>/dev/null; then
   exit 0   # legacy Lovable: push do main = deploy, przepuszczamy
@@ -56,7 +67,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       if [ "$pg_main_ok" = "1" ]; then
         # Jak kazde obejscie: wpis w logu bramek (code-review 2026-09-26).
         command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/hooks/lib/gate-log.js" ] &&
-          node "$HOME/.claude/hooks/lib/gate-log.js" pre-push bypass "main -> <github-owner>/<your-private-pg-repo> (kopia PG, pg-sync)" "$(pwd)" 2>/dev/null
+          node "$HOME/.claude/hooks/lib/gate-log.js" pre-push bypass "$pg_main_why" "$(pwd)" 2>/dev/null
         continue
       fi
       echo "" >&2

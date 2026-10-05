@@ -11,7 +11,7 @@ SRODOWISKO WYKONANIA: LAPTOP Z LINUKSEM (obowiazuje od przelaczenia tego zadania
 - Kazde wywolanie start_process to nowy proces: katalog roboczy nie przechodzi do nastepnego wywolania, wiec polecenie zaczynaj od cd "<katalog>" && ...
 - Wywolanie urzadzenia zrywa sie po okolo 60 s. Dluzsze polecenia uruchamiaj w tle: cd "<katalog>" && setsid nohup python3 -u <skrypt> <argumenty> > <plik_wyjscia> 2> <plik_bledow> < /dev/null &  potem sprawdzaj plik krotkimi wywolaniami (tail -n 5 <plik>; sleep najwyzej 45). Czy proces dziala: pgrep -af <nazwa_skryptu>.
 - Czekanie: sleep 40 (jedno wywolanie najwyzej ok. 45 s). Rekord MX domeny: dig +short MX <domena>.
-- Sekrety z Infisicala: python3 ~/infisical/infisical run --env=dev --<polecenie> (nigdy nie wypisuj wartosci).
+- Sekrety z Infisicala: infisical run --env=dev -- <polecenie> (nigdy nie wypisuj wartosci).
 - Jesli sciezka z tego pliku nie istnieje na laptopie: nie zgaduj i nie szukaj na slepo, zakoncz ze statusem FAILED i podaj brakujaca sciezke.
 <!-- KONIEC NAGLOWKA LINUX -->
 
@@ -21,7 +21,7 @@ Zadanie jednorazowe zlecone przez uzytkownika 2026-09-21: napisz case study o sk
 KROK 0 — LOG: dopisz (append, NIE nadpisuj) "STARTED <data ISO>" do ~/Obsidian/MAIN/Claude Memory/Log/shop-app-case-study.md.
 
 KROK 1 — STAN NA DZIS (najpierw czytaj, potem pisz):
-- Sekrety tylko przez most: cd ~/infisical && python3 infisical run --env=dev --<komenda>. Nigdy nie wypisuj tokena.
+- Sekrety tylko przez most: cd ~/infisical && python3 infisical run --env=dev -- <komenda>. Nigdy nie wypisuj tokena.
 - Repo prywatne <github-owner>/shop-app (lokalnie tez ~/Desktop/second-machine (<second-domain>)/shop-app). Zrob git fetch albo swiezy klon do ~/qa-sweep/shop-app-case. Przeczytaj README, CHANGELOG, docs/ (ARCHITECTURE, ADR), git log od 2026-09-01, strukture danych katalogu, testy.
 - Sklep: curl https://shop-app (musi byc 200) i obejrzyj go w przegladarce (render JS). Sprawdz, czy nadal dziala to, co bylo we wrzesniu: produkty w kolejnosci drukowanego katalogu (pole catalogRank), podpisy pod nazwa w 3 jezykach EN/IS/PL (cookie shop-app-locale), zero opublikowanych produktow bez kategorii (we wrzesniu z 51 w koszu "Other equipment" zeszlo do 0), straznik cen sprawdzajacy produkty po kazdym zapisie, filtr marki zachowany przy stronicowaniu i sortowaniu. Dla kazdego punktu zapisz dowod (plik:linia, komenda, wynik).
 - Kontekst we wrzesniowych notatkach: ~/Obsidian/MAIN/Claude Memory/RESUME.md (sekcja shop-app, 2026-09-20) i Projects.md. Traktuj je jako tropy do sprawdzenia.
@@ -40,11 +40,11 @@ KROK 3 — KOD I BRAMKI (repo ~/Desktop/second-machine (<second-domain>)/demo-si
 - Zaktualizuj wszystko, co liczy case studies: src/server/bot.server.ts ("<N> write-ups of real builds" — test bot.prompt.test.ts porownuje z CASE_STUDIES.pl.length) oraz inne testy/teksty z liczba case studies (grep "20 " / "dwadzie" w src).
 - Wpis w CHANGELOG.md [Unreleased].
 - Bramki (musza byc zielone, max 5 iteracji napraw): npm run lint, npx tsc -b, npm test, rm -rf .output && npm run build (bez ALLOW_RM: `.output` = katalog build, bash-guard przepuszcza od 2026-09-26), E2E_PORT=5240 npx playwright test (porty 4122-4221 sa zarezerwowane na Windows).
-- Commit (Conventional Commits, stage tylko jawne sciezki, przed zmiana galezi: git checkout -- src/routeTree.gen.ts). Push: python3 ~/infisical/infisical (CLI) git-push --secret GITHUB_Token --remote github.com/<github-owner>/demo-site --refspec content/shop-app-case-study:content/shop-app-case-study --repo "~/Desktop/second-machine (<second-domain>)/demo-site" --env dev
+- Commit (Conventional Commits, stage tylko jawne sciezki, przed zmiana galezi: git checkout -- src/routeTree.gen.ts). Push: infisical git-push --secret GITHUB_Token --remote github.com/<github-owner>/demo-site --refspec content/shop-app-case-study:content/shop-app-case-study --repo "~/Desktop/second-machine (<second-domain>)/demo-site" --env dev
 - PR przez GitHub REST API (przez most), opis z pliku: co, skad kazdy fakt (dowody z kroku 1), jak sprawdzone.
 
 KROK 4 — WYPUSZCZENIE NA PROD:
-- cd ~/infisical && python3 infisical run --env=dev --"~/.claude/bin/ship_pr_example.py" <numer PR>
+- cd ~/infisical && python3 infisical run --env=dev -- python3 "~/.claude/bin/ship_pr_example.py" <numer PR>
 - Exit ≠ 0 = NIE gotowe. `REFUSED`/`CONFLICT` -> PR zostaje otwarty, napraw albo zgłoś uzytkownikowi. `DEPLOY NOT CONFIRMED` -> PR już zmergowany, ale deploy nie potwierdzony: NIE pisz „opublikowane”, sprawdź stronę curlem i zgłoś uzytkownikowi (wycofanie: revert commita merge przez nowy PR albo `vercel promote` poprzedniego deployu — decyzja uzytkownika).
 - Skrypt czeka na wymagane checki CI i recenzje claude-review, merguje TYLKO przy APPROVE i czeka na deploy Vercela. Przy REQUEST CHANGES popraw findings (maks 2 rundy) i uruchom ponownie. Jesli nadal nie ma APPROVE, zostaw PR otwarty i zaloguj powod. Nigdy nie merguj recznie ani z pominieciem recenzji.
 - Po deployu sprawdz: curl https://kamiljan.com/case-studies?lang=pl zawiera tytul nowego case study, a strona odpowiada 200.

@@ -14,26 +14,64 @@ const reason = input.session_start_reason || input.source || 'unknown';
 // Linux (laptop, 2026-10-02): vault z Syncthinga ~/Obsidian/MAIN, lokalnie, dziala tez gdy SSHFS ~/D lezy.
 const OWNER_MEM = ['~/.claude/memory', path.join(require('os').homedir(), 'Obsidian', 'MAIN', 'Claude Memory')].find((p) => fs.existsSync(p));
 const MEM = process.env.MAS_MEMORY_DIR || OWNER_MEM || path.join(require('os').homedir(), '.claude', 'memory');
-const CAP_TOTAL = 40000; // ~10k tokenow; twardy sufit
+// Budzet (2026-10-05, pomiar: 34,6 KB ~ 9,5 tys. tokenow przy KAZDYM starcie i /compact): ~22 KB. RESUME jest
+// dopisywany na koncu (najstarsze wpisy u gory), wiec bierzemy OGON — wczesniej hook wstrzykiwal wpisy sprzed tygodnia.
+// Reszta: poczatek pliku (reguly i stan sa na gorze), a pelna wersja na zadanie przez Read (sciezka w nagłówku).
+const CAP_TOTAL = 25600;
 const FILES = [
-  ['RESUME.md', 6000, 'punkt kontrolny biezacej pracy (czytaj PIERWSZY)'],
-  ['Notes for Claude.md', 14000, 'reguly operacyjne + stan'],
-  ['Projects.md', 10000, 'aktywne projekty'],
-  ['Active Systems.md', 10000, 'zbudowane systemy — nie buduj od nowa'],
+  ['RESUME.md', 3600, 'punkt kontrolny biezacej pracy (czytaj PIERWSZY; najnowsze wpisy)', 'tail'],
+  ['Notes for Claude.md', 8400, 'reguly operacyjne + stan'],
+  ['Projects.md', 6600, 'aktywne projekty'],
+  ['Active Systems.md', 6000, 'zbudowane systemy — nie buduj od nowa'],
 ];
 const out = [];
 let used = 0;
-out.push(`[SESSION-CONTEXT source=${reason} ${new Date().toISOString().slice(0, 16)}] Pamiec z ${MEM} wstrzyknieta przez hook SessionStart. NIE czytaj tych plikow ponownie przez desktop-commander — juz sa ponizej. Cowork/stary CLI bez tego bloku => czytaj po staremu.`);
-for (const [name, cap, desc] of FILES) {
+out.push(`[SESSION-CONTEXT source=${reason} ${new Date().toISOString().slice(0, 16)}] Pamiec z ${MEM} wstrzyknieta przez hook SessionStart. NIE czytaj tych plikow ponownie — sa ponizej; wyjatek: plik z markerem [... uciete] czytaj (Read), gdy potrzebujesz jego dalszej czesci (np. sekcje Zakonczone/Wstrzymane, kolejne systemy). Cowork/stary CLI bez tego bloku => czytaj po staremu.`);
+for (const [name, cap, desc, from] of FILES) {
   const p = path.join(MEM, name);
   let txt;
   try { txt = fs.readFileSync(p, 'utf8'); } catch (e) { out.push(`--- ${name}: BRAK (${e.code || 'err'}) — ${desc}`); continue; }
   const limit = Math.min(cap, CAP_TOTAL - used);
   if (limit <= 500) { out.push(`--- ${name}: pominiety (limit kontekstu) — przeczytaj recznie jesli potrzebny`); continue; }
-  let body = txt.length > limit ? txt.slice(0, limit) + `\n[... uciete: ${txt.length - limit} znakow — pelna wersja w pliku]` : txt;
+  let body = txt;
+  if (txt.length > limit && from === 'tail') {
+    // Ogon od poczatku wpisu (linia "RESUME ..."), zeby nie zaczynac w polowie checkpointu. Pominiete wpisy nie znikaja
+    // bez sladu: ich linie tytulowe (data, sesja, status W TOKU/ZAMKNIETE) ida jako spis (data-review 2026-10-05).
+    // Spis pominietych wpisow miesci sie W limicie: ogon dostaje limit minus ~1000 znakow na spis.
+    const cut = txt.slice(-(limit - 1000));
+    const at = cut.search(/^RESUME /m);
+    const skipped = txt.slice(0, txt.length - (limit - 1000) + Math.max(at, 0));
+    // Wpisy otwarte („W TOKU”) zawsze, plus kilka ostatnich (weryfikator 2026-10-05: otwarte akcje starszych sesji znikaly).
+    const titles = skipped.match(/^RESUME .*$/gm) || [];
+    const open = titles.filter((l) => /W TOKU|DO ZROBIENIA|OTWARTE/i.test(l) && !/ZAMKNIETE|WYKONANE/i.test(l));
+    const toc = [...new Set([...open, ...titles.slice(-5)])].map((l) => '  - ' + l.slice(0, 140));
+    body = `[... starsze wpisy pominiete (${skipped.length} znakow) — pelna wersja: ${p}; ostatnie z nich:]\n${toc.join('\n')}\n` + (at >= 0 ? cut.slice(at) : '[poczatek wpisu uciety]\n' + cut);
+  } else if (txt.length > limit) {
+    // Spis pominietych sekcji (naglowki ## / ###), zeby model wiedzial, co jest dalej i kiedy doczytac (np. sprostowania).
+    // Indeks pominietych sekcji: naglowek + pierwsza linia tresci (status, np. WORKING / NIEAKTUALNE). Kazdy system i kazda
+    // sekcja zostaje w kontekscie co najmniej jedna linia, szczegoly przez Read (pg-review ops-5, 2026-10-05).
+    // Indeks miesci sie W limicie pliku (budzet guard_health): 3/4 limitu na poczatek pliku, reszta na indeks.
+    const head = Math.floor(limit * 0.75);
+    const rest = txt.slice(head);
+    const parts = rest.split(/^(#{2,3} .*)$/m);
+    const idx = [];
+    for (let i = 1; i < parts.length; i += 2) {
+      const first = (parts[i + 1] || '').split('\n').map((l) => l.trim()).find((l) => l && !/^\|-/.test(l)) || '';
+      idx.push(`  - ${parts[i].replace(/^#+ /, '').slice(0, 90)}${first ? ' — ' + first.slice(0, 100) : ''}`);
+    }
+    body = txt.slice(0, head) + `\n[... uciete: ${txt.length - head} znakow — pelna wersja: Read ${p}` + (idx.length ? `; dalsze sekcje (indeks):]\n${idx.join('\n').slice(0, limit - head - 200)}` : ']');
+  }
   used += body.length;
   out.push(`--- ${name} (${desc}) ---\n${body.trim()}`);
 }
+// Nowy start/kompakcja = model nie ma juz pelnego protokolu w kontekscie -> prompt-guard ma go wstrzyknac raz jeszcze.
+const SEEN_DIR = process.env.PG_SEEN_DIR || path.join(__dirname, '..', 'logs', 'pg-seen');
+try { if (input.session_id) fs.rmSync(path.join(SEEN_DIR, require('./lib/overrides.js').cleanSid(input.session_id)), { force: true }); } catch (e) { /* brak znacznika = pelny protokol i tak */ }
+// Retencja: znaczniki sesji starsze niz 14 dni (1 plik na sesje, kilkadziesiat bajtow) — sprzatanie przy starcie.
+try {
+  const old = Date.now() - 14 * 24 * 3600 * 1000;
+  for (const f of fs.readdirSync(SEEN_DIR)) { const fp = path.join(SEEN_DIR, f); if (fs.statSync(fp).mtimeMs < old) fs.rmSync(fp, { force: true }); }
+} catch (e) { /* brak katalogu = nic do sprzatania */ }
 // Po kompakcji: migawka zapisana tuz przed nia przez precompact-snapshot.js (PreCompact). Kontekst dodany wczesniej
 // przez hooki ginie w streszczeniu — ta migawka wraca jako wyjscie SessionStart(compact), ktore docs gwarantuja w kontekscie.
 if (reason === 'compact' && input.session_id) {

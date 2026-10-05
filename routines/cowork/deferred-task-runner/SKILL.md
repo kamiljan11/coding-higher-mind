@@ -159,7 +159,7 @@ Evidence, all from a single `list_scheduled_tasks` call on Friday 2026-08-28, wh
 |---|---|---|---|---|
 | `fb-friday-posts` | `0 9 * * 5` | 08-21 | 09-04 | yes (Fri) |
 | `example-task-a` | `0 8 * * 1,3,5` | 08-26 | 08-31 | yes (Fri) |
-| `rental-site-...-outreach-10day` | `0 9 * * 1-5` | 08-27 | 08-31 | yes (weekday) |
+| `rental-site...-outreach-10day` | `0 9 * * 1-5` | 08-27 | 08-31 | yes (weekday) |
 | `code-reading-quest-daily` | `0 9 * * *` | 08-27 | 08-29 | yes (daily) |
 
 Four tasks, four skipped slots, zero detections.
@@ -188,7 +188,7 @@ For each task not already skipped by A4's skip-list:
    "0 overdue" while four slots were skipped is a false all-clear.
 
 **Do NOT auto-trigger catch-ups from A4b.** Several of these tasks take irreversible outward actions
-(`fb-friday-posts` publishes to Facebook, `rental-site-...-outreach` sends email) and Safe Work Rules
+(`fb-friday-posts` publishes to Facebook, `rental-site...-outreach` sends email) and Safe Work Rules
 put those behind uzytkownik. Use the existing `alertedFailures` de-duplication and send ONE ntfy push
 listing the skipped tasks so he can choose: fire manually, or skip the period. Tasks that are purely
 internal and idempotent (syncs, backups, quest prep) may be proposed for catch-up in the report, but
@@ -545,7 +545,7 @@ Before writing "self-recovered", "healthy", "cleared", or "resolved" for any tas
 
 **Do not fix this by calling `update_scheduled_task`.** That tool hangs ~31 min on an invisible permission
 prompt in unattended runs and then auto-denies — it killed self-evolution-cycle 31 and caused a 6-hour
-runaway in rental-site-outreach, both on 2026-08-31. This watchdog already avoids it deliberately; keep
+runaway in rental-site, both on 2026-08-31. This watchdog already avoids it deliberately; keep
 doing that. Registry changes go to uzytkownik as a proposal.
 
 
@@ -587,7 +587,7 @@ the self-recovery-verification subsection and was demonstrably read past.
 task — called `update_scheduled_task` while investigating mas-learning-system-sync's checkpoint state.
 Its transcript truncates immediately after the call with no closing report: the process died mid-run.
 That is the identical signature that killed self-evolution-cycle 31 on 2026-08-31 and caused the
-6-hour runaway in `rental-site-…-outreach-10day` the same day. Counting the 2026-09-05 cluster
+6-hour runaway in `rental-site…-outreach-10day` the same day. Counting the 2026-09-05 cluster
 (`local_2e1a3d08`, `local_8c8ff5ef`, `local_6dd2c064`), this is **at least the 5th session lost to
 this one tool call**, and this watchdog runs every 2 hours — it is the most-exposed automation in the
 system.
@@ -650,7 +650,7 @@ ordinary dedup logic is most likely to silence — because it "runs" every day a
 Added by self-evolution-cycle 34, 2026-09-07. **Confirmed false-positive, with receipts.**
 
 **What happened.** At 09:18Z on 2026-09-07 this watchdog hand-computed A4b arithmetic and concluded
-three tasks had silently skipped today's slot: `example-task-a`, `rental-site-…-outreach-10day` and
+three tasks had silently skipped today's slot: `example-task-a`, `rental-site…-outreach-10day` and
 `code-reading-quest-daily`. It sent **one ntfy push to uzytkownik's phone** (id `4ZlpM9VTioUZ`) naming all
 three with per-task impact. A registry read at 10:08Z the same morning shows:
 
@@ -658,7 +658,7 @@ three with per-task impact. A registry read at 10:08Z the same morning shows:
 |---|---|---|
 | `code-reading-quest-daily` | 09:21:22Z | fired **3 min after** the alert |
 | `example-task-a` | 09:24:22Z | fired **6 min after** |
-| `rental-site-…-outreach-10day` | 09:32:22Z | fired **14 min after** |
+| `rental-site…-outreach-10day` | 09:32:22Z | fired **14 min after** |
 
 All three were mid-catch-up, not skipped. `github-lovable-sync` also fired at 09:17/09:19/09:21 in the
 same burst. The host had just come back online; the whole cluster was recovering as it was being

@@ -79,7 +79,7 @@ check("fold: eid-provider -> eid-provider", exp.fold("eid-provider Þór") == "e
 check("scan: nazwa z diakrytykiem = DENY (fail-closed)", bool(exp.scan("eID " + "Au" + "ðkenni", "x.md")))
 check("substytucja: wariant z „ð” podmieniony", "eid-provider" in exp.substitute("Au" + "ðkenni")[0])
 check("scan: niewidoczny znak w nazwie (zero-width, soft hyphen) = DENY", bool(exp.scan("R\u200b" + "apyd", "x")) and bool(exp.scan("rap\u00ad" + "yd", "x")))
-check("substytucja: rental-site, second-machine, import @" + "DEV" + "ICES.md", all(w not in exp.substitute("mountain" + "-car-x zen" + "book\n@DEV" + "ICES.md\n")[0].lower()
+check("substytucja: rental-site w calosci, second-machine, import @" + "DEV" + "ICES.md", "rental-site-" not in exp.substitute("mountain" + "-car-rental")[0] and all(w not in exp.substitute("mountain" + "-car-x zen" + "book\n@DEV" + "ICES.md\n")[0].lower()
       for w in ("mountain" + "-car", "zen" + "book", "dev" + "ices.md")))
 check("skip_file: *.local.md i hooks/.seal.json poza eksportem",
       exp.skip_file("skills/a/references/prywatne notatki floty (poza eksportem)") and exp.skip_file("hooks/.seal.json") and not exp.skip_file("skills/a/SKILL.md"))
@@ -98,6 +98,7 @@ with tempfile.TemporaryDirectory() as vd:
     check("version_stamp: brak wersji w README = problem (x2)", len(_readme("# Tytul\n")) == 2)
     check("version_stamp: v1.3.0 + data = OK", _readme("# T\n**Version 1.3.0 — v1.3.0, 2026-10-05**\n") == [])
     check("version_stamp: v1.3.01 nie udaje v1.3.0", len(_readme("# T\nv1.3.01 2026-10-05\n")) == 2)
+    check("version_stamp: kropka konczaca zdanie po v1.3.0 = OK", _readme("# T\nReleased v1.3.0. 2026-10-05\n") == [])
     os.makedirs(os.path.join(vd, "pg", ".github"))
     with open(os.path.join(vd, "pg", "cases.md"), "w", encoding="utf-8") as fh:
         fh.write("| ID | x |\n| A-ONE | y |\n| B-TWO | z |\n")
@@ -107,6 +108,9 @@ with tempfile.TemporaryDirectory() as vd:
     check("count_problems: zgodne liczniki (5 plikow z .github, 3 blizny) = OK", exp.count_problems(vd) == [], repr(exp.count_problems(vd)))
     _readme("# T\n99 files, 3 scars\n")
     check("count_problems: reczny licznik plikow != eksport = problem", len(exp.count_problems(vd)) == 1, repr(exp.count_problems(vd)))
+    os.makedirs(os.path.join(vd, "scheduled-tasks", "a"))
+    _readme("# T\n5 files, 3 scars, 2 Claude Code routines\n")
+    check("count_problems: licznik rutyn != katalogi scheduled-tasks = problem", any("routines" in x for x in exp.count_problems(vd)), repr(exp.count_problems(vd)))
 
 with tempfile.TemporaryDirectory() as out:
     r = subprocess.run([sys.executable, os.path.join(HERE, "pg-export-public.py"), "--out", out], capture_output=True, text=True, check=False)

@@ -19,6 +19,8 @@ for wf in quality.yml claude-review.yml pg-review.yml release.yml; do
   if [ "$FORCE" = 1 ]; then cp -f "$src" "$dst"; echo "[!] $wf NADPISANY szablonem (-f): sprawdz, czy nie zginely lokalne kroki"
   else echo "[!] $wf istnieje i ROZNI SIE od szablonu: NIE nadpisuje. Porownaj: git diff --no-index \"$src\" \"$dst\""; fi
 done
+# Bramka audytu zaleznosci (quality.yml ja wola; 2026-10-05): zawsze aktualna wersja ze szablonu.
+mkdir -p "$REPO/.github/scripts" && cp -f "$TPL/.github/scripts/audit-gate.mjs" "$REPO/.github/scripts/"
 cp -f "$TPL/docs/adr/0000-template.md" "$REPO/docs/adr/"
 
 if [ ! -e "$REPO/CLAUDE.md" ]; then

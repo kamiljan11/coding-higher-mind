@@ -3,6 +3,32 @@
 All notable changes to the public PG export. Dates are the export dates; the private system moves faster and is squashed
 into these releases.
 
+## [1.4.0] — 2026-10-05
+
+PG v4.3: the same rules for a much smaller context bill, a stricter CI-downgrade gate and a monthly vulnerability watch that reads Dependabot. Reviewed by the security, code, data and ops reviewers plus a verifier (17 findings, all fixed and re-checked).
+
+- **Token budget.** Measured before the change: about 26k tokens of fixed context per session (the main `CLAUDE.md` alone was 44 KB, the session-start memory block 35 KB) and about 1.3k tokens on every non-trivial prompt, most of it a repeat of `CLAUDE.md`. Now:
+  - **Full protocol once per session.** The prompt guard sends rules 1-6, 7 CODE, 7O and 7L in full once per session, then a one-line reminder. Rare event lines (7N, 7D, 7P, 7I) are always sent in full.
+  - **Per-session marker.** `logs/pg-seen` records what was already sent. Start and `/compact` reset it, the command and edit guards protect it, and markers older than 14 days are removed. With no session id or a broken marker you get the full text (fail-safe).
+  - **Session-start memory block.** It takes the newest `RESUME` entries from the end of the file; before, it showed entries a week old. Open entries from other sessions are listed by title. Every clipped memory file keeps an index of its remaining sections (heading plus first line), so nothing disappears from view.
+  - **`CLAUDE.md`.** It keeps the core rules; details move to reference files read on demand.
+  - **Result:** a follow-up prompt with code is ~0.9 KB instead of ~4.9 KB, and the session start is 25 KB instead of 35 KB.
+  - **Byte budget.** `guard_health.py` checks a budget per source (session start, first and follow-up prompt, `CLAUDE.md`) and goes RED when one grows past it.
+- **CI-downgrade gate without false alarms and without the gaps.**
+  - **False alarms fixed.** A fresh template repo commits cleanly. The last step of a job no longer runs into the next job. `npm audit --json > file || true` followed by `node .github/scripts/audit-gate.mjs` in the same step is not treated as neutralizing the audit.
+  - **Gaps the review found, now closed.** A bare `-` step is detected. So is a job-level `continue-on-error` (before or after `steps:`), including a quoted `"true"` or `${{ true }}`. A gate named only in a comment or an `echo`, or followed by `|| true`, does not count. 16 tests.
+- **`fleet-cve-watch` reads Dependabot alerts.**
+  - **Live products:** open high/critical alerts are classified together with `npm audit` and fixed through a PR, as before.
+  - **Rest of the fleet:** one summary line in the log.
+  - **Exceptions:** findings covered by an audit-gate exception with an expiry date count only after that date.
+- **Review run directory on Linux.** `pg-review` and `pg-council` no longer try to create `/pg-review-…` when `TEMP` is empty.
+- **Main-branch exception for daily-journal repos.** Repos that a scheduled task writes to every day get a narrow exception. It applies only to the local clone path plus the exact push URL and is logged separately. 6 tests.
+- **Three new scars.**
+  - `RUN-DIR-ON-EMPTY-TEMP`.
+  - `PG-CONTEXT-TAX`.
+  - `LOVABLE-PAUSED-BACKEND-STILL-BILLED`, marked [UNCERTAIN] about the mechanism.
+- **Counts in this release** (same method as 1.3.0, counted on the exported tree): 347 files, 168 scars; the other counts are unchanged.
+
 ## [1.3.0] — 2026-10-05
 
 PG v4.2: pull requests can merge without a typed phrase when there is proof of review, every PR can be reviewed in CI, the stop gate no longer mixes up parallel sessions, and the system now writes a note after each session. Several rounds of review by the security, code, data and ops reviewers went into it; the limits that remain are written down in [`pg/known-limits.md`](pg/known-limits.md).

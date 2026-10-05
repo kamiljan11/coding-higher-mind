@@ -127,6 +127,33 @@ rc, out = sh(["node", str(CLAUDE / "hooks" / "session-context.js")], stdin='{"se
 check("session-context.js emituje [SESSION-CONTEXT]", rc == 0 and "[SESSION-CONTEXT" in out, out[:120])
 check("session-context.js widzi Notes for Claude", "Notes for Claude.md: BRAK" not in out, "plik pamieci nieczytelny (dysk D:?)")
 
+# 2c'. Budzet tokenow PG (2026-10-05, uzytkownik: „zeby realnie nie jadl wiecej tokenow niz musi"). Pomiar w bajtach
+# tego, co trafia do kontekstu modelu; przekroczenie = RED, zeby wstrzykiwany tekst nie odrastal po cichu.
+# Progi = stan po odchudzeniu + ~10 % zapasu. Podniesienie progu to swiadoma decyzja (commit z uzasadnieniem).
+TOKEN_BUDGET = {"session_context": 27500, "prompt_guard_first": 5500, "prompt_guard_repeat": 1500, "claude_md": 23000}
+check(f"budzet: SessionStart <= {TOKEN_BUDGET['session_context']} B", len(out.encode()) <= TOKEN_BUDGET["session_context"],
+      f"{len(out.encode())} B — przytnij limity w session-context.js FILES")
+_sid = "guardhealth-budget"
+_seen = CLAUDE / "logs" / "pg-seen" / _sid
+try:
+    _seen.unlink()
+except FileNotFoundError:
+    pass
+_p = json.dumps({"prompt": "napraw bug w api i dodaj testy do funkcji logowania", "session_id": _sid, "cwd": "/tmp"})
+_rc1, _first = sh(["node", str(CLAUDE / "hooks" / "prompt-guard.js")], stdin=_p)
+_rc2, _again = sh(["node", str(CLAUDE / "hooks" / "prompt-guard.js")], stdin=_p)
+try:
+    _seen.unlink()
+except FileNotFoundError:
+    pass
+check(f"budzet: prompt-guard 1. prompt sesji <= {TOKEN_BUDGET['prompt_guard_first']} B",
+      len(_first.encode()) <= TOKEN_BUDGET["prompt_guard_first"], f"{len(_first.encode())} B")
+check(f"budzet: prompt-guard kolejny prompt <= {TOKEN_BUDGET['prompt_guard_repeat']} B (pelny protokol tylko raz na sesje)",
+      len(_again.encode()) <= TOKEN_BUDGET["prompt_guard_repeat"], f"{len(_again.encode())} B — znacznik logs/pg-seen nie dziala?")
+_cmd = len((CLAUDE / "CLAUDE.md").read_bytes()) if (CLAUDE / "CLAUDE.md").exists() else 0
+check(f"budzet: ~/.claude/CLAUDE.md <= {TOKEN_BUDGET['claude_md']} B", _cmd <= TOKEN_BUDGET["claude_md"],
+      f"{_cmd} B — szczegoly przenies do ~/.claude/pg/ref-*.md (Read na zadanie)")
+
 # 2d. logika lintu zna oxlint, pyright i tsc -b
 lint_lib = read(CLAUDE / "hooks" / "lib" / "lint-file.js")
 check("lint-file.js obsluguje oxlint", "oxlint" in lint_lib)

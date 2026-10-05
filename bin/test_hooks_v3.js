@@ -237,6 +237,16 @@ check('bash-guard: git status/log/diff w ~/.claude => 0', runHook('bash-guard.js
     check('pre-push ~/.claude -> obcy URL na main => 1', pp('https://github.com/<github-owner>/evil.git') === 1);
     check('pre-push ~/.claude -> <github-owner>/<your-private-pg-repo> na main => 0', pp('https://github.com/<github-owner>/<your-private-pg-repo>.git') === 0);
   }
+  // pre-push: wyjatek main dla repo-dziennikow nauki (2026-10-05) — tylko klon ~/Documents/<repo> + pushurl <github-owner>/<repo>.
+  for (const repo of ['code-reading-quest', 'pg-learning-system']) {
+    const dir = path.join(HOME, 'Documents', repo);
+    if (!fs.existsSync(path.join(dir, '.git'))) continue;
+    const dsha = spawnSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+    const ppd = (cwd, url) => spawnSync('sh', [path.join(claudeDir, 'git-hooks', 'pre-push'), 'origin', url], { cwd, encoding: 'utf8', input: `refs/heads/main ${dsha} refs/heads/main ${dsha}\n` }).status;
+    check(`pre-push ~/Documents/${repo} -> <github-owner>/${repo} na main => 0`, ppd(dir, `https://github.com/<github-owner>/${repo}.git`) === 0);
+    check(`pre-push ~/Documents/${repo} -> obcy URL na main => 1`, ppd(dir, `https://github.com/<github-owner>/${repo}-evil.git`) === 1);
+    check(`pre-push ~/.claude -> <github-owner>/${repo} na main => 1 (zly katalog)`, ppd(claudeDir, `https://github.com/<github-owner>/${repo}.git`) === 1);
+  }
 }
 // ---------- obejscia z security-review runda 3 + galezie z aeddf69 bez testow (code-review 2026-09-26) ----------
 {
@@ -1072,6 +1082,44 @@ try {
   git(ciRepo, ['add', '-A']);
   const c2b = runPreCommit();
   check('pre-commit: `continue-on-error` przy kroku INFORMACYJNYM (jscpd) => 0', c2b.status === 0, 'exit=' + c2b.status + ' ' + (c2b.stderr || '').slice(0, 160));
+  // false-positive z 2026-10-05: ostatni krok joba z continue-on-error (knip) sklejal sie z NASTEPNYM jobem (Gitleaks)
+  write(path.join(ciRepo, '.github/workflows/quality.yml'), 'on: push\njobs:\n  q:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm ci\n      - run: npm audit --audit-level=high\n      - name: knip (informacyjnie)\n        continue-on-error: true\n        run: npx knip\n  secrets-scan:\n    name: Gitleaks secrets scan\n    runs-on: ubuntu-latest\n    steps:\n      - run: gitleaks detect --source .\n');
+  git(ciRepo, ['add', '-A']);
+  const c2c = runPreCommit();
+  check('pre-commit: continue-on-error w ostatnim kroku joba + nastepny job Gitleaks => 0', c2c.status === 0, 'exit=' + c2c.status + ' ' + (c2c.stderr || '').slice(0, 200));
+  // szablon floty: `npm audit --json > plik || true` + audit-gate.mjs w TYM SAMYM kroku = nie neutralizacja
+  write(path.join(ciRepo, '.github/workflows/quality.yml'), 'on: push\njobs:\n  q:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm ci\n      - name: Dependency audit\n        run: |\n          npm audit --json > "$RUNNER_TEMP/audit.json" || true\n          node .github/scripts/audit-gate.mjs "$RUNNER_TEMP/audit.json"\n');
+  git(ciRepo, ['add', '-A']);
+  const c2d = runPreCommit();
+  check('pre-commit: `audit || true` + audit-gate.mjs w tym samym kroku => 0', c2d.status === 0, 'exit=' + c2d.status + ' ' + (c2d.stderr || '').slice(0, 200));
+  write(path.join(ciRepo, '.github/workflows/quality.yml'), 'on: push\njobs:\n  q:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm ci\n      - run: npm audit --audit-level=high || true\n      - run: node .github/scripts/audit-gate.mjs x.json\n');
+  git(ciRepo, ['add', '-A']);
+  const c2e = runPreCommit();
+  check('pre-commit: `audit || true` bez bramki w TYM SAMYM kroku => 1', c2e.status === 1 && /audit \|\| true/.test(c2e.stderr || ''), 'exit=' + c2e.status + ' ' + (c2e.stderr || '').slice(0, 200));
+  // code-review 6ec38f9: bramka w KOMENTARZU nie jest bramka
+  write(path.join(ciRepo, '.github/workflows/quality.yml'), 'on: push\njobs:\n  q:\n    runs-on: ubuntu-latest\n    steps:\n      - name: audit\n        run: |\n          npm audit --audit-level=high || true\n          # node .github/scripts/audit-gate.mjs\n');
+  git(ciRepo, ['add', '-A']);
+  const c2f = runPreCommit();
+  check('pre-commit: `audit || true` + audit-gate.mjs tylko w komentarzu => 1', c2f.status === 1, 'exit=' + c2f.status + ' ' + (c2f.stderr || '').slice(0, 200));
+  // code-review 6ec38f9: zagniezdzona lista `- ` w `with:` nie konczy kroku (continue-on-error PO liscie)
+  write(path.join(ciRepo, '.github/workflows/quality.yml'), 'on: push\njobs:\n  q:\n    runs-on: ubuntu-latest\n    steps:\n      - name: sec\n        uses: x/y@0123456789abcdef0123456789abcdef01234567\n        with:\n          args:\n            - foo\n        continue-on-error: true\n        run: npm audit --audit-level=high\n');
+  git(ciRepo, ['add', '-A']);
+  const c2g = runPreCommit();
+  check('pre-commit: continue-on-error po zagniezdzonej liscie w kroku security => 1', c2g.status === 1, 'exit=' + c2g.status + ' ' + (c2g.stderr || '').slice(0, 200));
+  // security-review 2026-10-05 runda 2: obejscia bramki CI-downgrade
+  const ciCase = (name, yml, want) => {
+    write(path.join(ciRepo, '.github/workflows/quality.yml'), yml);
+    git(ciRepo, ['add', '-A']);
+    const r = runPreCommit();
+    check(`pre-commit: ${name} => ${want}`, r.status === want, 'exit=' + r.status + ' ' + (r.stderr || '').slice(0, 200));
+  };
+  ciCase('goly myslnik `-` + continue-on-error przy gitleaks', 'on: push\njobs:\n  q:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n      -\n        run: gitleaks detect --source .\n        continue-on-error: true\n', 1);
+  ciCase('continue-on-error JOBA po steps (gitleaks)', 'on: push\njobs:\n  sec:\n    runs-on: ubuntu-latest\n    steps:\n      - run: gitleaks detect --source .\n    continue-on-error: true\n', 1);
+  ciCase('continue-on-error JOBA przed steps (gitleaks)', 'on: push\njobs:\n  sec:\n    runs-on: ubuntu-latest\n    continue-on-error: true\n    steps:\n      - run: gitleaks detect --source .\n', 1);
+  ciCase('continue-on-error: "true" w cudzyslowie przy audit', 'on: push\njobs:\n  q:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm audit --audit-level=high\n        continue-on-error: "true"\n', 1);
+  ciCase('`audit || true` + `echo node audit-gate.mjs` (podrobiona bramka)', 'on: push\njobs:\n  q:\n    runs-on: ubuntu-latest\n    steps:\n      - name: audit\n        run: |\n          npm audit --audit-level=high || true\n          echo node .github/scripts/audit-gate.mjs\n', 1);
+  ciCase('`audit || true` + `node audit-gate.mjs || true` (zneutralizowana bramka)', 'on: push\njobs:\n  q:\n    runs-on: ubuntu-latest\n    steps:\n      - name: audit\n        run: |\n          npm audit --json > a.json || true\n          node .github/scripts/audit-gate.mjs a.json || true\n', 1);
+  ciCase('job informacyjny z continue-on-error bez narzedzia security', 'on: push\njobs:\n  info:\n    runs-on: ubuntu-latest\n    continue-on-error: true\n    steps:\n      - run: npx knip\n  sec:\n    runs-on: ubuntu-latest\n    steps:\n      - run: gitleaks detect --source .\n', 0);
   write(path.join(ciRepo, '.github/workflows/quality.yml'), 'on: push\njobs:\n  q:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm ci\n      - run: npm audit --audit-level=high\n      - run: npm test\n      - run: npx gitleaks detect\n');
   git(ciRepo, ['add', '-A']);
   const c3 = runPreCommit();

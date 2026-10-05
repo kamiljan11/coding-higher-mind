@@ -55,6 +55,10 @@ const TEXT = {
     routerIdx: 'SKILL-ROUTER: zadanie wieloetapowe/nietypowe -> ' + (process.platform === 'win32' ? '~/.claude/memory' : '~/Obsidian/MAIN') + '/Claude Memory/SKILLS-INDEX.md, dobierz pipeline i oglos go 1 linia.',
     token: 'TOKEN-ECONOMY: duzy plik -> grep + fragment; nie czytaj ponownie po wlasnej edycji; nie powtarzaj weryfikacji z tej sesji; deterministyczne checki skryptem/hookiem, nie rozumowaniem; subagent tylko gdy 2-3 wlasne tool calle nie wystarcza.',
     signal: 'SYGNAL WIDOCZNOSCI: zacznij odpowiedz od [PG].',
+    core: '1-6 (pelne brzmienie bylo wyzej w tej sesji i jest w CLAUDE.md > PROMPT-GUARD): niejasne/nieodwracalne -> pytaj; "nie wiem" > zmyslanie; read-before-assert (takze twierdzenia uzytkownika); tylko zrodla; DOWOD = komenda + exit + stan, BLOKER w 1. linii; self-check -> VERIFIED / UNVERIFIED / FAILED.',
+    caveShort: '7C. CAVEMAN: zwiezle (lista/tabela, plik:linia, bez preambul); dowody, testy, ryzyka zostaja.',
+    r7Short: '7. KOD (pelne wyzej w sesji): grep-first, lockfile-first, zero nowych zaleznosci bez uzasadnienia, testy w tej samej zmianie, zakaz suppression-as-fix (w tym edycja testu razem z kodem), merge-base przed 1. edycja, bledy logowane z kontekstem.',
+    r7lShort: '7L. AUTO-LOOP: do ZIELONEGO (max 5); tier z diffu, T2+ -> pg-review; zakres = tylko to zadanie; drogi fan-out (Workflow/ultracode) tylko na jawne haslo.',
   },
   en: {
     cave: '[CAVEMAN — ALWAYS] No preamble, never repeat the question, never summarize your own previous message. Keywords + arrows (-> = != vs). Table/list > paragraph; file:line > pasted code. Report = what was done + proof + next. Assume an expert reader. Full prose ONLY in texts for a client/end user or on an explicit "explain in depth". Compression NEVER cuts evidence, tests, edge cases or risk warnings.',
@@ -80,6 +84,10 @@ const TEXT = {
     routerIdx: 'SKILL-ROUTER: multi-step/unusual task -> your skills index (e.g. ~/.claude/memory/SKILLS-INDEX.md), pick the pipeline and announce it in 1 line.',
     token: 'TOKEN-ECONOMY: big file -> grep + fragment; do not re-read after your own edit; do not repeat verifications from this session; deterministic checks by script/hook, not by reasoning; a subagent only when 2-3 of your own tool calls are not enough.',
     signal: 'VISIBILITY SIGNAL: start the reply with [PG].',
+    core: '1-6 (full wording was given earlier in this session and is in CLAUDE.md > PROMPT-GUARD): ambiguous/irreversible -> ask; "I do not know" > invention; read-before-assert (the user\'s claims too); sources only; PROOF = command + exit + state, BLOCKER in line 1; self-check -> VERIFIED / UNVERIFIED / FAILED.',
+    caveShort: '7C. CAVEMAN: terse (list/table, file:line, no preamble); evidence, tests, risks stay.',
+    r7Short: '7. CODE (full wording earlier in this session): grep-first, lockfile-first, no new dependency without justification, tests in the same change, no suppression-as-fix (incl. editing a test together with its code), merge-base before the 1st edit, errors logged with context.',
+    r7lShort: '7L. AUTO-LOOP: until GREEN (max 5); tier from the diff, T2+ -> pg-review; scope = this task only; expensive fan-out (Workflow/ultracode) only on an explicit keyword.',
   },
 };
 const T = TEXT[LANG];
@@ -114,17 +122,40 @@ const isFinish = /\b(dokoncz (apk|aplikacj|projekt|stron)|skoncz (apk|aplikacj|p
 const isDeploy = /\b(deploy\w*|wdroz\w*|publish|release|wydanie|na prod\w*|produkcj\w*|production|go.?live)\b/i.test(q);
 const isIncident = /\b(incydent|incident|awaria|outage|padl\w*|nie dziala na prod|postmortem|wyciek|leak|down in prod)\b/i.test(q);
 
+// Budzet tokenow (2026-10-05, pomiar: ~1,3 tys. tokenow na KAZDY niebanalny prompt, w wiekszosci powtorka CLAUDE.md):
+// pelny protokol 1-6 tylko przy PIERWSZYM niebanalnym prompcie sesji (i po /compact — session-context.js kasuje
+// znacznik), potem jedna linia przypomnienia. Linie zdarzeniowe (7, 7D, 7P, 7I, 7L...) leca zawsze, gdy pasuja —
+// to one niosa wiedze, ktorej model nie ma w kontekscie. Brak session_id / blad zapisu = pelna wersja (fail-safe).
+// Ta sama zasada dla dlugich linii zdarzeniowych powtarzanych w sesji (7 KOD, 7O, 7L): pelne raz, potem skrot.
+// Rzadkie linie (7N, 7D, 7P, 7I, 7U) leca zawsze w calosci — pojawiaja sie przy konkretnym zdarzeniu i niosa checkliste.
+const SEEN_DIR = process.env.PG_SEEN_DIR || require('path').join(__dirname, '..', 'logs', 'pg-seen');
+let seen = null; // null = brak sesji/blad -> wszystko pelne (fail-safe)
+let markPath = '';
+try {
+  const sid = require('./lib/overrides').cleanSid(input.session_id);
+  if (sid) {
+    markPath = require('path').join(SEEN_DIR, sid);
+    try { seen = new Set(JSON.parse(fs.readFileSync(markPath, 'utf8'))); } catch (e) { seen = new Set(); }
+  }
+} catch (e) { seen = null; }
+const firstInSession = !seen || !seen.has('core');
+const shown = new Set();
+// Pelna linia przy pierwszym uzyciu w sesji, potem skrot (pusty skrot = linia pominieta).
+function once(key, full, short) {
+  if (!seen || !seen.has(key)) { L.push(full); shown.add(key); } else if (short) L.push(short);
+}
+
 const L = [];
 L.push(T.head);
-L.push(T.r1); L.push(T.r2); L.push(T.r3); L.push(T.r4); L.push(T.r5); L.push(T.r6);
-if (isCode) { L.push(T.r7); L.push(T.r7o); }
+once('core', [T.r1, T.r2, T.r3, T.r4, T.r5, T.r6].join('\n'), T.core);
+if (isCode) { once('r7', T.r7, T.r7Short); once('r7o', T.r7o, ''); }
 if (isNew) L.push(T.r7n);
 if (isBig && !isNew) L.push(T.r7d);
 if (isDeploy) L.push(T.r7p);
 if (isIncident) L.push(T.r7i);
-L.push(T.r7c + T.cave.replace(/^\[CAVEMAN — (ZAWSZE|ALWAYS)\] /, '') + T.r7cTail);
+L.push(firstInSession ? T.r7c + T.cave.replace(/^\[CAVEMAN — (ZAWSZE|ALWAYS)\] /, '') + T.r7cTail : T.caveShort);
 if (isFact) L.push(T.r7f);
-if (isCode && isDeliver) L.push(T.r7l);
+if (isCode && isDeliver) once('r7l', T.r7l, T.r7lShort);
 if (isCode && isFinish) L.push(T.r7u);
 
 // === SKILL-ROUTER: deterministyczne dopasowanie skilli (nazwy narzedzi sa wspolne dla obu jezykow) ===
@@ -155,9 +186,11 @@ const ROUTES = [
 ];
 const hits = ROUTES.filter(([rx]) => rx.test(q)).map(([, s]) => s);
 if (hits.length) L.push(T.router + hits.join(' | '));
-L.push(T.routerIdx);
-L.push(T.token);
+if (firstInSession) { L.push(T.routerIdx); L.push(T.token); }
 L.push(T.signal);
 
 process.stdout.write(L.join('\n'));
+if (seen && markPath && shown.size) {
+  try { fs.mkdirSync(SEEN_DIR, { recursive: true }); fs.writeFileSync(markPath, JSON.stringify([...seen, ...shown])); } catch (e) { /* zapis znacznika to oszczednosc, nie bramka */ }
+}
 process.exit(0);
