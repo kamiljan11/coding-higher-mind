@@ -8,7 +8,8 @@
 
 const MANIFEST_RX = /(^|\/)(package\.json|pyproject\.toml|requirements[\w.-]*\.txt|Cargo\.toml|go\.mod)$/i;
 const INFRA_RX = /(^|\/)(Dockerfile[\w.-]*|(docker-)?compose[\w.-]*\.ya?ml|vercel\.json|netlify\.toml|fly\.toml|supabase\/config\.toml|\.github\/workflows\/[^/]+\.ya?ml)$/i;
-const ADR_RX = /(^|\/)docs\/adr\/[^/]+\.md$/i;
+// pg/adr = konwencja repo ~/.claude (docs/ wykluczone whitelista .gitignore) — inaczej bramka arch nie widziala ADR PG.
+const ADR_RX = /(^|\/)(docs|pg)\/adr\/[^/]+\.md$/i;
 const SQL_RX = /\.sql$/i;
 // package.json: "nazwa": "wersja". Klucze-metadane z wersja w wartosci nie sa zaleznosciami.
 // Wartosc musi WYGLADAC jak wersja (code-review 2026-10-04: "build": "next build", "homepage": "https://..",

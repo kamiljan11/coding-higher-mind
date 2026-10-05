@@ -543,6 +543,9 @@ try {
   const quiet = AS.archSignals(pud('diff --git a/package.json b/package.json\n+++ b/package.json\n+  "version": "2.0.0",\n+    "dev": "vite",\n' +
     'diff --git a/Dockerfile b/Dockerfile\n+++ b/Dockerfile\n+RUN npm ci\n' + 'diff --git a/y.sql b/y.sql\n+++ b/y.sql\n+alter table a add column b int;\n'));
   check('arch-signals: wersja/skrypt/zmiana ISTNIEJACEGO Dockerfile/ALTER => brak sygnalow', quiet.length === 0, JSON.stringify(quiet));
+  const adr5 = { added: ['a', 'b', 'c', 'd', 'e'] };
+  check('arch-signals: ADR w docs/adr i pg/adr (>= 5 linii) uznany, gdzie indziej nie',
+    AS.hasAdr({ 'docs/adr/0001-x.md': adr5 }) && AS.hasAdr({ 'pg/adr/0003-x.md': adr5 }) && !AS.hasAdr({ 'notes/adr/0001-x.md': adr5 }) && !AS.hasAdr({ 'pg/adr/0003-x.md': { added: ['a'] } }));
   const adrBody = ['# 0003 Kolejka', '## Decyzja', 'BullMQ', '## Alternatywy', 'cron', '## Konsekwencje', 'Redis'];
   check('arch-signals: ADR z trescia rozpoznany; pusty ADR i nie-ADR => nie', AS.hasAdr({ 'docs/adr/0003-kolejka.md': { added: adrBody, isNew: true } }) &&
     !AS.hasAdr({ 'docs/adr/0004-x.md': { added: [''], isNew: true } }) && !AS.hasAdr({ 'docs/README.md': { added: adrBody, isNew: false } }));
@@ -610,6 +613,10 @@ try {
 
   // prompt-guard: architektura -> obowiazkowe skille
   const pgArch = runHook('prompt-guard.js', { prompt: 'jaka architektura bedzie najlepsza dla nowego modulu rezerwacji w aplikacji' });
+  for (const [txt, opis] of [['sprawdz czy dobrze sie trzymamy system design w tym repo', 'audyt'], ['dodaj cache i kolejke do webhookow platnosci', 'decyzja inzynierska']]) {
+    const r = runHook('prompt-guard.js', { prompt: txt });
+    check('prompt-guard: system design (' + opis + ') -> architecture-advisor + references/sd', /architecture-advisor \+ ~\/\.claude\/skills\/architecture-advisor\/references\/sd\/README\.md/.test(r.stdout || ''), (r.stdout || '').slice(-200));
+  }
   check('prompt-guard: architektura -> architecture-advisor + pg-council', /SKILL-ROUTER \(obowiazkowe\):.*architecture-advisor.*pg-council/.test(pgArch.stdout || ''), (pgArch.stdout || '').slice(-300));
   const pgNoArch = runHook('prompt-guard.js', { prompt: 'stalem dzis dlugo w kolejce w sklepie i zastanawiam sie co ugotowac' });
   check('prompt-guard: zwykla „kolejka w sklepie” => bez architecture-advisor', !/architecture-advisor/.test(pgNoArch.stdout || ''), (pgNoArch.stdout || '').slice(-200));
@@ -648,6 +655,58 @@ try {
   const tLater = path.join(FIXTURE_ROOT, 'transcript-later.jsonl');
   write(tLater, JSON.stringify({ type: 'user', timestamp: new Date(Date.now() + 60000).toISOString(), message: { content: 'x' } }) + '\n');
   check('stop-gate #14: commit sprzed startu sesji => 0', runHook('stop-gate.js', { cwd: repoCommitted, transcript_path: tLater }).status === 0);
+  // 2026-10-04: commit rownoleglej sesji (poza oknami narzedzi TEJ sesji) nie liczy sie do tieru; narzedzie w tle — liczy sie.
+  const winEnd = new Date(Date.parse(startTs) + 1000).toISOString();
+  const toolRes = (id, ts) => JSON.stringify({ type: 'user', timestamp: ts, message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } });
+  const tParallel = path.join(FIXTURE_ROOT, 'transcript-parallel.jsonl');
+  write(tParallel, JSON.stringify({ type: 'user', timestamp: startTs, message: { content: 'x' } }) + '\n' +
+    JSON.stringify({ type: 'assistant', timestamp: startTs, message: { content: [{ type: 'tool_use', id: 'p1', name: 'Bash', input: { command: 'ls' } }] } }) + '\n' +
+    toolRes('p1', winEnd) + '\n');
+  try { fs.unlinkSync(stopGateState(repoCommitted)); } catch (e) { /* brak = ok */ }
+  const projRoot = path.join(FIXTURE_ROOT, 'projects-attr');
+  const ownT = path.join(projRoot, 'proj-own', 'sess.jsonl');
+  write(ownT, fs.readFileSync(tParallel, 'utf8'));
+  const rNoProof = runHook('stop-gate.js', { cwd: repoCommitted, transcript_path: ownT, session_id: 'attr-rNoProof' });
+  check('stop-gate: commit poza oknami tej sesji BEZ dowodu obcosci => 2 [review] (fail-closed)', rNoProof.status === 2 && /\[review\]/.test(rNoProof.stderr || ''), 'exit=' + rNoProof.status);
+  try { fs.unlinkSync(stopGateState(repoCommitted)); } catch (e) { /* brak = ok */ }
+  write(path.join(projRoot, 'proj-other', 'inna.jsonl'),
+    JSON.stringify({ type: 'assistant', timestamp: startTs, message: { content: [{ type: 'tool_use', id: 'o1', name: 'Bash', input: { command: 'git commit -qm x' } }] } }) + '\n' +
+    toolRes('o1', new Date(Date.now() + 5000).toISOString()) + '\n');
+  const rPar = runHook('stop-gate.js', { cwd: repoCommitted, transcript_path: ownT, session_id: 'attr-rPar' });
+  check('stop-gate: commit rownoleglej sesji (jej okno, poza oknami tej sesji) => 0', rPar.status === 0, 'exit=' + rPar.status + ' ' + (rPar.stderr || '').slice(0, 200));
+  try { fs.unlinkSync(stopGateState(repoCommitted)); } catch (e) { /* brak = ok */ }
+  // komenda w tle zakonczona powiadomieniem przed commitem => okno zamkniete, dowod obcosci dziala
+  const ownBgDone = path.join(projRoot, 'proj-own', 'sess-bg.jsonl');
+  write(ownBgDone, JSON.stringify({ type: 'user', timestamp: startTs, message: { content: 'x' } }) + '\n' +
+    JSON.stringify({ type: 'assistant', timestamp: startTs, message: { content: [{ type: 'tool_use', id: 'bg2', name: 'Bash', input: { command: 'npm test', run_in_background: true } }] } }) + '\n' +
+    toolRes('bg2', winEnd) + '\n' +
+    JSON.stringify({ type: 'attachment', timestamp: winEnd, attachment: { type: 'queued_command', prompt: '<task-notification>\n<task-id>t</task-id>\n<tool-use-id>bg2</tool-use-id>\n<status>completed</status>\n</task-notification>' } }) + '\n');
+  const rBgDone = runHook('stop-gate.js', { cwd: repoCommitted, transcript_path: ownBgDone, session_id: 'attr-rBgDone' });
+  check('stop-gate: tlo zakonczone powiadomieniem nie wylacza dowodu obcosci => 0', rBgDone.status === 0, 'exit=' + rBgDone.status + ' ' + (rBgDone.stderr || '').slice(0, 160));
+  const tBg = path.join(FIXTURE_ROOT, 'transcript-background.jsonl');
+  write(tBg, JSON.stringify({ type: 'user', timestamp: startTs, message: { content: 'x' } }) + '\n' +
+    JSON.stringify({ type: 'assistant', timestamp: startTs, message: { content: [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'sh skrypt.sh', run_in_background: true } }] } }) + '\n' +
+    toolRes('b1', winEnd) + '\n');
+  try { fs.unlinkSync(stopGateState(repoCommitted)); } catch (e) { /* brak = ok */ }
+  const rBg = runHook('stop-gate.js', { cwd: repoCommitted, transcript_path: tBg, session_id: 'attr-rBg' });
+  check('stop-gate: commit z komendy w tle (okno do konca sesji) => 2 [review]', rBg.status === 2 && /\[review\]/.test(rBg.stderr || ''), 'exit=' + rBg.status);
+  // Zamkniete okno OBEJMUJACE commit (commit repoCommitted ~teraz) => liczy sie; odlaczony proces (`&`) => okno do konca sesji.
+  const nowMinus = new Date(Date.parse(startTs) - 1000).toISOString();
+  const nowPlus = new Date(Date.now() + 5000).toISOString();
+  const tClosed = path.join(FIXTURE_ROOT, 'transcript-closed.jsonl');
+  write(tClosed, JSON.stringify({ type: 'user', timestamp: startTs, message: { content: 'x' } }) + '\n' +
+    JSON.stringify({ type: 'assistant', timestamp: nowMinus, message: { content: [{ type: 'tool_use', id: 'c1', name: 'Bash', input: { command: 'make' } }] } }) + '\n' +
+    toolRes('c1', nowPlus) + '\n');
+  const rClosed = runHook('stop-gate.js', { cwd: repoCommitted, transcript_path: tClosed, session_id: 'attr-rClosed' });
+  check('stop-gate: commit w zamknietym oknie narzedzia sesji => 2 [review]', rClosed.status === 2 && /\[review\]/.test(rClosed.stderr || ''), 'exit=' + rClosed.status);
+  try { fs.unlinkSync(stopGateState(repoCommitted)); } catch (e) { /* brak = ok */ }
+  const tDet = path.join(FIXTURE_ROOT, 'transcript-detached.jsonl');
+  write(tDet, JSON.stringify({ type: 'user', timestamp: startTs, message: { content: 'x' } }) + '\n' +
+    JSON.stringify({ type: 'assistant', timestamp: startTs, message: { content: [{ type: 'tool_use', id: 'd1', name: 'Bash', input: { command: "nohup sh -c 'sleep 10; git commit -qm x' &" } }] } }) + '\n' +
+    toolRes('d1', winEnd) + '\n');
+  const rDet = runHook('stop-gate.js', { cwd: repoCommitted, transcript_path: tDet, session_id: 'attr-rDet' });
+  check('stop-gate: commit z odlaczonego procesu (nohup ... &) => 2 [review]', rDet.status === 2 && /\[review\]/.test(rDet.stderr || ''), 'exit=' + rDet.status);
+  try { fs.unlinkSync(stopGateState(repoCommitted)); } catch (e) { /* brak = ok */ }
   // 2026-10-04: zapis pliku IGNOROWANEGO przez repo (pamiec sesji w ~/.claude) nie wciaga repo do kontroli; zwykly plik — tak.
   const repoIgn = makeRepo('ignored-edit', { 'package.json': JSON.stringify({ name: 'i' }), '.gitignore': 'mem/\n' });
   write(path.join(repoIgn, 'supabase/migrations/001_t.sql'), 'create policy p on t for insert using (true);\n');

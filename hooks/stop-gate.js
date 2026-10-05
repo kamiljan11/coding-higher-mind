@@ -245,11 +245,15 @@ function withoutTempRedirects(command) {
 }
 const AGGREGATE_DIR_RX =/pg-aggregate\.js["']?\s+(?:"([^"$]+)"|'([^'$]+)'|([^\s"'$;&|]+))/;
 
+// Narzedzia, ktore koncza prace przed zwroceniem wyniku (okno zamkniete). Wszystko inne (Agent, MCP, nowe) = do konca sesji.
+const SYNC_TOOLS = new Set(['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'ToolSearch', 'Skill']);
+
 async function parseTranscript(transcriptPath) {
   const result = { available: false, editedFiles: [], editsAfterReview: 0, reviewerRan: false, reviewersRan: new Set(),
     startedAt: null, t3EditAfterReview: false, aggregateRuns: [], testRunAfterEdit: false, lastAssistantText: '', commandText: '',
-    skillsRan: new Set() };
+    skillsRan: new Set(), toolWindows: [] };
   const commands = [];
+  const toolStart = new Map();
   if (!transcriptPath || !fs.existsSync(transcriptPath)) return result;
   result.available = true;
   const onEdit = (file) => {
@@ -261,7 +265,9 @@ async function parseTranscript(transcriptPath) {
   const rl = readline.createInterface({ input: fs.createReadStream(transcriptPath, { encoding: 'utf8' }), crlfDelay: Infinity });
   for await (const line of rl) {
     const hasTool = line.includes('"tool_use"');
-    if (!hasTool && !(line.includes('"assistant"') && line.includes('"text"')) && result.startedAt) continue;
+    const hasResult = line.includes('"tool_result"');
+    const hasNotice = line.includes('<task-notification>');
+    if (!hasTool && !hasResult && !hasNotice && !(line.includes('"assistant"') && line.includes('"text"')) && result.startedAt) continue;
     let entry;
     try { entry = JSON.parse(line); } catch (e) { continue; }
     if (!result.startedAt && entry.timestamp) result.startedAt = Date.parse(entry.timestamp) || null;
@@ -271,10 +277,36 @@ async function parseTranscript(transcriptPath) {
       const text = content.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n');
       if (text.trim()) result.lastAssistantText = text;
     }
+    const ts = Date.parse(entry.timestamp || '') || 0;
+    // Okna wykonania narzedzi sesji: commit z reflogu liczy sie sesji tylko, gdy powstal w czasie jej narzedzia
+    // (2026-10-04: commity rownoleglej sesji w ~/.claude dawaly [review] T3 w sesjach projektowych; atrybucja po slowie
+    // „commit" cofnieta, bo agent kontroluje tekst komendy — okno czasu nie zalezy od tresci komendy).
+    for (const block of Array.isArray(content) ? content : []) {
+      if (block && block.type === 'tool_result' && toolStart.has(block.tool_use_id)) {
+        const st = toolStart.get(block.tool_use_id);
+        if (st.background) continue;  // tlo: zostaje w toolStart -> okno do konca sesji (dodawane nizej)
+        toolStart.delete(block.tool_use_id);
+        result.toolWindows.push([st.ts, ts || Infinity]);
+      }
+    }
+    // Zakonczenie narzedzia w tle / asynchronicznego agenta: powiadomienie z jego tool-use-id zamyka okno (ops-review:
+    // okna do konca sesji wylaczaly filtr commitow rownoleglej sesji po pierwszej komendzie w tle).
+    if (hasNotice && ts) {
+      for (const m of line.matchAll(/<tool-use-id>(\w+)<\/tool-use-id>[\s\S]*?<status>(completed|failed|killed|stopped)<\/status>/g)) {
+        const st = toolStart.get(m[1]);
+        if (st && st.background) { result.toolWindows.push([st.ts, ts]); toolStart.delete(m[1]); }
+      }
+    }
     if (!hasTool) continue;
     for (const block of content) {
       if (!block || block.type !== 'tool_use') continue;
       const toolInput = block.input || {};
+      // Odlaczony proces (`&`, nohup, setsid, disown, at, systemd-run, tmux/screen) moze zrobic commit PO wyniku narzedzia
+      // (code-review 2026-10-04) — okno do konca sesji jak dla komend w tle (nadmiar, nie dziura).
+      const detached = /(^|[^&])&\s*($|[;)\n])|\b(nohup|setsid|disown|batch|systemd-run|tmux|screen|crontab)\b|(^|[;&|]\s*)at\s/.test(String(toolInput.command || ''));
+      // data-review: Agent bywa asynchroniczny bez flagi, terminal MCP oddaje wynik po starcie — okno zamyka tylko allowlista.
+      const sync = SYNC_TOOLS.has(block.name) || (/^(Bash|PowerShell)$/.test(block.name) && !toolInput.run_in_background && !detached);
+      if (block.id && ts) toolStart.set(block.id, { ts, background: !sync });
       if (EDIT_TOOLS.has(block.name)) {
         const file = toolInput.file_path || toolInput.path || toolInput.notebook_path;
         if (file) result.editedFiles.push(file);
@@ -294,22 +326,89 @@ async function parseTranscript(transcriptPath) {
       }
     }
   }
+  // Narzedzia bez wyniku (trwajace, w tle, przerwane): okno do konca sesji — fail-closed (commit liczy sie sesji).
+  for (const st of toolStart.values()) result.toolWindows.push([st.ts, Infinity]);
   result.commandText = commands.join('\n');
   return result;
 }
 
 // Commity zrobione W TEJ SESJI (reflog HEAD: wpisy `commit*` od startu transkryptu). #14: „commit przed Stop" zdejmowal
 // T3, bo stop-gate widzial tylko brudne drzewo. Reflog, nie `git log --since` — pull/merge z origin to nie praca sesji.
-function sessionCommitFiles(root, startedAt) {
+// Okna narzedzi INNYCH sesji (glowne transkrypty w katalogu projektow, zmodyfikowane od `since`) — dowod obcosci commitu.
+// Narzedzie bez wyniku w obcej sesji: okno do ostatniej modyfikacji jej pliku (nie Infinity — porzucona sesja nie moze
+// „pokrywac" wszystkich pozniejszych commitow).
+function foreignWindows(ownPath, since) {
+  const out = [];
+  const projects = ownPath ? path.dirname(path.dirname(path.resolve(ownPath))) : '';
+  if (!projects) return out;
+  let files = [];
+  for (const dir of safeReaddir(projects)) {
+    for (const f of safeReaddir(path.join(projects, dir))) {
+      if (!f.endsWith('.jsonl')) continue;
+      const full = path.join(projects, dir, f);
+      if (path.resolve(full) === path.resolve(ownPath)) continue;
+      try { const st = fs.statSync(full); if (st.isFile() && st.mtimeMs >= since) files.push({ full, mtime: st.mtimeMs }); } catch (e) { /* zniknal */ }
+    }
+  }
+  files = files.sort((a, b) => b.mtime - a.mtime).slice(0, 12);
+  for (const { full, mtime } of files) {
+    if (budgetLeft() < 30000) break;
+    const starts = new Map();
+    let raw = '';
+    try { raw = fs.readFileSync(full, 'utf8'); } catch (e) { continue; }
+    for (const line of raw.split('\n')) {
+      if (!line.includes('"tool_use"') && !line.includes('"tool_result"')) continue;
+      let e;
+      try { e = JSON.parse(line); } catch (err) { continue; }
+      const ts = Date.parse(e.timestamp || '') || 0;
+      for (const b of (e.message && Array.isArray(e.message.content)) ? e.message.content : []) {
+        if (b && b.type === 'tool_use' && b.id && ts) starts.set(b.id, ts);
+        else if (b && b.type === 'tool_result' && starts.has(b.tool_use_id)) { out.push([starts.get(b.tool_use_id), ts || mtime]); starts.delete(b.tool_use_id); }
+      }
+    }
+    for (const st of starts.values()) out.push([st, mtime]);
+  }
+  return out;
+}
+
+function safeReaddir(dir) { try { return fs.readdirSync(dir); } catch (e) { return []; } }
+
+// Commity zrobione W TEJ SESJI (reflog HEAD od startu transkryptu). Domyslnie KAZDY commit sie liczy (fail-closed).
+// Wyklucza sie tylko commit z POZYTYWNYM dowodem obcosci (security-review 2026-10-04): okno narzedzia innej sesji go
+// obejmuje, zadne okno tej sesji (async = do konca sesji) nie, a jego czas w reflogu jest monotoniczny wzgledem sasiadow
+// (GIT_COMMITTER_DATE podrobiony = niemonotoniczny = liczy sie).
+function sessionCommitFiles(root, startedAt, windows, ownPath) {
   if (!startedAt) return { files: [], lines: 0, shas: [] };
   // ops-review 2026-09-26: do 30 x `git show` bez sprawdzenia budzetu mogl przekroczyc timeout hooka.
   if (budgetLeft() < 30000) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (commity sesji)', target: root }); return { files: [], lines: 0, shas: [] }; }
   const r = sh('git log -g --date=unix --format=%gd%x09%H%x09%gs -n 200 HEAD', root, GIT_TIMEOUT_MS);
   if (!r.ok) return { files: [], lines: 0, shas: [] };
-  const shas = [];
+  const entries = [];
   for (const line of r.out.split('\n')) {
     const m = /^HEAD@\{(\d+)\}\t([0-9a-f]{7,40})\t(.*)$/.exec(line.trim());
-    if (m && Number(m[1]) * 1000 >= startedAt && /^commit( \((amend|initial)\))?:/.test(m[3])) shas.push(m[2]);
+    if (m) entries.push({ at: Number(m[1]) * 1000, sha: m[2], subject: m[3] });
+  }
+  // Wpis nalezy do okresu sesji, gdy on albo KTORYKOLWIEK starszy wpis jest od startu (podrobiona stara data w srodku = w sesji).
+  let olderInSession = false;
+  const inSession = new Array(entries.length).fill(false);
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].at >= startedAt) olderInSession = true;
+    inSession[i] = olderInSession;
+  }
+  const own = Array.isArray(windows) ? windows : null;
+  const foreign = own ? foreignWindows(ownPath, startedAt) : [];
+  const covers = (ws, at) => ws.some(([a, b]) => at >= a - 2000 && at <= b + 2000);
+  const shas = [];
+  const foreignShas = [];
+  entries.forEach((e, i) => {
+    if (!inSession[i] || !/^commit( \((amend|initial)\))?:/.test(e.subject)) return;
+    const monotonic = (i === 0 || entries[i - 1].at >= e.at) && (i === entries.length - 1 || entries[i + 1].at <= e.at);
+    if (own && monotonic && !covers(own, e.at) && covers(foreign, e.at)) { foreignShas.push(e.sha.slice(0, 7)); return; }
+    shas.push(e.sha);
+  });
+  // Jeden wpis na Stop zamiast jednego na commit (ops-review 2026-10-04: zalew gates.jsonl przy dlugich sesjach).
+  if (foreignShas.length) {
+    log({ hook: HOOK, event: 'skipped', reason: `commity innej sesji (jej okna narzedzi, poza oknami tej): ${foreignShas.length} — ${foreignShas.slice(0, 5).join(',')}${foreignShas.length > 5 ? ',...' : ''}`, target: root });
   }
   const files = new Set();
   let lines = 0;
@@ -658,7 +757,7 @@ async function main() {
     // #14: pliki commitow z tej sesji licza sie do TIERU (nie do lintu — ten zrobil pre-commit) — od znacznika, nie od startu sesji.
     // Reflog ma rozdzielczosc 1 s: znacznik w dol do pelnej sekundy, by commit z tej samej sekundy nie umknal (wolimy nadmiar).
     const since = wm ? Math.max(transcript.startedAt || 0, Math.floor(wm.ts / 1000) * 1000) : transcript.startedAt;
-    const committed = transcript.available ? sessionCommitFiles(root, since) : { files: [], lines: 0 };
+    const committed = transcript.available ? sessionCommitFiles(root, since, transcript.toolWindows, input.transcript_path) : { files: [], lines: 0 };
     const committedCode = committed.files.filter((f) => (isCodeFile(f) || SQL_FILE_RX.test(f)) && !changedCode.includes(f));
     // Manifest/infra bez kodu tez wchodzi (ops-review 2026-10-04: inaczej bramka arch nie widziala swoich glownych sygnalow).
     const archTouched = changed.some((f) => ARCH_FILE_RX.test(f.replace(/\\/g, '/'))) || committed.files.some((f) => ARCH_FILE_RX.test(f.replace(/\\/g, '/')));
@@ -703,7 +802,7 @@ async function main() {
       const arch = archRequirement(root, changed, changedAll, committed.shas, transcript);
       if (arch) block('arch', root,
         `Zmiana ${archNeed.tier} jest ARCHITEKTONICZNA (${arch.join('; ')}), a w diffie tej sesji nie ma ADR z trescia (>= 5 linii). ` +
-        'Dodaj ADR w docs/adr/NNNN-tytul.md (szablon ~/.claude/templates/repo/docs/adr/: decyzja, odrzucona alternatywa, konsekwencje). ' +
+        'Dodaj ADR w docs/adr/NNNN-tytul.md (repo ~/.claude: pg/adr/; szablon ~/.claude/templates/repo/docs/adr/: decyzja, odrzucona alternatywa, konsekwencje). ' +
         'Przed decyzja: skill architecture-advisor (trade-offy); przy sporze/T3: skill pg-council (narada -> adr-draft.md -> docs/adr). Decyzja uzytkownika 2026-10-04: twardo przy T2+.');
     }
     nudges(root, changed);

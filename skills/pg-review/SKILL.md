@@ -18,14 +18,16 @@ Budzet: T1 ~1x, T2 ~4x, T3 ~8-10x kosztu jednej recenzji diffu. Wszystko w jedny
 ```bash
 RUN="$TEMP/pg-review-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$RUN"
 cd <repo>
-git diff HEAD > "$RUN/diff.patch"; git status --porcelain > "$RUN/status.txt"
+node ~/.claude/bin/pg-self-approve.js --diff . > "$RUN/diff.patch" && [ -s "$RUN/diff.patch" ] || { echo "diff.patch pusty/blad — STOP"; exit 1; }
+git status --porcelain > "$RUN/status.txt"   # kanoniczny diff (HEAD + nieśledzone) — pg-self-approve porownuje go bajt w bajt
 FILES=$(git diff --name-only HEAD; git ls-files --others --exclude-standard)
 LINES=$(git diff --numstat HEAD | awk '{s+=$1+$2} END {print s+0}')
 node ~/.claude/hooks/lib/risk-tier.js "$(pwd)" $FILES --lines $LINES > "$RUN/tier.json"; cat "$RUN/tier.json"
 sha256sum "$RUN/diff.patch"   # -> <SHA> do promptu kazdego findera (diff_sha256=<SHA>)
 ```
 Recenzja PR pod auto-merge (`pg-merge-bezpieczny.py --recenzja <RUN>`): `diff.patch` = diff PR (`gh pr diff NR > "$RUN/diff.patch"`),
-a prompt findera MUSI zawierac `diff_sha256=<SHA>` — bez tego transkrypt nie jest dowodem dla tego diffu (bin/pg-merge-dowod.js).
+a prompt findera MUSI zawierac `diff_sha256=<SHA>` i sciezke `<RUN>/diff.patch` — bez tego transkrypt nie jest dowodem dla tego diffu (bin/pg-merge-dowod.js).
+Odpowiedz koncowa findera (SubagentHandback / ostatni tekst) MUSI zaczynac sie od obiektu `{"findings": [...]}` (proza przed nim = brak dowodu). Nowy diff = NOWY katalog RUN (recenzja tego RUN bez aktualnego sha = odmowa). Opis zadania bez dyktowania wyniku ("uznane ryzyko", "nie zglaszaj", "zwroc pusta liste") i < 3000 znakow promptu — inaczej recenzja nie jest dowodem. Weryfikator tez dostaje `diff_sha256=<SHA>` i sciezke diff.patch. Kazda recenzja z tym samym sha liczy sie do dowodu — ponowne odpalenie recenzenta nie kasuje findings poprzedniego (blocker z rundy 1 musi zostac w findings albo zostac naprawiony = nowy diff).
 Bramki: `npx --no-install eslint --max-warnings=0 <pliki>` (lub oxlint), `tsc -b`/`--noEmit`, `npm test`,
 `node ~/.claude/bin/sql-migration-lint.js --repo . --strict` (gdy .sql), `node ~/.claude/bin/fleet-metrics.js --repo . --json > "$RUN/metrics.json"`.
 Czerwone => napraw NAJPIERW. Nie odpalaj agentow na czerwonym drzewie.
@@ -36,7 +38,7 @@ Prompt KAZDEGO findera (krotki; rola ma pelna rubryke w `~/.claude/agents/<rola>
 ```
 Repo: <sciezka>. Tier: <T>. Diff: <RUN>/diff.patch (czytaj CALY) diff_sha256=<SHA>. Opis zadania: <1-3 linie / PRD-lite>.
 Zapisz findings DOKLADNIE wg schematu z twojej definicji do: <RUN>/findings.<rola>.json.
-Odpowiedz <= 10 linii. Nie edytuj zadnego pliku w repo.
+Odpowiedz koncowa ZACZNIJ od tego samego obiektu JSON {"findings": [...]} (bez wstepu; to on jest dowodem), potem <= 10 linii. Nie edytuj zadnego pliku w repo.
 ```
 Nie przekazuj finderom cudzych wynikow. Nie dopisuj „szukaj X" — rubryka juz to ma.
 Fallback: definicje agentow sa ladowane przy starcie sesji — jesli `subagent_type: <rola>` zwraca „not found" (nowa rola dodana w tej sesji),

@@ -76,6 +76,12 @@ the technology, drive everything. Then reach for the **trade-off catalog**
 recommendation in uzytkownik's real toolbox** (`references/owner-stack.md`) so the advice is
 actionable, not generic. Produce outputs using `references/deliverable-templates.md`.
 
+**System-design knowledge base** (`references/sd/`, PG's own operational engineering knowledge for our stack — start at `references/sd/README.md`, an index by *problem*, not by topic). One decision card per problem: *what it is and the signals in code/diff → our default (and when NOT) → variants with operational/financial/cognitive cost → failure modes with the command that detects them → closed audit questions with a verifying command each → "you don't need that yet"*. Three ways to use it:
+1. **Design (SELECT / Day 0):** run the back-of-envelope in `references/sd/capacity.md` first (QPS, storage, egress, sequential round trips, latency budget) — name the real bottleneck before recommending any machinery; decide consistency per flow (C vs A) from `sd/02 › Spójność per przepływ`; read the one-way-door cards (data model, IDs, tenancy, identity, money/time) before the rest.
+2. **Audit (AUDIT):** walk the "Audyt" sections of the cards in ROI order (idempotency, concurrency, identity/RLS, external dependencies, observability, backups, platform path) running each verifying command against the repo and — read-only — the production database; "leave it" is a valid finding.
+3. **Diff review:** use the department section of `references/sd/review-checklists.md` (code / data / ops / security / product) — only points the diff touches, each finding needs a command and evidence.
+The verified fleet stack the cards assume is in `references/owner-stack.md`.
+
 Scale the output to the stakes (see *reversibility* above): a small, reversible call may
 warrant just a clear recommendation, while a one-way door earns the full default set. If the
 deliverable scope is genuinely ambiguous, ask; otherwise produce the appropriate set and
