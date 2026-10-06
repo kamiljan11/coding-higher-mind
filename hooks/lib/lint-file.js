@@ -10,6 +10,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { log } = require('./gate-log');
+const { checkBalance } = require('./css-balance');
 
 const JS_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs']);
 const TIMEOUT_LINT_MS = 45000;
@@ -162,6 +163,17 @@ function lintJsonFile(file) {
   }
 }
 
+// CSS/SCSS: parser jest poblazliwy (niedomkniety @media przechodzi build) — bilans nawiasow bez narzedzi zewnetrznych.
+function lintCssFile(file) {
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch (e) { return null; }
+  const kind = path.extname(file).toLowerCase() === '.scss' ? 'scss' : 'css';
+  const err = checkBalance(text, kind);
+  if (!err) return null;
+  return { blocked: true, header: `CSS niezbilansowany w ${path.basename(file)} — domknij blok:`, out: `${path.basename(file)}:${err.line}: ${err.message}` };
+}
+
+const isCssFile = (f) => ['.css', '.scss'].includes(path.extname(f).toLowerCase());
 const isJsFile = (f) => JS_EXTENSIONS.has(path.extname(f).toLowerCase());
 const isPyFile = (f) => path.extname(f).toLowerCase() === '.py';
 const isJsonFile = (f) => path.extname(f).toLowerCase() === '.json';
@@ -197,14 +209,16 @@ function lintFiles(files, opts) {
     const js = group.filter(isJsFile);
     const py = group.filter(isPyFile);
     const json = group.filter(isJsonFile);
+    const css = group.filter(isCssFile);
     let result = null;
     if (js.length) result = lintJsFiles(js, root, hook) || (typecheck ? typecheckRepo(root, hook) : null);
     if (!result && py.length) result = lintPyFiles(py, root, hook);
     if (!result) for (const j of json) { result = lintJsonFile(j); if (result) break; }
+    if (!result) for (const c of css) { result = lintCssFile(c); if (result) break; }
     if (result) { log({ hook, event: 'blocked', reason: result.header.split(' (')[0].split(' —')[0], target: root }); return result; }
   }
   log({ hook, event: 'ran', reason: `${existing.length} files`, target: [...byRoot.keys()].join(';') });
   return null;
 }
 
-module.exports = { lintFiles, typecheckRepo, findRoot, hasBin, run, quote, isCodeFile, isJsFile, isPyFile, isJsonFile, WRITE_COMMAND_RX, CHILD_ENV };
+module.exports = { lintFiles, typecheckRepo, findRoot, hasBin, run, quote, isCodeFile, isJsFile, isPyFile, isJsonFile, isCssFile, lintCssFile, WRITE_COMMAND_RX, CHILD_ENV };

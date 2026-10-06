@@ -2,7 +2,7 @@
 
 # Coding Higher Mind — PG (PROMPT-GUARD) dla Claude Code
 
-**Wersja v1.4.0 — ostatnia zmiana 2026-10-05.** 11 wydań publicznych od 1.0.0 (2026-09-12). Każdy system potrzebuje czasu, żeby dojrzeć: ten jest młody, szybko się zmienia i mówi wprost o swoich granicach ([znane granice](pg/known-limits.md)).
+**Wersja v1.5.0 — ostatnia zmiana 2026-10-06.** 12 wydań publicznych od 1.0.0 (2026-09-12). Każdy system potrzebuje czasu, żeby dojrzeć: ten jest młody, szybko się zmienia i mówi wprost o swoich granicach ([znane granice](pg/known-limits.md)).
 
 **Bramki jakości, recenzenci-agenci, rutyny i protokół anty-halucynacyjny dla [Claude Code](https://docs.anthropic.com/en/docs/claude-code) i Claude Desktop — egzekwowane przez zdarzenia, nie przez silną wolę.**
 
@@ -36,7 +36,7 @@ To repozytorium jest tym systemem, wyeksportowanym i zsanityzowanym, żeby dało
 | **Narzędzia floty** | na żądanie / cyklicznie | ścisła ochrona gałęzi z nazw jobów workflow, merge PR tylko na aktualnym merge-ref, rollout pojedynczego pliku jako PR, dowód z produkcji z API Vercela (nigdy z ręcznie wpisanego URL), kopanie sesji i historii gita, cotygodniowe zdrowie strażników, miesięczna kalibracja recenzentów (ten sam defekt w dwóch opakowaniach musi dostać ten sam werdykt) | `bin/mas_*.py`, `scheduled-tasks/` |
 | **Samotesty** | `node bin/pg-selftest.js` | każda bramka ma test **pozytywny** (musi zablokować), pokrycie reguła→bramka sprawdza skrypt; indeks narzędzi w README jest generowany z nagłówków samych narzędzi (narzędzie bez samoopisu pokazuje się jako dług) | `bin/test_*.js`, `bin/pg-rule-coverage.js`, `bin/pg-map.py` |
 
-Policzone w dniu eksportu, nie szacowane: 347 plików, ~45 800 linii, 43 narzędzia, 15 zestawów testów, 11 hooków, 3 hooki gita, 9 agentów-recenzentów, 168 blizn, 26 plików szablonu, 18 skilli, 7 rutyn kodowych + 7 pulpitowych.
+Policzone, nie szacowane: 365 plików (eksport z 2026-10-06); reszta wg liczenia dla 1.4.0 (2026-10-05): ~45 800 linii, 43 narzędzia, 15 zestawów testów, 11 hooków, 3 hooki gita, 9 agentów-recenzentów, 168 blizn, 26 plików szablonu, 18 skilli, 7 rutyn kodowych + 7 pulpitowych.
 
 ---
 

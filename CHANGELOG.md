@@ -3,6 +3,47 @@
 All notable changes to the public PG export. Dates are the export dates; the private system moves faster and is squashed
 into these releases.
 
+## [1.5.0] — 2026-10-06
+
+PG v4.4: the architect can no longer skip a system-design area, and reviewers get a smaller, sharper input. Two audits drove
+it. A coverage audit of 37 system-design areas (437 named variants) found that 46% of variants had a selection criterion,
+26% only a name and 28% nothing, and that nothing forced the architect to walk every area. An overload audit of one review
+round found each finder was handed the full 9,799-line diff, so it really read 10-30% of it, and a CSS bug (two unclosed
+`@media` blocks after a merge) went past three reviewers.
+
+- **System-design area matrix.** `pg/sd-areas.json` lists 37 areas in 12 groups (state and topology, data stores, IDs,
+  files and CDN, consistency, async, API contracts, identity, resilience, observability, releases and DR, cost and region),
+  each with its decision card and a `one_way` flag. Design (`pg/design.md` section G) now ends with
+  `docs/architecture/obszary.md`: one row per area with status DECISION / NOT APPLICABLE / NOT NOW, evidence, and for
+  NOT NOW a measurable signal to come back.
+  - `bin/sd-matrix-lint.js` checks the matrix: every area present, a valid status, evidence for a decision, a signal for
+    NOT NOW. `--template` prints an empty matrix.
+  - `stop-gate` blocks the end of a T2+ session on a repo that opts in with `pg.sd_matrix: required` and has an incomplete
+    matrix. On an internal PG error it lets the session end (fail-open) and logs it.
+- **Area council of micro-agents.** `architecture-advisor` fills the matrix with one agent per group instead of one
+  architect for everything; groups with a one-way door or security impact get the stronger model.
+- **Decision cards filled in.** Cache strategies, rate-limiting algorithms, backpressure, integration auth, SLOs, files and
+  object storage, RPO/RTO, real-time fallback, RAG, network isolation and deployment strategies now have variants with a
+  criterion, cost and failure mode.
+- **Reviewers read their slice, not the whole diff.**
+  - `bin/pg-slice.js` cuts the diff per department (for example security 33% and data 14% of a 2,400-line diff).
+    The full diff stays available for context.
+  - `bin/pg-prechecks.js` runs 21 mechanical `rg` rules from the rubrics on added lines and hands each department its hits
+    to confirm or dismiss.
+  - `data-reviewer` gets the stronger model only when the diff has SQL or migrations. A minor finding from a single
+    department becomes a note without a verifier round.
+- **New zero-token gates.**
+  - CSS brace balance after every edit, including edits made through the shell.
+  - `bin/merge-integrity.js`: after a merge every line from both branches must survive.
+  - `qa-matrix` warns about paths that click nothing (a green run there proves no UI path); `--require-interaction` fails critical-path entries (CP) that click nothing.
+- **Fix.** The `pg-review` skill told you to redirect `qa-matrix` stdout into the same `report.json` the tool writes
+  itself, which produced unparseable JSON. Stdout now goes to its own file.
+- **Tried on a real app (Next.js + Supabase, 2026-10-06).** 12 group agents filled 37/37 rows (31 decisions, 5 not applicable,
+  1 not now) and listed about 60 gaps with evidence, among them a scheduled job that never ran because its workflow was not on
+  the default branch. The raw gap list still needs a human triage: at least one gap was a false positive (a module the docs
+  mark as planned). The lint returns 0 on the full matrix and 1 with one row removed.
+- **Counts:** 365 files on the exported tree (the export tool counts them). The other README counts are from 1.4.0 and were not recounted.
+
 ## [1.4.0] — 2026-10-05
 
 PG v4.3: the same rules for a much smaller context bill, a stricter CI-downgrade gate and a monthly vulnerability watch that reads Dependabot. Reviewed by the security, code, data and ops reviewers plus a verifier (17 findings, all fixed and re-checked).

@@ -32,7 +32,13 @@ Zapytania SQL poniżej działają na katalogach Postgresa (sprawdzone na PG 17);
 4. Czy kolumny JSONB mają walidację na granicy (zod/CHECK)? → komenda z awarii.
 5. Czy indeks pochodny da się odbudować jednym poleceniem ze źródła w Postgresie? → szukaj skryptu `reindex|rebuild|backfill` w `scripts/`.
 
-**Nie potrzebujesz jeszcze.** Redisa, Mongo, Elasticsearcha, bazy grafowej, bazy szeregów czasowych, hurtowni danych (raporty = widoki/materialized view, `COPY` do CSV).
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- Redis → współdzielony stan o ~>kilkuset zapisach/s (limiter, sesje, kolejka), którego Postgres nie znosi po pomiarze (→ 02 › Cache, 03 › Rate limiting).
+- Mongo / baza dokumentowa → nigdy jako „elastyczny schemat"; JSONB pokrywa ten przypadek.
+- Elasticsearch/Typesense/Algolia → wyszukiwanie z literówkami i facetami na ~>1 mln dokumentów albo p95 `pg_trgm`/FTS ~>300 ms po indeksach (→ 06 › Wyszukiwanie).
+- baza grafowa → zapytania o ścieżki/relacje ~>3 skoki w głąb na gorącej ścieżce, których rekurencyjne CTE nie zdążą policzyć.
+- baza szeregów czasowych / wide-column (Cassandra, Bigtable) → ciągły strumień ~>tysięcy zapisów/s (telemetria, IoT), który przerasta jeden Postgres.
+- hurtownia danych → raport łączy ~>3 źródła albo zapytania analityczne spowalniają produkcję mimo widoków zmaterializowanych; do tego czasu widoki + `COPY` do CSV.
 
 ---
 
@@ -65,7 +71,12 @@ Zapytania SQL poniżej działają na katalogach Postgresa (sprawdzone na PG 17);
 5. Czy zmiana statusu idzie jedną ścieżką (maszyna stanów)? → `rg` z awarii.
 6. Czy migracja T3 miała świeżą kopię i plan rollbacku? → `rg -n "Ostatni test restore" docs/RUNBOOK.md` + sekcja rollback w PR.
 
-**Nie potrzebujesz jeszcze.** Event sourcingu, CQRS, tabel temporalnych, partycjonowania (~<10–50 mln wierszy na tabelę zwykle bez potrzeby), własnego DSL schematu, wersjonowania każdej encji.
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- event sourcing → wymóg odtworzenia stanu na dowolny moment z pełną historią przyczyn (rozliczenia regulowane); audit log zwykle wystarcza.
+- CQRS → model odczytu radykalnie różny od zapisu i widok zmaterializowany nie nadąża (~>sekundy opóźnienia akceptowalne, ale zapytania ~>1 s).
+- tabele temporalne → klient/prawo wymaga pytania „jak wyglądał rekord dnia X" częściej niż sporadycznie.
+- partycjonowanie → tabela ~>10–50 mln wierszy z naturalnym kluczem czasu i retencją przez `DROP PARTITION`.
+- własny DSL schematu / wersjonowanie każdej encji → nigdy domyślnie; tylko z ADR.
 
 ---
 
@@ -99,7 +110,11 @@ Zapytania SQL poniżej działają na katalogach Postgresa (sprawdzone na PG 17);
 5. Czy kwota z żądania nigdy nie jest używana do obciążenia? → `rg -n "amount" src/app/api supabase/functions | rg -i "body|req\.|request\."` — porównaj z kwotą wyliczoną z bazy.
 6. Czy format kwot i dat jest jednym helperem per język (IS/PL/EN)? → `rg -n "Intl\.NumberFormat|toLocaleString" src | wc -l` (wiele miejsc = rozbieżność).
 
-**Nie potrzebujesz jeszcze.** Silnika wielowalutowego, biblioteki Money (przy jednej walucie i jednej funkcji liczącej), tabel temporalnych, osobnej usługi cenowej.
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- silnik wielowalutowy → rozliczenia w ≥2 walutach z księgowaniem różnic kursowych (osobny projekt, decyzja przed budową).
+- biblioteka Money → ≥2 waluty w jednym koszyku/dokumencie albo ≥2 miejsca liczące kwoty, których nie da się scalić.
+- tabele temporalne cen → spór „jaka była cena dnia X" i brak ceny zapisanej w pozycji dokumentu.
+- osobna usługa cenowa → ten sam cennik konsumuje ≥2 niezależne aplikacje.
 
 ---
 
@@ -134,7 +149,12 @@ Zapytania SQL poniżej działają na katalogach Postgresa (sprawdzone na PG 17);
 5. Czy `org_id` nie przychodzi z body żądania? → `rg -n "org_id|orgId" src/app/api supabase/functions | rg -i "body|req\.json|request\.json"`.
 6. Czy w modelu `service_role` każda funkcja dostępowa wywołuje bramkę sesji? → porównaj liczbę wywołań bramki sesji z liczbą eksportowanych funkcji dostępu do danych (`rg -c "<bramka>" <plik>` vs `rg -c "^export (async )?function" <plik>`; konkretny plik i bramka: `prywatne notatki floty (poza eksportem)`).
 
-**Nie potrzebujesz jeszcze.** Bazy per tenant, shardingu per tenant, własnego silnika polityk (OPA/Cedar), ReBAC, delegowanych uprawnień na poziomie wiersza ponad rolami.
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- baza/schemat per tenant → umowa wymaga fizycznej izolacji lub regionu danych klienta, albo jeden tenant ~>50 % obciążenia.
+- sharding per tenant → największy tenant nie mieści się w największym planie jednej bazy.
+- OPA/Cedar → ≥3 aplikacje dzielą te same reguły dostępu, a RLS + `has_role()` się rozjeżdżają.
+- ReBAC → uprawnienia dziedziczone po grafie (folder → podfolder → dokument, udostępnianie per obiekt) w ≥2 modułach.
+- delegowane uprawnienia per wiersz → klient prosi o „udostępnij ten rekord tej osobie" jako stałą funkcję.
 
 ---
 
@@ -170,7 +190,11 @@ Zapytania SQL poniżej działają na katalogach Postgresa (sprawdzone na PG 17);
 4. Czy zmiana roli działa w akceptowalnym czasie (ile żyje token)? → `rg -n "jwt_expiry|expiresIn|maxAge" supabase/config.toml src`.
 5. Czy optimistic UI ma rollback? → `rg -n "onError|rollback" <plik z optimistic>`.
 
-**Nie potrzebujesz jeszcze.** Sag i 2PC (są dla wielu usług), CRDT, quorum, replik odczytu tylko po to, by „mieć HA".
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- saga / 2PC → jedna operacja biznesowa zmienia stan w ≥2 systemach z własnymi bazami (np. nasza baza + ERP klienta) i kompensacja ręczna zdarza się ~>raz w miesiącu.
+- CRDT / OT → współedycja tego samego dokumentu przez ≥2 osoby naraz albo tryb offline z synchronizacją; wtedy gotowa biblioteka (Yjs/Automerge), nie własna.
+- quorum / replikacja bezliderowa → nigdy przy jednym Postgresie; temat dla multi-region (→ 05 › Kopie zapasowe i odtwarzanie).
+- replika odczytu „dla HA" → nie; replika dopiero dla ciężkich odczytów po pomiarze (→ 03 › Wąskie gardło). Uwaga: „real-time" ≠ silna spójność — Realtime/replika dostarcza zmianę z opóźnieniem.
 
 ---
 
@@ -188,6 +212,18 @@ Zapytania SQL poniżej działają na katalogach Postgresa (sprawdzone na PG 17);
 | Materialized view | harmonogram odświeżania | zero | średni |
 | Redis/Memcached | kolejny serwis, kolejny SPOF | miesięczny abonament | wysoki: dwa źródła prawdy |
 
+**Strategie zapisu i odczytu (nazwy z kursu → co to u nas).** Domyślna para floty: **cache-aside przy odczycie + write-around z inwalidacją przy zapisie**.
+
+| Strategia | Jak działa | Koszt / ryzyko | Kiedy u nas |
+|---|---|---|---|
+| cache-aside (lazy loading) | kod czyta cache; miss → baza → zapis do cache | pierwszy odczyt wolny; ryzyko thundering herd po wygaśnięciu | DOMYŚLNIE: TanStack Query, `unstable_cache`/`use cache`, memo w funkcji |
+| read-through | cache sam dociąga z bazy przy miss (warstwa, nie kod) | zależność od biblioteki/platformy; trudniej sterować TTL per klucz | ISR/fetch cache Next i CDN zachowują się jak read-through — świadomie, nie jako osobny komponent |
+| write-through | zapis idzie do cache i bazy synchronicznie | wolniejszy zapis, cache pełen rzadko czytanych danych | brak u nas; sygnał: ten sam klucz czytany ~>100×/s zaraz po zapisie i miss jest nieakceptowalny |
+| write-around + inwalidacja | zapis tylko do bazy, potem `revalidateTag`/`invalidateQueries`/purge | krótkie okno starych danych; trzeba pamiętać o inwalidacji w KAŻDEJ mutacji | DOMYŚLNIE dla zapisu |
+| write-back (write-behind) | zapis do cache, asynchroniczny flush do bazy | utrata danych przy awarii cache; dwie prawdy | NIGDY dla pieniędzy, stanów, uprawnień; sygnał: liczniki/analityka ~>1000 inkrementów/s na jednym wierszu — i wtedy najpierw agregacja w kolejce, nie Redis |
+
+Thundering herd (wiele równoległych missów na tym samym kluczu): `stale-while-revalidate` (serwuje stare, odświeża w tle), deduplikacja żądań w toku (request coalescing; TanStack Query robi to po kluczu; po stronie serwera React `cache()` w obrębie żądania), losowy rozrzut TTL (±10–20 % `[~]`) dla kluczy generowanych hurtem. Gorący klucz (jeden klucz bije bazę): najpierw CDN/ISR dla publicznego, potem widok zmaterializowany; podgrzewanie (warming) po deployu tylko gdy zimny start widać w p95.
+
 **Awarie i detekcja.**
 - *mutacja bez inwalidacji* — `rg -n -l "insert\(|update\(|delete\(|\.rpc\(" src | xargs rg --files-without-match "invalidateQueries|revalidate|router\.refresh"` (pliki z mutacją bez inwalidacji)
 - *dane użytkownika w cache współdzielonym* — `rg -n "Cache-Control|unstable_cache|use cache|s-maxage|force-static" src/app`
@@ -201,8 +237,15 @@ Zapytania SQL poniżej działają na katalogach Postgresa (sprawdzone na PG 17);
 3. Czy dane zalogowanego mają scope w kluczu albo `private/no-store`? → druga komenda.
 4. Czy zachowanie przy pustym cache (miss, zimny start) jest przetestowane? → `rg -n -i "cold|miss|empty cache" tests`.
 5. Czy przed dodaniem cache zmierzono zapytanie? → `EXPLAIN` w PR.
+6. Czy strategia jest nazwana (cache-aside/write-around/…) i nie ma write-back na danych C? → opis w PR/ADR + `rg -n -i "write.?(back|behind)|flush" src supabase/functions`.
 
-**Nie potrzebujesz jeszcze.** Redisa, Memcached, własnej warstwy cache w aplikacji, automatyzacji purge, write-behind.
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- Redis/Memcached → zmierzone zapytanie po indeksie i widoku zmaterializowanym nadal ~>50 ms p95 przy ~>100 odczytach/s tego samego klucza, albo potrzebny współdzielony stan między instancjami (limiter, sesje) i Postgres go nie znosi.
+- własna warstwa cache w aplikacji → ten sam obiekt składany z ~>5 zapytań w każdym żądaniu i `cache()` per żądanie nie wystarcza.
+- automatyzacja purge → ręczne `revalidate*` zapomniane ≥2× w kwartale (incydent „stale po publikacji").
+- write-through → jak w tabeli strategii.
+- write-back → jak w tabeli strategii.
+- replikacja / dzielenie gorącego klucza (key splitting, kopie `klucz#1..N`) → jeden klucz w Redisie ~>kilka tys. odczytów/s mimo CDN/ISR; przy Postgresie i CDN nie występuje.
 
 ---
 
@@ -219,6 +262,15 @@ Zapytania SQL poniżej działają na katalogach Postgresa (sprawdzone na PG 17);
 | Upload przez funkcję | timeouty, limity body | funkcje + transfer | średni |
 | Bucket publiczny | zero | egress bez kontroli | niski; ryzyko wycieku |
 | Zewnętrzny CDN/obrazy | integracja, purge | płatne | średni |
+| Upload wznawialny (TUS / multipart) | klient TUS, sprzątanie porzuconych sesji | zero ponad storage | średni |
+
+**Upload wznawialny.** Zdjęcia i wideo z telefonu na słabym zasięgu (warsztat, plac) padają w połowie; zwykły upload zaczyna wtedy od zera. Supabase Storage ma endpoint wznawialny w protokole TUS (`/storage/v1/upload/resumable`, klient np. `tus-js-client`) `[NIEPEWNE: ścieżka i limity wg wersji Storage — sprawdź docs „Resumable uploads"]`; S3/R2 — multipart upload z podpisanymi URL-ami części. **Sygnał, żeby sięgnąć:** pliki ~>6 MB `[NIEPEWNE: próg rekomendowany w docs]`, wideo, albo zgłoszenia „upload się nie udał" z urządzeń mobilnych. Wcześniej wystarczy kompresja po stronie klienta (zdjęcie 12 MP → ~0,3–0,8 MB `[~]`).
+
+**Przetwarzanie po uploadzie (miniatury, OCR, skan, transkodowanie).** Nie w żądaniu uploadu: wiersz metadanych ze `status='uploaded'` → zadanie w tabeli `jobs` (→ 04 › Zadania w tle) → wynik pod osobną ścieżką (`<org_id>/thumbs/…`) i `status='ready'`; UI pokazuje oryginał lub placeholder do czasu `ready`. Miniatury „w locie" przez transformacje obrazów platformy `[NIEPEWNE: dostępność wg planu Supabase]` są tańsze niż własny pipeline, dopóki ruch jest mały. **Sygnał na własny pipeline:** koszt transformacji/egressu ~>kilkadziesiąt USD/mies. albo potrzeba formatów, których platforma nie daje.
+
+**Retencja i lifecycle.** Każdy bucket ma zapisany czas życia w `docs/PRIVACY.md`: dane zleceń — tyle, ile wymaga prawo/umowa; importy CSV i pliki tymczasowe — dni. Sprzątanie = zadanie cykliczne usuwające przez API Storage (nie `delete from storage.objects` — zostawia bajty `[NIEPEWNE: zachowanie wg wersji]`) z logiem liczby usuniętych. Trwałość ≠ dostępność: dostawca może nie zgubić pliku, a mimo to nie podać go przez godziny awarii — ścieżka krytyczna (np. PDF faktury do wysłania) nie może zależeć od jednego `download` bez retry i komunikatu.
+
+**Kopie plików.** Kopia bazy ≠ kopia plików: kopie Supabase (dobowe i PITR) obejmują tylko metadane w `storage.objects`, nie same obiekty (zweryfikowane w docs Supabase „Backups" 2026-10-06: „Database backups do not include objects you store via the Storage API"). RPO plików bez własnego eksportu = brak kopii; miej eksport poza platformę (→ 05 › Kopie zapasowe i odtwarzanie).
 
 **Awarie i detekcja.**
 - *bucket publiczny z danymi klientów* — `select id, public, file_size_limit, allowed_mime_types from storage.buckets;` [NIEPEWNE: kolumny wg wersji Storage]
@@ -226,6 +278,9 @@ Zapytania SQL poniżej działają na katalogach Postgresa (sprawdzone na PG 17);
 - *obiekty osierocone po usunięciu rekordu* — `select count(*) from storage.objects o where bucket_id='<bucket>' and not exists (select 1 from <tabela_metadanych> m where m.path = o.name);`
 - *stały publiczny URL do prywatnych danych* — `rg -n "getPublicUrl|/object/public/" src supabase/functions`
 - *upload bez limitu* — `rg -n "upload\(" src | rg -v "maxSize|size|limit"`
+- *duże pliki z telefonu bez wznawiania* — `select bucket_id, count(*) filter (where (metadata->>'size')::bigint > 6*1024*1024) as ponad_6mb, count(*) from storage.objects group by 1;` vs `rg -n -i "tus|resumable|multipart" src package.json`
+- *przetwarzanie w żądaniu uploadu (timeout funkcji)* — `rg -n -i "sharp|ffmpeg|resize|thumbnail" src/app/api supabase/functions`
+- *brak retencji plików tymczasowych* — `select bucket_id, min(created_at) as najstarszy, count(*) from storage.objects group by 1 order by 2;` zestaw z `rg -n -i "retenc|retention|cleanup|purge" supabase scripts src`
 
 **Audyt „czy się trzymamy".**
 1. Czy buckety z danymi użytkowników są prywatne? → pierwsze zapytanie.
@@ -233,9 +288,17 @@ Zapytania SQL poniżej działają na katalogach Postgresa (sprawdzone na PG 17);
 3. Czy upload ma limit rozmiaru i listę MIME? → zapytanie o bucket + `rg -n "mimetype|allowedMime" src`.
 4. Czy każdy plik ma wiersz metadanych z `org_id` i RLS? → `rg -n "org_id" <migracja tabeli metadanych>`.
 5. Czy usunięcie rekordu usuwa obiekt? → zapytanie o osierocone.
-6. Czy kopia obejmuje same pliki, nie tylko metadane? → [NIEPEWNE: według dokumentacji Supabase kopie bazy mogą nie zawierać obiektów Storage — sprawdź w docs „Backups"; runbook może zakładać, że są objęte] → patrz 05 › Kopie zapasowe i odtwarzanie.
+6. Czy kopia obejmuje same pliki, nie tylko metadane? → kopie Supabase NIE obejmują obiektów Storage (docs „Backups", 2026-10-06): `rg -n -i "rclone|storage.*(export|backup|sync)" scripts .github docs/RUNBOOK.md` → brak trafień = brak kopii plików (05 › Kopie zapasowe i odtwarzanie).
 
-**Nie potrzebujesz jeszcze.** Uploadu wznawialnego (przy plikach ~>6 MB `[NIEPEWNE: próg wg docs]`), przetwarzania obrazów po stronie serwera, klas przechowywania/lifecycle, transkodowania wideo.
+7. Czy pliki z telefonu ~>6 MB idą uploadem wznawialnym, a przetwarzanie jest poza żądaniem? → komendy z awarii.
+8. Czy każdy bucket ma retencję w `docs/PRIVACY.md` i job, który ją wykonuje? → `rg -n -i "bucket|storage" docs/PRIVACY.md` + zapytanie o najstarszy obiekt.
+
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- upload wznawialny → pliki ~>6 MB `[NIEPEWNE: próg wg docs]`, wideo albo zgłoszenia nieudanych uploadów z mobile.
+- własne przetwarzanie obrazów na serwerze → transformacje platformy niedostępne w planie lub ich koszt ~>kilkadziesiąt USD/mies.
+- klasy przechowywania / tiering → storage ~>100 GB `[~]`, z czego większość nieczytana ~>90 dni.
+- transkodowanie wideo (HLS/DASH) → wideo odtwarzane przez użytkowników, nie tylko archiwizowane; wtedy usługa zarządzana, nie własny ffmpeg.
+- retention lock (WORM) → wymóg prawny/umowny niezmienności plików (archiwum dokumentów księgowych).
 
 ---
 
@@ -266,4 +329,8 @@ Zapytania SQL poniżej działają na katalogach Postgresa (sprawdzone na PG 17);
 4. Czy PK dużej tabeli jest sortowalny po czasie albo uzasadniono v4? → `rg -n "uuid_generate_v4|gen_random_uuid|uuidv7" supabase/migrations`.
 5. Czy w Payload kolekcje z liczbowym ID mają `access` ograniczone? → `rg -n "access:" src/collections | wc -l` vs liczba kolekcji.
 
-**Nie potrzebujesz jeszcze.** Snowflake, własnych generatorów ID, hash-id dla UX, rozproszonego generatora numerów.
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- Snowflake / ID 64-bit z zegarem i maszyną → wiele niezależnych zapisujących węzłów bez wspólnej bazy, ID musi być 64-bit (limit klienta/protokołu).
+- własny generator ID / ID z regionem → multi-region z zapisami w ≥2 regionach (→ 05 › Kopie zapasowe i odtwarzanie, replikacja).
+- hash-id dla UX → użytkownicy przepisują ID ręcznie (telefon, papier); wtedy krótki kod obok UUID, nie zamiast.
+- rozproszony generator numerów → numeracja dokumentów z ≥2 baz; do tego czasu licznik per org w transakcji.

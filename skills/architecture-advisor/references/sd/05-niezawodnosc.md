@@ -34,7 +34,10 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 5. Czy konsument zadań dedupuje po stabilnym id? → `rg -n "attempts|idempot" <worker>`.
 6. Czy jest test „to samo zdarzenie 2×"? → `rg -ln -i "twice|duplicate|replay|2x|dwa razy" tests e2e supabase`.
 
-**Nie potrzebujesz jeszcze.** Transakcji Kafki, rozproszonego cache dedup, CDC/outboxa strumieniowego.
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- transakcje Kafki → nie używamy Kafki; sygnał na Kafkę: → 04 › Zdarzenia.
+- rozproszony cache dedup → tabela dedup ~>dziesiątki mln wierszy i `insert on conflict` widoczny w `pg_stat_statements` w top 5.
+- CDC / outbox strumieniowy → ≥2 systemy konsumują te same zdarzenia w czasie ~sekund; do tego czasu outbox w tabeli + worker.
 
 ---
 
@@ -68,7 +71,13 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 5. Czy transakcje są krótkie i bez sieci w środku? → ostatnia komenda.
 6. Czy jest test wyścigu? → `rg -ln -i "race|concurrent|Promise\.all" tests e2e | head`.
 
-**Nie potrzebujesz jeszcze.** Rozproszonych blokad, etcd/ZooKeeper/Redlock, konsensusu Raft, `serializable` jako domyślnego poziomu, sag (to temat wielu usług).
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- rozproszone blokady / Redlock → wykonawcy bez wspólnej bazy; dopóki jest Postgres — advisory lock lub wiersz-lease.
+- etcd/ZooKeeper/Raft → nigdy samodzielnie; przychodzą z K8s lub bazą rozproszoną.
+- `serializable` domyślnie → ≥2 incydenty anomalii (write skew), których nie da się zamknąć constraintem ani `for update`.
+- repeatable read → raport/eksport musi widzieć spójną migawkę wielu tabel (jedna transakcja `repeatable read read only`).
+- kolejka dla gorącego wiersza → jeden wiersz (licznik, ostatnia sztuka) dostaje ~>50 równoległych zapisów/s i `wait_event_type='Lock'` dominuje.
+- sagi → jak w 02 › Spójność per przepływ.
 
 ---
 
@@ -76,7 +85,7 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 
 **Problem.** Każde wywołanie poza naszym procesem (dostawca płatności, SMS, poczty, model LLM, embeddingi, Supabase, API sklepów) jest tym, co się zawiesi w najgorszym momencie. Bez timeoutu funkcja czeka do limitu platformy, a użytkownik widzi biały ekran lub niespójny stan. Sygnały w diffie: nowy `fetch`/SDK, nowa integracja, retry w pętli, nowa zmienna `*_API_KEY`.
 
-**Domyślnie u nas.** Cienki klient na dostawcę w jednym miejscu: `AbortSignal.timeout(ms)` dobrany do p99 dostawcy (zewnętrzne API ~5–10 s `[~]`; LLM dłużej, najlepiej streaming), `User-Agent`, obsługa 429/5xx z `Retry-After`; retry maks. 3×, backoff wykładniczy z jitterem, TYLKO dla operacji idempotentnych (GET, PUT, POST z kluczem idempotencji); komunikat/fallback dla użytkownika; wyłącznik awaryjny (flaga w tabeli ustawień/env) zamiast biblioteki circuit breaker. Tabela zależności w `docs/RUNBOOK.md`: dostawca | co się psuje | fallback | wyłącznik | kontakt. Budżet czasu: limit użytkownika > suma timeoutów wewnętrznych. Brak timeoutu jest znaną blizną floty (`pg/cases.md` NO-TIMEOUT-EXTERNAL; find-part ~7 s w `pg/prr.md` P5).
+**Domyślnie u nas.** Cienki klient na dostawcę w jednym miejscu: `AbortSignal.timeout(ms)` dobrany do p99 dostawcy (zewnętrzne API ~5–10 s `[~]`; LLM dłużej, najlepiej streaming), `User-Agent`, obsługa 429/5xx z `Retry-After`; retry maks. 3×, backoff wykładniczy z jitterem, TYLKO dla operacji idempotentnych (GET, PUT, POST z kluczem idempotencji); komunikat/fallback dla użytkownika; wyłącznik awaryjny (flaga w tabeli ustawień/env) zamiast biblioteki circuit breaker. Tabela zależności w `docs/RUNBOOK.md`: dostawca | co się psuje | fallback | wyłącznik | kontakt. Budżet czasu: limit użytkownika > suma timeoutów wewnętrznych. Brak timeoutu jest znaną blizną floty (`pg/cases.md` NO-TIMEOUT-EXTERNAL; find-part ~7 s w `pg/prr.md` P5). Burst żądań do wolnej/limitowanej zależności (LLM, SMS, mail) → limit współbieżności i szybkie 429/503 zamiast czekania do timeoutu (→ 03 › Backpressure i zrzucanie obciążenia).
 **Kiedy NIE retry:** operacje nieidempotentne bez klucza (obciążenie karty, wysyłka SMS) — najpierw klucz/dedup, potem retry.
 
 | Wariant | Koszt operacyjny | Finansowy | Poznawczy |
@@ -102,7 +111,12 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 5. Czy 429/5xx (w tym `Retry-After`) są obsłużone? → komenda z awarii.
 6. Czy tabela zależności w runbooku obejmuje nową integrację? → `rg -n -i "<dostawca>" docs/RUNBOOK.md`.
 
-**Nie potrzebujesz jeszcze.** Bibliotek circuit breaker, bulkheadów, hedged requests, service mesh, chaos engineeringu.
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- biblioteka circuit breaker → ≥3 zależności, których awaria kaskaduje, a ręczny wyłącznik nie zadziałał na czas (incydent).
+- bulkhead → jedna wolna integracja wyczerpuje połączenia/współbieżność funkcji wspólną z ścieżką krytyczną.
+- hedged requests → p99 dostawcy ~>5× p50, operacja idempotentna i tania do zdublowania.
+- service mesh → jak w 03 › Health checki.
+- chaos engineering → SLA umowne i przećwiczone runbooki; wcześniej wystarczy drill restore i test wyłącznika.
 
 ---
 
@@ -110,7 +124,7 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 
 **Problem.** Uwierzytelnianie (kim jesteś) i autoryzacja (co wolno) to dwa systemy; błędy siedzą głównie w autoryzacji. Flota używa wzorców: Supabase Auth + RLS, Payload Users + `access`, własna sesja HMAC dla jednego operatora oraz eID przez zewnętrznego dostawcę (które repo ma który wzorzec: `prywatne notatki floty (poza eksportem)`). Sygnały w diffie: nowy endpoint/RPC/kolekcja/tabela, zmiana ról, `service_role`, `verify_jwt`, `user_metadata`, nowe `access`.
 
-**Domyślnie u nas.** Authn: gotowa usługa (Supabase Auth, Payload Users); eID tylko przez dostawców; własna sesja tylko dla jednego zaufanego operatora i z odmową przy braku sekretu w produkcji. Authz: w bazie jako RLS (`(select auth.uid())` + członkostwo w org) w jednym miejscu, albo w Payload jako `access` per kolekcja i pole. Pułapka Payload: Local API (`payload.find/update/…`) domyślnie omija kontrolę dostępu — przy wywołaniu w imieniu użytkownika podaj `user` i `overrideAccess: false`. Rola w tabeli `user_roles` + funkcja `has_role()` (wzorzec), nie w `user_metadata` (edytowalne przez użytkownika; `app_metadata` nie `[NIEPEWNE: potwierdź w docs]`). `service_role` tylko po stronie serwera, nigdy w zmiennej `VITE_*`/`NEXT_PUBLIC_*`. Funkcje SECURITY DEFINER: `set search_path = ''`, `revoke execute … from public, anon`, sprawdzenie `auth.uid()`/org w ciele. JWT krótkożyjący — decyzje wrażliwe (zmiana roli, płatności) czytają uprawnienia z bazy. MFA dla adminów. Funkcje edge z `verify_jwt = false` (webhooki) weryfikują podpis same.
+**Domyślnie u nas.** Authn: gotowa usługa (Supabase Auth, Payload Users); eID tylko przez dostawców; własna sesja tylko dla jednego zaufanego operatora i z odmową przy braku sekretu w produkcji. Authz: w bazie jako RLS (`(select auth.uid())` + członkostwo w org) w jednym miejscu, albo w Payload jako `access` per kolekcja i pole. Pułapka Payload: Local API (`payload.find/update/…`) domyślnie omija kontrolę dostępu — przy wywołaniu w imieniu użytkownika podaj `user` i `overrideAccess: false`. Rola w tabeli `user_roles` + funkcja `has_role()` (wzorzec), nie w `user_metadata` (edytowalne przez użytkownika; `app_metadata` nie `[NIEPEWNE: potwierdź w docs]`). `service_role` tylko po stronie serwera, nigdy w zmiennej `VITE_*`/`NEXT_PUBLIC_*`. Funkcje SECURITY DEFINER: `set search_path = ''`, `revoke execute … from public, anon`, sprawdzenie `auth.uid()`/org w ciele. JWT krótkożyjący — decyzje wrażliwe (zmiana roli, płatności) czytają uprawnienia z bazy. MFA dla adminów. Funkcje edge z `verify_jwt = false` (webhooki) weryfikują podpis same. Integracje (OAuth/OIDC, usługa → usługa, unieważnianie tokenów, klucze partnerów) → karta niżej.
 **Kiedy NIE budować:** własnego logowania, własnego eID, własnego silnika polityk.
 
 | Wariant | Koszt operacyjny | Finansowy | Poznawczy |
@@ -139,7 +153,68 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 6. Czy admin ma MFA? → ustawienie Auth w panelu/`config.toml` `rg -n -i "mfa" supabase/config.toml`.
 7. Czy Payload Local API wywoływane w imieniu użytkownika przekazuje `user` i `overrideAccess: false`? → komenda Local API.
 
-**Nie potrzebujesz jeszcze.** ReBAC/Zanzibar/OpenFGA, OPA, własnego IdP/Keycloak, SSO/SAML (dopóki klient tego nie wymaga), własnych passkeys.
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- ReBAC/Zanzibar/OpenFGA → jak w 02 › Multi-tenancy.
+- ABAC (atrybuty: region, godzina, wartość zlecenia) → ≥3 reguły zależne od atrybutów zasobu, których role nie wyrażają; najpierw jako warunki w RLS.
+- OPA → jak w 02 › Multi-tenancy.
+- własny IdP/Keycloak → ≥3 aplikacje z jednym logowaniem dla tych samych użytkowników i wymóg federacji, którego Supabase Auth nie daje.
+- SSO/SAML → klient korporacyjny wpisuje to w umowę `[NIEPEWNE: SAML w Supabase wg planu]`.
+- własne passkeys → nigdy własne; WebAuthn przez usługę Auth, gdy ją wspiera.
+- mTLS między usługami → usługi poza platformą w prywatnej sieci klienta lub wymóg umowny; wcześniej podpisany JWT/HMAC (karta niżej).
+
+---
+
+### Uwierzytelnianie integracji: OAuth/OIDC, usługi, tokeny, klucze partnerów
+
+**Problem.** Poza logowaniem hasłem flota ma: logowanie Google/Microsoft (OAuth2/OIDC), wywołania usługa → usługa (edge function → edge function, n8n → nasze API, cron → API), odwołanie dostępu (zwolniony pracownik, wyciek tokenu) i partnerów B2B wołających nasze API. Każde ma inny model zaufania. Typowe błędy: implicit flow z tokenem w URL, wspólny sekret wklejony na stałe w węzeł n8n, `service_role` jako „hasło" między usługami, klucz partnera trzymany jawnie w bazie, „wylogowanie", które nie unieważnia wydanego tokenu. Sygnały w diffie: `signInWithOAuth`, `/auth/callback`, `exchangeCodeForSession`, nowy nagłówek `x-api-key`/`Authorization` w wywołaniu wewnętrznym, nowa tabela `api_keys`, `verify_jwt = false`, `signOut`.
+
+**Domyślnie u nas.**
+- **OAuth2/OIDC + PKCE (logowanie Google itp.):** przez Supabase Auth, flow PKCE (domyślny w `@supabase/ssr` `[NIEPEWNE: potwierdź w wersji z lockfile]`): `signInWithOAuth({ provider, options: { redirectTo } })` → trasa `/auth/callback` wymienia `code` na sesję (`exchangeCodeForSession`) po stronie serwera → cookie httpOnly. Nigdy implicit flow (token we fragmencie URL) w aplikacji SSR. Lista dozwolonych `redirectTo` w ustawieniach Auth bez wildcardów obejmujących cudze domeny (podglądy Vercel: wzorzec tylko dla własnego zespołu `[NIEPEWNE: składnia wildcard wg docs]`). Łączenie konta OIDC z istniejącym tylko po zweryfikowanym e-mailu. Client credentials (maszyna → maszyna bez użytkownika) tylko, gdy partner wymaga OAuth — wtedy jego IdP, nie nasz.
+- **Usługa → usługa (edge fn ↔ edge fn, n8n → API, cron → API):** domyślnie wspólny sekret z menedżera sekretów (w n8n jako credential/zmienna, nie tekst w węźle) + allowlist operacji, które wolno wywołać; HMAC lub JWT od pierwszego wołającego spoza naszego zespołu. Edge fn działająca w imieniu użytkownika przekazuje dalej JWT użytkownika (RLS działa), nie `service_role`.
+
+| Mechanizm usługa → usługa | Kiedy | Ryzyko / koszt |
+|---|---|---|
+| wspólny sekret (`Authorization: Bearer <sekret>`) | 1 wołający, 1 odbiorca, ten sam właściciel | wyciek = dostęp bez wygaśnięcia; porównanie `timingSafeEqual`; rotacja przez dwie ważne wartości naraz (`*_SECRET_CURRENT`, `*_SECRET_NEXT`) |
+| HMAC treści + znacznik czasu (`X-Signature`, `X-Timestamp`, okno ~5 min) | wołający przez publiczny internet; ochrona przed replay i podmianą body | sekret nie leci w żądaniu; podpisuj surowe body |
+| podpisany JWT (`exp` ~5 min, `iss`, `aud`, `scope`) | ≥2 wołających albo potrzebne zakresy i wygasanie | biblioteka JWT, zegary; klucz asymetryczny, gdy weryfikuje ktoś inny niż wystawca |
+| `service_role` jako sekret | nigdy | omija RLS — wyciek z n8n = cała baza |
+
+- **Unieważnianie tokenów:** access token Supabase to JWT ważny do `exp` (`jwt_expiry` w `supabase/config.toml` `[NIEPEWNE: wartość domyślna wg wersji]`); wylogowanie unieważnia refresh token, ale wydany access token działa do wygaśnięcia. Dlatego: krótki `exp` dla paneli z pieniędzmi (~5–15 min `[~]`), decyzje wrażliwe czytają stan z bazy (rola, `banned_until`, `revoked_at`), nie z claimów JWT; „wyloguj wszędzie" po zmianie hasła lub zwolnieniu (`signOut({ scope: 'global' })` `[NIEPEWNE: API w wersji klienta]`) + odebranie roli w bazie.
+- **Klucze API partnerów:** prefiks + losowe ≥32 bajty (`mk_live_<8 znaków>_<sekret>`); w bazie TYLKO prefiks i `sha256` klucza, pokazany raz przy utworzeniu; kolumny `org_id`, `scopes text[]`, `expires_at`, `last_used_at`, `revoked_at`. Weryfikacja jednym zapytaniem (sprawdzone na PG 17): `update api_keys set last_used_at = now() where prefix = $1 and key_hash = encode(sha256(convert_to($2,'UTF8')),'hex') and revoked_at is null and (expires_at is null or expires_at > now()) returning org_id, scopes;` (0 wierszy = 401). Rotacja = nowy klucz + okres nakładania, potem `revoked_at`; rate limit per klucz (→ 03 › Rate limiting); audit log użycia (klucz, endpoint, kod, czas). Klucz w nagłówku, nigdy w query stringu (trafia do logów).
+**Kiedy NIE:** jedno wewnętrzne wywołanie cron → funkcja w tym samym projekcie — sekret + allowlist; tabela kluczy dopiero przy pierwszym partnerze.
+
+| Wariant | Koszt operacyjny | Finansowy | Poznawczy |
+|---|---|---|---|
+| OAuth/OIDC przez Supabase Auth (PKCE) | konfiguracja dostawcy, allowlist redirectów | w cenie planu | niski |
+| wspólny sekret usługa → usługa | rotacja ręczna | zero | niski |
+| HMAC / podpisany JWT | podpisywanie, zegar | zero | średni |
+| klucze API partnerów (hash + scope + audit) | tabela, rotacja, audit | zero | średni |
+| denylista tokenów / mTLS | stan sprawdzany per żądanie / PKI | niski–średni | wysoki — nie |
+
+**Awarie i detekcja.**
+- *implicit flow / token w URL* — `rg -n -i "flowType|implicit|#access_token|access_token=" src`
+- *OAuth bez wymiany kodu na serwerze* — `rg -n "signInWithOAuth" src` vs `rg -n "exchangeCodeForSession" src` (pierwsze bez drugiego = finding)
+- *redirecty z szerokim wildcardem* — `rg -n -A3 "additional_redirect_urls|site_url" supabase/config.toml`
+- *`service_role` jako sekret między usługami* — `rg -n -i "SERVICE_ROLE" supabase/functions src | rg -i "fetch|invoke|authorization|headers"`
+- *porównanie sekretu przez `===` (timing)* — `rg -n -i "(secret|token|signature|\bsig|api_?key)\w*\s*(===|!==|==)\s|(===|!==|==)\s*\S*(secret|token|signature|api_?key)" src supabase/functions` (obie strony porównania, np. `=== Deno.env.get('CRON_SECRET')`)
+- *klucze/sekrety jawnie w kolumnach* — `select table_name, column_name from information_schema.columns where table_schema='public' and column_name ~* '(api_?key|secret|token)$' and column_name !~* '(hash|prefix)';` (sprawdzone na PG 17)
+- *klucz w query stringu* — `rg -n -i "[?&](api_?key|token|key)=" src supabase/functions`
+- *długo żyjący access token* — `rg -n "jwt_expiry" supabase/config.toml`
+
+**Audyt „czy się trzymamy".**
+1. Czy OAuth idzie PKCE z wymianą kodu na serwerze i allowlistą redirectów? → komendy 1–3.
+2. Czy każde wywołanie usługa → usługa ma nazwany mechanizm (sekret/HMAC/JWT), a nie `service_role`? → komenda `SERVICE_ROLE` + odczyt.
+3. Czy sekrety między usługami mają procedurę rotacji z dwiema ważnymi wartościami? → `rg -n -i "SECRET_NEXT|rotac|rotation" docs/RUNBOOK.md src supabase/functions`.
+4. Czy zwolnienie/wyciek ma procedurę „wyloguj wszędzie + odbierz rolę w bazie"? → `rg -n -i "signOut|revoke|banned_until|wyloguj" docs/RUNBOOK.md src`.
+5. Czy klucze partnerów są hashowane i mają scope, wygaśnięcie i audit? → zapytanie o kolumny + `rg -n -i "api_keys" supabase/migrations`.
+6. Czy `jwt_expiry` pasuje do wrażliwości panelu? → ostatnia komenda.
+
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- denylista `jti` → wymóg odcięcia dostępu w ~<1 min, którego krótki `exp` + odczyt uprawnień z bazy nie spełnia.
+- mTLS → jak w karcie „Tożsamość i autoryzacja".
+- własny serwer OAuth (bycie IdP dla partnerów) → ≥3 partnerów działających w imieniu NASZYCH użytkowników („zaloguj przez naszą aplikację").
+- API gateway do kluczy → jak w 03 › Rate limiting.
+- service discovery / auth przez mesh → ≥5 usług rozmawiających po sieci (→ 07 › Monolit modularny vs usługi).
 
 ---
 
@@ -147,7 +222,7 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 
 **Problem.** Bez monitoringu o awarii dowiaduje się pierwszy klient. Typowy stan do sprawdzenia w repo: tylko część projektów ma error tracking w `package.json` (`rg -n "sentry" package.json`), a runbooki bywają z placeholderem `[link do projektu]` zamiast skonfigurowanego monitoringu (`rg -n "\[link" docs/RUNBOOK.md`). Stan per repo: `prywatne notatki floty (poza eksportem)`. Sygnały w diffie: nowy `catch`, nowa ścieżka krytyczna, nowa funkcja, nowy alert w runbooku.
 
-**Domyślnie u nas.** Sentry (front i serwer) dla każdego repo produkcyjnego; logi strukturalne (`level`, `msg`, `request_id`, `org_id`, id encji, powód); `request_id` generowany na wejściu i zwracany w błędzie; jeden kanał alertów (mail) z przetestowanym zdarzeniem i datą testu w runbooku; zewnętrzny monitor dostępności; metryki biznesowe jako zapytania + alert (zamówienia `pending` > 1 h, zadania `dead`, najstarsze zadanie w kolejce); `catch` loguje z kontekstem lub rzuca dalej; zero PII i tokenów w logach.
+**Domyślnie u nas.** Sentry (front i serwer) dla każdego repo produkcyjnego; logi strukturalne (`level`, `msg`, `request_id`, `org_id`, id encji, powód); `request_id` generowany na wejściu i zwracany w błędzie; jeden kanał alertów (mail) z przetestowanym zdarzeniem i datą testu w runbooku; zewnętrzny monitor dostępności; metryki biznesowe jako zapytania + alert (zamówienia `pending` > 1 h, zadania `dead`, najstarsze zadanie w kolejce); `catch` loguje z kontekstem lub rzuca dalej; zero PII i tokenów w logach. Minimum SLO: każda ścieżka krytyczna ma SLI, cel i próg alertu (sekcja SLO „lite" niżej); sampling świadomy (sekcja „Sampling i koszt").
 **Kiedy NIE:** prototypy bez użytkowników — wystarczą logi platformy.
 
 | Wariant | Koszt operacyjny | Finansowy | Poznawczy |
@@ -156,7 +231,23 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 | logi strukturalne + `request_id` | dyscyplina w kodzie | zero | niski |
 | OpenTelemetry/Grafana | utrzymanie stosu | wysoki | wysoki — nie |
 
+**SLO „lite" per ścieżka krytyczna.** SLO to liczba definiująca „nie działa", zanim zadzwoni klient. Dla każdej ścieżki krytycznej (lista z PRR / `CRITICAL-PATHS`) jedna linia w `docs/RUNBOOK.md` — przykłady `[~]`:
+
+| Ścieżka | SLI (jak mierzysz) | Cel (30 dni) | Próg alertu |
+|---|---|---|---|
+| checkout / płatność | 5xx na trasach płatności + płatności `pending` > 15 min | ≥99,5 % | ≥3 błędy w 10 min albo 1 płatność zawieszona > 15 min |
+| logowanie | nieudane logowania z powodu 5xx (nie złego hasła) | ≥99,5 % | ≥5 w 10 min |
+| czat AI | p95 czasu do pierwszego tokenu + odsetek błędów | p95 ≤5 s, błędy ≤2 % | p95 >10 s przez 15 min albo ≥10 błędów w 10 min |
+| zapis zlecenia/formularza | 5xx na trasach zapisu | ≥99,5 % | ≥3 w 10 min |
+
+Przy małym ruchu (setki żądań/dobę) próg liczbowy („≥N błędów w M min") zamiast procentu — procent z 20 żądań skacze i budzi bez powodu. Źródło SLI: Sentry (błędy, p95 transakcji) i zapytania SQL na metrykach biznesowych; alert w jednym kanale z przetestowanym zdarzeniem.
+
+**Sampling i koszt.** Błędy: 100 %. Tracing wydajności: `tracesSampleRate` ~0,1–0,2 w produkcji `[~]` — 1.0 w produkcji szybko wyczerpuje limit planu. Session replay tylko przy błędzie (`replaysOnErrorSampleRate: 1.0`, `replaysSessionSampleRate: 0`) — odpowiada na „klient mówi, że nie działa" bez nagrywania wszystkich sesji; maskowanie tekstu i pól z PII włączone `[NIEPEWNE: domyślne ustawienia maskowania wg wersji SDK]`. Head sampling (decyzja na starcie żądania — to robi `tracesSampleRate`) jest tani, ale gubi rzadkie wolne żądania; tail sampling (decyzja po zakończeniu: zachowaj wolne i błędne) wymaga kolektora — nie teraz. Koszt rośnie z kardynalnością: wartości nieograniczone (`user_id`, URL z ID, e-mail) idą do kontekstu zdarzenia/logów, nie do tagów i etykiet metryk. Retencja: logi platformy i Sentry wg planu `[NIEPEWNE: limity planów]`; dłużej trzymamy tylko audit log w bazie.
+
 **Awarie i detekcja.**
+- *tracing 100 % w produkcji / replay wszystkich sesji* — `rg -n "tracesSampleRate|replaysSessionSampleRate|replaysOnErrorSampleRate|profilesSampleRate" src sentry.*.config.* instrumentation*.ts 2>/dev/null`
+- *ścieżka krytyczna bez SLO i progu alertu* — `rg -n -i "SLO|SLI|próg alertu|alert threshold" docs/RUNBOOK.md`
+- *tag o wysokiej kardynalności* — `rg -n "setTag\(['\"](user|userId|user_id|email|url)" src`
 - *brak error trackingu* — `rg -n "captureException|@sentry|Sentry\.init" package.json src supabase/functions` (0 trafień w repo produkcyjnym = finding)
 - *placeholder w runbooku zamiast alertu* — `rg -n "\[link|\[URL|\[do uzupełnienia|TODO" docs/RUNBOOK.md`
 - *połknięty błąd* — `rg -n "catch\s*(\([^)]*\))?\s*\{\s*\}" src supabase/functions`
@@ -172,8 +263,15 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 4. Czy w logach nie ma PII/tokenów? → czwarta komenda.
 5. Czy istnieją alerty na metryki biznesowe (zawieszone płatności, kolejka)? → `rg -n -i "pending|dead|backlog" docs/RUNBOOK.md`.
 6. Czy logi mają retencję i poziomy? → ustawienia platformy/`RUNBOOK`.
+7. Czy każda ścieżka krytyczna ma SLI, cel i próg alertu w runbooku? → komenda SLO z awarii.
+8. Czy sampling jest świadomy (błędy 100 %, tracing ułamek, replay przy błędzie) i bez tagów o wysokiej kardynalności? → komendy sampling i tag z awarii.
 
-**Nie potrzebujesz jeszcze.** Prometheusa, Grafany, OpenTelemetry, Datadoga, tracingu rozproszonego, SLO z burn-rate.
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- Prometheus/Grafana/Loki → własny host z ≥3 usługami, dla których logi platformy i Sentry nie wystarczają.
+- OpenTelemetry / tracing rozproszony → żądanie przechodzi przez ≥3 usługi/funkcje i debug „gdzie zginęło" trwa ~>godzinę; najpierw `request_id` w nagłówkach.
+- Datadog/Honeycomb → budżet na obserwowalność i ≥1 osoba, która codziennie patrzy w dashboardy.
+- SLO z wielookienkowym burn-rate → ruch ~>10 tys. żądań/dobę na ścieżce krytycznej; wcześniej progi liczbowe z sekcji SLO „lite" wyżej.
+- metryki z wysoką kardynalnością (tag = `user_id`) → nigdy; użytkownik idzie do logów, nie do etykiet metryk.
 
 ---
 
@@ -181,7 +279,7 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 
 **Problem.** Kopia nieodtworzona próbnie nie jest kopią. Dotyczy bazy (Supabase/Postgres), plików (Storage) i własnych usług (menedżer sekretów, n8n). Sygnały w diffie: migracja destrukcyjna, zmiana planu/projektu Supabase, nowy magazyn, zmiana RUNBOOK, wyjście z platformy (zdarza się, że obiekty i polityki istnieją tylko w żywej bazie).
 
-**Domyślnie u nas.** RPO i RTO zapisane w `docs/RUNBOOK.md` i uzgodnione z klientem; plan Supabase dobrany do wymaganego RPO (kopie dobowe od planu Pro; PITR to osobna opcja `[NIEPEWNE: sprawdź w panelu]`; plan Free nie ma PITR — `pg/prr.md` P16); `pg_dump` cron jako druga linia; próbny restore z datą w runbooku (`python3 ~/.claude/bin/backup-drill.py`). Replika to nie kopia — usunięcie replikuje się. Pliki: [NIEPEWNE: według dokumentacji Supabase kopie bazy mogą nie zawierać obiektów Storage (tylko metadane); runbook może twierdzić, że są objęte — zweryfikuj i, jeśli nie są, dodaj osobny eksport]. Własne usługi (np. menedżer sekretów): szyfrowane kopie i skrypt testu odtwarzania (ścieżki i komendy: `prywatne notatki floty (poza eksportem)`); klucz szyfrujący przechowywany osobno od kopii.
+**Domyślnie u nas.** RPO i RTO zapisane w `docs/RUNBOOK.md` i uzgodnione z klientem; plan Supabase dobrany do wymaganego RPO (kopie dobowe od planu Pro; PITR to osobna opcja `[NIEPEWNE: sprawdź w panelu]`; plan Free nie ma PITR — `pg/prr.md` P16); `pg_dump` cron jako druga linia; próbny restore z datą w runbooku (`python3 ~/.claude/bin/backup-drill.py`). Replika to nie kopia — usunięcie replikuje się. Pliki: kopie bazy (dobowe i PITR) NIE obejmują obiektów Storage, tylko metadane w `storage.objects` — osobny eksport plików obowiązkowy, gdy pliki są danymi klienta (sekcja „Kopie plików Storage" niżej). Własne usługi (np. menedżer sekretów): szyfrowane kopie i skrypt testu odtwarzania (ścieżki i komendy: `prywatne notatki floty (poza eksportem)`); klucz szyfrujący przechowywany osobno od kopii.
 **Kiedy NIE:** brak — ale „multi-region/hot standby" to osobna decyzja kosztowa, nie domyślna.
 
 | Wariant | Koszt operacyjny | Finansowy | Poznawczy |
@@ -191,7 +289,19 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 | `pg_dump` + storage na zewnątrz | cron, miejsce, szyfrowanie | niski | średni |
 | replika/standby | failover do przećwiczenia | drugi serwer | wysoki — nie przy tej skali |
 
+**RPO i RTO wprost.** **RPO** (Recovery Point Objective) = ile danych wolno stracić, mierzone czasem od ostatniej kopii (kopie dobowe → RPO do ~24 h; PITR → minuty). **RTO** (Recovery Time Objective) = jak długo wolno nie działać do przywrócenia usługi. Oba jako liczby w `docs/RUNBOOK.md`, osobno dla bazy, plików, sekretów i n8n; RTO potwierdzone czasem z drilla (`backup-drill.py`), nie zgadnięte. Typowy cel floty `[~]`: RPO ≤24 h (minuty dla płatności → PITR), RTO ≤4–8 h.
+
+**Scenariusz „region dostawcy pada" (sekcja w RUNBOOK).** Projekt Supabase żyje w jednym regionie; funkcje Vercel w regionie z ustawień projektu `[NIEPEWNE: region funkcji wg ustawień]`, statyki na globalnym CDN. Awaria regionu Supabase = aplikacja nie działa, a kopie platformy mogą być w tym czasie niedostępne.
+1. **Domyślnie: akceptujemy i komunikujemy** — link do strony statusu dostawcy w runbooku, gotowy komunikat do klienta, statyczna strona „przerwa techniczna"; RTO = czas dostawcy (godziny).
+2. **Odtworzenie w innym regionie** — nowy projekt z `pg_dump` trzymanego POZA platformą (inne konto/dostawca) + eksport plików + migracje z repo + sekrety z menedżera; podmiana zmiennych w Vercel. RTO ~kilka godzin, RPO = wiek zewnętrznego dumpa. Warunek: dump i eksport plików poza Supabase istnieją i były odtworzone w drillu.
+3. Replika w drugim regionie / active-passive — „Nie potrzebujesz jeszcze" z sygnałem.
+
+**Kopie plików Storage.** Kopie bazy Supabase (dobowe i PITR) obejmują tylko metadane w `storage.objects`, nie same pliki (zweryfikowane w docs Supabase „Backups" 2026-10-06: „Database backups do not include objects you store via the Storage API"); odtworzenie bazy nie przywraca usuniętych plików. Dlatego eksport poza platformę zadaniem cyklicznym (np. `rclone sync` przez S3-kompatybilne API Storage `[NIEPEWNE: dostępność S3 API wg planu]` do bucketu u innego dostawcy z wersjonowaniem) + próbne odtworzenie kilku plików w drillu.
+
 **Awarie i detekcja.**
+- *RPO/RTO bez liczb* — `rg -i "RPO|RTO" docs/RUNBOOK.md | rg -v "[0-9]"` (linia bez liczby = deklaracja bez celu; bez `-n`, bo numer linii to cyfra i filtr niczego by nie pokazał)
+- *brak scenariusza awarii regionu* — `rg -n -i "region|status\.supabase|vercel-status|awaria dostawcy" docs/RUNBOOK.md`
+- *kopia tylko u tego samego dostawcy* — `rg -n -i "pg_dump|rclone|s3 sync|aws s3" scripts .github docs/RUNBOOK.md`
 - *restore nigdy niewykonany* — `rg -n "Ostatni test restore: [0-9]{4}" docs/RUNBOOK.md` (brak = finding; data starsza niż ~kwartał = przeterminowana)
 - *plan bez PITR przy wymaganym RPO < doba* — panel projektu → Database → Backups; w repo: `rg -n -i "RPO|RTO|PITR" docs/RUNBOOK.md`
 - *pliki bez kopii* — `select bucket_id, count(*), pg_size_pretty(sum((metadata->>'size')::bigint)) from storage.objects group by 1;` i sprawdź, czy istnieje eksport
@@ -206,8 +316,17 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 4. Czy migracja T3 miała świeżą kopię i plan rollbacku? → opis PR + data kopii.
 5. Czy kopie własnych usług (Infisical) są szyfrowane i testowane? → lista katalogu kopii (`ls <katalog kopii> | tail`) oraz skrypt testu odtwarzania, jeśli istnieje — sprawdź jego docstring, bo tryby różnią się skutkami (np. `--selftest` robi świeży backup żywej usługi, więc nie jest czystym odczytem; wywołanie bez argumentów kończy się błędem). Konkretna komenda: `prywatne notatki floty (poza eksportem)`.
 6. Czy plan Free nie hostuje produkcji klienta? → panel projektu / `RUNBOOK`.
+7. Czy RUNBOOK ma scenariusz „region dostawcy pada" z RTO i RPO dla wariantu odtworzenia? → komenda „region" z awarii.
+8. Czy istnieje kopia bazy i plików POZA kontem dostawcy, odtworzona w drillu? → komenda „kopia" z awarii + data drilla.
 
-**Nie potrzebujesz jeszcze.** Replik międzyregionowych, hot standby, własnego archiwum WAL, strony DR.
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- repliki międzyregionowe / active-passive → umowne RTO ~<4 h przy awarii całego regionu dostawcy `[~]`.
+- hot standby → RTO ~<15 min przy awarii instancji i plan, który tego nie daje.
+- własne archiwum WAL → RPO ~<doba bez PITR platformy (własny host).
+- strona DR / drugi region aktywny → patrz replikacja niżej; przy tej skali nie.
+- replikacja single-leader (lider + repliki) → już ją masz pośrednio (platforma); własna replika odczytu → 03 › Wąskie gardło.
+- replikacja multi-leader → zapisy w ≥2 regionach z wymogiem niskiego opóźnienia zapisu lub tryb offline; koszt: rozwiązywanie konfliktów (LWW gubi dane, CRDT komplikuje model).
+- replikacja bezliderowa (quorum, Dynamo/Cassandra) → ~>10 tys. zapisów/s z akceptowaną ostateczną spójnością (AP); poza zasięgiem floty.
 
 ---
 
@@ -240,4 +359,7 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 5. Czy do LLM/SMS/mail idzie minimum danych, a podprocesor jest wymieniony? → komenda promptów + `docs/PRIVACY.md`.
 6. Czy jest procedura usunięcia na żądanie? → `rg -n -i "usunięc|erasure|delete account" docs`.
 
-**Nie potrzebujesz jeszcze.** Narzędzi DPO, katalogu danych, tokenizacji, pseudonimizacji kluczem w HSM.
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- narzędzia DPO / katalog danych → ≥10 tabel z PII w ≥3 systemach albo żądania RODO ~>kilka na miesiąc.
+- tokenizacja (PII zastąpione tokenem z sejfu) → dane kart płatniczych lub wymóg audytu; karty płatnicze i tak tylko u dostawcy płatności.
+- pseudonimizacja kluczem w HSM → wymóg regulatora/umowy; wcześniej szyfrowanie kolumny z kluczem poza bazą.

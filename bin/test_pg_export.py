@@ -112,9 +112,26 @@ with tempfile.TemporaryDirectory() as vd:
     _readme("# T\n5 files, 3 scars, 2 Claude Code routines\n")
     check("count_problems: licznik rutyn != katalogi scheduled-tasks = problem", any("routines" in x for x in exp.count_problems(vd)), repr(exp.count_problems(vd)))
 
+def _shebang(p):
+    with open(p, "rb") as fh:
+        return fh.read(2) == b"#!"
+
+
 with tempfile.TemporaryDirectory() as out:
     r = subprocess.run([sys.executable, os.path.join(HERE, "pg-export-public.py"), "--out", out], capture_output=True, text=True, check=False)
     check("eksport: exit 0, problemy 0", r.returncode == 0 and "problemy: 0" in r.stdout, r.stdout[-300:])
+    # Bit wykonywania zachowany (wydanie 1.4.0 zgubilo +x w 68 plikach): kazdy wykonywalny plik zrodla w hooks/,
+    # git-hooks/ i bin/ jest wykonywalny w eksporcie.
+    _root = os.path.dirname(HERE)
+    _zgubione = [rel for d in ("hooks", "git-hooks", "bin") for rel in (os.path.join(d, f) for f in os.listdir(os.path.join(out, d)))
+                 if os.path.isfile(os.path.join(out, rel)) and os.path.exists(os.path.join(_root, rel))
+                 and os.access(os.path.join(_root, rel), os.X_OK) and _shebang(os.path.join(out, rel))
+                 and not os.access(os.path.join(out, rel), os.X_OK)]
+    check("eksport: zachowany bit wykonywania plikow z shebangiem (hooks, git-hooks, bin)", not _zgubione, repr(_zgubione[:5]))
+    # +x bez shebanga = ruff EXE002 w pre-commit publicznego repo (1.5.0) — taki plik wychodzi jako 0644.
+    _bez_shebanga = [rel for d in ("hooks", "git-hooks", "bin") for rel in (os.path.join(d, f) for f in os.listdir(os.path.join(out, d)))
+                     if os.path.isfile(os.path.join(out, rel)) and not _shebang(os.path.join(out, rel)) and os.access(os.path.join(out, rel), os.X_OK)]
+    check("eksport: brak +x na plikach bez shebanga", not _bez_shebanga, repr(_bez_shebanga[:5]))
     _lokalne = [os.path.join(dp, f) for dp, _, fs in os.walk(out) for f in fs if f.endswith(".local.md") or f == ".seal.json"]
     check("eksport: zero plikow *.local.md i .seal.json", not _lokalne, repr(_lokalne[:3]))
     with open(os.path.join(out, "skills.json"), encoding="utf-8") as fh:

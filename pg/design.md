@@ -68,3 +68,20 @@ Szablon: `templates/repo/docs/adr/0000-template.md`. Tresc: kontekst, decyzja, o
 7. **Faza i wlasnosc w CLAUDE.md od dnia 0**: `pg.phase` (prototype/poc/mvp/production — prototyp NIE jest produktem; kod z Lovable/Bolta = prototyp, nie punkt startowy; promocja do production = PRR), `pg.ownership` (kto ma prawa: LICENSE + SCOPE/ACCEPTANCE dla repo klienckich), `pg.sla` (klasy SEV w RUNBOOK).
 8. **Srodowiska z WLASNA baza**: prod + staging (2. projekt Supabase albo Branching) od dnia 0; `.env.local` nigdy na ref prod (`bin/env-ref-gate.js`); UAT = klient klika na preview i odbiera etap (`docs/ACCEPTANCE.md`). Prototyp bez uzytkownikow moze miec `pg.single_env: true` — jawnie.
 9. **Backup zanim pojawi sie pierwszy realny rekord**: plan (Supabase Pro/PITR albo `pg_dump` cron) + pierwszy restore drill (`bin/backup-drill.py`) z data w RUNBOOK. Supabase Free = brak PITR = decyzja, nie przeoczenie.
+
+## G. Macierz obszarow system design (dzial: Architecture; audyt sd-course-coverage 2026-10-06) — artefakt, nie odpowiedz w czacie
+Dlaczego: bez macierzy nie da sie odroznic „swiadomie nie dotyczy" od „przeoczone" (SAGITUM 2026-10: rate limiting i real-time pominiete bez decyzji); B+ dziala tylko od T2, a drzwi jednokierunkowe (ID, pliki, tozsamosc, region) nie czekaja na tier.
+- **Lista obszarow:** `~/.claude/pg/sd-areas.json` — 37 obszarow kursu w 12 grupach (id, karta `sd/NN › Sekcja`, `one_way`, warianty). Szablon tabeli: `node ~/.claude/bin/sd-matrix-lint.js --template > docs/architecture/obszary.md`.
+- **Kiedy:**
+  - nowy projekt (7N) = wszystkie 37 wierszy;
+  - duza zmiana (7D), nowa tabela, endpoint, zaleznosc lub integracja = wiersze grup, ktorych dotyka diff (`--groups g1,g2`);
+  - wiersze `one_way: true` (model danych, ID, pliki/bucket, tozsamosc, kontrakt API, podzial na uslugi, DNS/domena, region, DR) = ZAWSZE, niezaleznie od tieru.
+- **Plik w repo projektu:** `docs/architecture/obszary.md`, jedna tabela:
+  `| Obszar (id) | Status | Decyzja / uzasadnienie | Dowod | Sygnal powrotu |` — komorka obszaru `Nazwa (id)`.
+- **Status** ∈ {`DECYZJA`, `NIE DOTYCZY`, `NIE TERAZ`}; kazdy wymaga tekstu w „Decyzja / uzasadnienie", a ponadto:
+  - `DECYZJA` -> **Dowod**: plik, komenda albo liczba (`supabase/migrations/…`, `rg -n …`, „~3 QPS szczyt");
+  - `NIE TERAZ` -> **Sygnal powrotu**: mierzalny prog z liczba („> 50 req/s na /api/chat", „10 tys. wierszy w orders", „p95 > 800 ms");
+  - `NIE DOTYCZY` -> uzasadnienie, czemu produkt tego nie ma („brak wyszukiwania w produkcie").
+- **Jak wypelniac:** narada obszarow w skill `architecture-advisor` (sekcja „Narada obszarow (mikro-agenci)") — po 1 agencie na grupe, kazdy dostaje TYLKO swoje obszary i karty, sesja skleja tabele. Proste repo / jedna grupa = sesja glowna sama, ta sama tabela.
+- **Bramka 0-tokenowa:** `node ~/.claude/bin/sd-matrix-lint.js --repo . [--groups …]` (exit 0 komplet, 1 braki z lista, 2 brak pliku/blad uzycia). Stop-gate: linia `pg.sd_matrix: required` w CLAUDE.md repo => przy T2+ blok `[obszary]` do kompletu (pelna macierz); bez linii = podpowiedz przy T3, gdy pliku brak.
+- Macierz nie zastepuje ADR (E): wiersz `DECYZJA` dla drzwi jednokierunkowych wskazuje ADR w kolumnie Dowod.
