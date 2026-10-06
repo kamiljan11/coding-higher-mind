@@ -138,7 +138,53 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 5. Czy migracja jest wstecznie kompatybilna na czas jednego deployu? → 02 › Model danych.
 6. Czy testy niestabilne są śledzone, nie „retry all"? → komenda retry.
 
-**Nie potrzebujesz jeszcze.** GitOps, canary/blue-green, platformy feature flag (flaga = kolumna/zmienna), narzędzi monorepo (nx/turbo), wielu środowisk poza prod + staging.
+**Nie potrzebujesz jeszcze.** GitOps, canary/blue-green jako własnej maszynerii (co daje platforma → 07 › Strategie wdrożeń), platformy feature flag (flaga = kolumna/zmienna), narzędzi monorepo (nx/turbo), wielu środowisk poza prod + staging.
+
+---
+
+### Strategie wdrożeń i rollback
+
+**Problem.** Każdy deploy to ryzyko. Pytanie brzmi, jak zmniejszyć zasięg błędu (ilu klientów go zobaczy) i czas powrotu (ile minut do poprzedniej wersji). Kurs wymienia rolling, canary, blue/green, feature flags i automatyczny rollback. Sygnały w diffie: zmiana w płatnościach, auth albo migracja; duży refaktor; podbicie głównej zależności (Next, supabase-js); funkcja dla części klientów; zmiana workflowu deployu.
+
+**Domyślnie u nas.**
+- **Blue/green za darmo:** każdy deploy Vercela jest niezmiennym URL-em, a produkcja to alias. Poprzednia wersja dalej żyje, więc rollback to przepięcie aliasu (Instant Rollback w panelu, `vercel rollback` / `vercel promote <url-poprzedniego>`) w ~minutę `[~]` `[NIEPEWNE: ograniczenia planu Hobby i to, że po rollbacku nowe deploye nie trafiają same na produkcję do ręcznego promote — sprawdź w docs]`.
+- **Smoke po deployu + automatyczny rollback:** workflow `on: deployment_status` (stan `success`, środowisko Production) uruchamia 3–5 żądań ścieżek krytycznych (strona główna, logowanie, kluczowe API, `/health` z bazą → 03 › Health checki). Czerwony smoke → `vercel rollback` z tokenem z menedżera sekretów + alert do człowieka. To nasz „auto-rollback". Rollback na metrykach (error rate, p95) ma sens dopiero przy ruchu, który daje statystykę (~setki żądań/min `[~]`); do tego czasu wystarczą alerty Sentry i ręczny promote.
+- **Feature flags (deploy ≠ release):** tabela `feature_flags(key, org_id null, enabled, owner, remove_by)` albo kolumna ustawień org. Ryzykowną funkcję włączasz najpierw dla jednej organizacji (wewnętrznej lub testowej klienta), potem dla wszystkich. Flagę sprawdza serwer (API, RLS/RPC), nie tylko UI. Każda flaga ma właściciela i datę usunięcia. To nasz „canary": po organizacjach, nie po procentach ruchu.
+- **Canary procentowy i rolling:** rolling (podmiana instancji partiami) robi platforma; w serverless ten problem nie istnieje. Canary po % ruchu to Vercel Rolling Releases `[NIEPEWNE: dostępność w planie floty i koszt]` — nie domyślnie.
+- **Supabase Edge Functions i migracje:** deploy funkcji podmienia ją w całości, bez canary. Ryzykowną zmianę funkcji chowaj za flagą albo wdrażaj jako nową funkcję `-v2` i przełączaj klienta. Warunkiem każdego rollbacku kodu jest migracja expand → contract: stary kod musi działać na nowym schemacie (→ 02 › Model danych).
+**Kiedy NIE upraszczać:** zmiana płatności, auth albo uprawnień dla wszystkich klientów naraz — flaga per org i smoke obowiązkowe.
+
+| Wariant | Koszt operacyjny | Finansowy | Poznawczy |
+|---|---|---|---|
+| recreate (wyłącz stare, włącz nowe) | przestój | zero | niski — nie dotyczy Vercela |
+| rolling | platforma robi | zero | zero |
+| blue/green (alias Vercela) | rollback = przepięcie aliasu | zero | niski |
+| feature flag w tabeli | flagi do sprzątania, dwie ścieżki kodu | zero | niski–średni |
+| smoke po deployu + auto-rollback | workflow, token Vercela w CI | minuty CI | niski |
+| canary % (Rolling Releases) | konfiguracja, analiza metryk | plan `[NIEPEWNE]` | średni |
+| platforma flag (LaunchDarkly itp.) | vendor, SDK | abonament | średni — nie |
+| auto-rollback na metrykach (Argo Rollouts, mesh) | klaster, metryki | wysoki | wysoki — nie |
+
+**Awarie i detekcja.**
+- *brak smoke po deployu produkcji* — `rg -n -i "deployment_status|smoke|environment_url" .github/workflows`
+- *rollback nieopisany lub nieprzećwiczony* — `rg -n -i "vercel (rollback|promote)|instant rollback" docs/RUNBOOK.md`
+- *rollback kodu łamie się na nowym schemacie* — `node ~/.claude/bin/sql-migration-lint.js --repo . --strict --json` (DROP/RENAME/NOT NULL w tym samym PR co kod)
+- *flaga sprawdzana tylko w UI* — `rg -n "<klucz-flagi>" src/app/api supabase/functions supabase/migrations` (0 trafień poza komponentami = finding)
+- *flagi wieczne* — `select key, owner, remove_by from feature_flags where remove_by < now();` (jeśli tabela istnieje); `rg -c -i "isEnabled\(|featureFlag|flags\." src | awk -F: '{s+=$2} END {print s}'`
+- *ostatnie deploye produkcji i ich SHA* — `gh api "repos/<owner>/<repo>/deployments?environment=Production&per_page=5" --jq '.[] | "\(.created_at) \(.sha[0:7])"'`
+
+**Audyt „czy się trzymamy".**
+1. Czy produkcja ma smoke po deployu z akcją przy porażce (rollback lub alert)? → pierwsza komenda.
+2. Czy RUNBOOK opisuje rollback frontu (promote), funkcji (redeploy z gita) i migracji (do przodu), a krok przećwiczono? → druga komenda + data ćwiczenia.
+3. Czy migracje z PR-a są kompatybilne ze starym kodem? → `sql-migration-lint`.
+4. Czy ryzykowne funkcje idą za flagą per org sprawdzaną po stronie serwera? → komenda flagi.
+5. Czy flagi mają właściciela i datę usunięcia? → komenda flag wiecznych.
+
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- canary procentowy (Rolling Releases) → ~>1000 aktywnych dziennie i incydent, którego nie złapał smoke ani flaga per org.
+- auto-rollback na metrykach → ruch ~setek żądań/min daje wiarygodny error rate, a ręczny rollback trwał ~>15 min w incydencie.
+- platforma feature flag → ~>20 aktywnych flag, targetowanie po atrybutach albo eksperymenty A/B z analizą.
+- Argo Rollouts, service mesh, shadow traffic → własny klaster (→ 07 › Kontenery), czyli nie przy tej skali.
 
 ---
 
@@ -172,6 +218,54 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 6. Czy konfiguracja biznesowa jest danymi? → ostatnia komenda.
 
 **Nie potrzebujesz jeszcze.** HashiCorp Vault, automatycznej rotacji sekretów, osobnej usługi konfiguracji, platformy feature flag, więcej niż dwóch środowisk.
+
+---
+
+### Izolacja sieciowa bazy i najmniejsze uprawnienia
+
+**Problem.** Baza projektu Supabase jest domyślnie osiągalna z internetu (host bazy i pooler), więc hasło bywa jedyną barierą. Narzędzie BI albo raport „na szybko" dostaje hasło `postgres` (superuser, omija RLS). Konto Vercel, Supabase albo GitHub bez MFA to klucz do kodu, sekretów i danych wszystkich klientów naraz. Kurs mówi tu o VPC, prywatnych podsieciach, security groups i IAM least privilege; na platformach zarządzanych odpowiednikami są ograniczenia sieci, wymuszone SSL, role bazy i role w zespołach platform. Sygnały w diffie i w procesie: nowy connection string (`postgres://`, `sslmode`), integracja BI/raportowa, skrypt łączący się bezpośrednio z bazą, nowy członek zespołu albo podwykonawca, nowy token API platformy.
+
+**Domyślnie u nas.**
+- **Sieć bazy:** aplikacja rozmawia z bazą przez API (PostgREST z RLS) albo przez pooler z kodu serwerowego. Bezpośrednie połączenia Postgres (ludzie, BI, skrypty) tylko z allowlisty adresów: Network Restrictions projektu Supabase. Do tego wymuszone SSL (Enforce SSL) i `sslmode=verify-full` z certyfikatem CA projektu po stronie klienta `[NIEPEWNE: nazwy opcji w panelu, dostępność per plan i to, czy ograniczenia obejmują pooler — sprawdź w docs „Network Restrictions" / „SSL Enforcement"]`. Ograniczenia sieci nie dotyczą API HTTPS (supabase-js), więc nie psują aplikacji. Funkcje Vercela nie mają stałych IP `[NIEPEWNE: płatny dodatek static IPs]`; jeśli łączą się bezpośrednio z Postgresem, allowlista ich nie obejmie, i to jest argument za API lub poolerem z mocnym hasłem.
+- **Role bazy (least privilege):** raporty i BI dostają osobną rolę tylko do odczytu, z limitem połączeń i czasu, na schemacie `reporting` z widokami bez PII. Schemat NIE jest wystawiony w API (Settings → API → exposed schemas). Wzór (migracja w repo BEZ hasła; hasło ustawia człowiek przez `\password report_ro` w psql i od razu zapisuje je w menedżerze sekretów):
+  `create role report_ro login connection limit 3; alter role report_ro set default_transaction_read_only = on; alter role report_ro set statement_timeout = '15s'; grant usage on schema reporting to report_ro; grant select on all tables in schema reporting to report_ro; alter default privileges in schema reporting grant select on tables to report_ro;`
+  Bez `alter default privileges` widok dodany później daje `permission denied` (sprawdzone na PG 17). `default_transaction_read_only` to pas, nie bariera: rola sama go wyłącza (`set default_transaction_read_only = off`). Barierą są granty, a dziurą funkcje `SECURITY DEFINER` z `EXECUTE` dla `PUBLIC` (domyślnie) — `report_ro` może przez nie pisać (sprawdzone: zapis przeszedł). Takie funkcje: `revoke execute … from public` i grant tylko rolom, które ich potrzebują.
+  Uwaga: widoki w `reporting` należą do właściciela schematu i domyślnie omijają RLS tabel źródłowych. To świadoma decyzja, więc widok zawiera tylko agregaty i kolumny dozwolone dla odbiorcy (→ 05 › Dane osobowe). `service_role` wyłącznie w kodzie serwerowym; osobny klucz albo rola per integracja, żeby dało się ją odciąć bez rotacji wszystkiego.
+- **Konta platform:** MFA obowiązkowe dla każdego członka organizacji GitHub (wymuszenie 2FA w ustawieniach org), zespołu Vercel i organizacji Supabase `[NIEPEWNE: wymuszanie MFA na poziomie zespołu w Vercel/Supabase zależy od planu]`. Role minimalne: podwykonawca jako Developer/Read-only, nie Owner; na GitHubie bez admina repo. Tokeny API platform: fine-grained, z zakresem do repo/projektu i datą wygaśnięcia, przechowywane w menedżerze sekretów. Offboarding (lista kont + rotacja kluczy, które osoba znała) jest w RUNBOOK.
+**Kiedy NIE upraszczać:** baza z danymi osobowymi lub finansowymi klientów i więcej niż jedna osoba z dostępem — wszystkie trzy punkty obowiązkowe przed produkcją.
+
+| Wariant | Koszt operacyjny | Finansowy | Poznawczy |
+|---|---|---|---|
+| baza otwarta + silne hasło | zero | zero | niski; jeden wyciek URL-a = pełna baza |
+| ograniczenia sieci + wymuszone SSL | allowlista IP do utrzymania (zmienne IP ludzi) | zero `[NIEPEWNE: plan]` | niski |
+| rola `report_ro` na schemacie `reporting` | widoki do utrzymania | zero | niski |
+| MFA + role minimalne na platformach | onboarding/offboarding z listą | zero | niski |
+| PrivateLink/VPC peering, bastion, VPN do bazy | sieć do utrzymania | wysoki | wysoki — nie |
+| SSO/SCIM dla zespołu | IdP, mapowanie ról | abonament (plany Enterprise) | średni — nie przy ~<10 osobach |
+
+**Awarie i detekcja.**
+- *baza przyjmuje połączenia z dowolnej sieci* — z sieci spoza allowlisty: `timeout 5 bash -c '</dev/tcp/db.<ref>.supabase.co/5432' && echo OTWARTE || echo ZAMKNIĘTE` i to samo dla hosta poolera z connection stringa (porty 5432 i 6543). Bezpośredni host bywa tylko IPv6 `[NIEPEWNE: stan dodatku IPv4 w projekcie]`, więc z sieci bez IPv6 wyjdzie fałszywe „ZAMKNIĘTE”; sprawdź `getent ahosts db.<ref>.supabase.co`; konfiguracja: `supabase network-restrictions get --project-ref <ref> --experimental` `[NIEPEWNE: składnia CLI]`
+- *połączenia bez SSL* — `select s.ssl, a.usename, count(*) from pg_stat_ssl s join pg_stat_activity a using (pid) where a.backend_type='client backend' group by 1,2;`; w kodzie: `rg -n "sslmode=(disable|allow|prefer)|ssl: ?false|rejectUnauthorized: ?false" src scripts .env.example`
+- *BI/skrypt na superuserze* — `select usename, application_name, client_addr, count(*) from pg_stat_activity where backend_type='client backend' group by 1,2,3 order by 4 desc;` (nieznane `application_name` na `postgres` = finding)
+- *role logowania z nadmiarem uprawnień* — `select rolname, rolsuper, rolbypassrls, rolcreaterole, rolconnlimit from pg_roles where rolcanlogin order by 1;` (porównaj z listą oczekiwanych ról)
+- *rola raportowa może pisać* — `select grantee, table_schema, table_name, privilege_type from information_schema.role_table_grants where grantee='report_ro' and privilege_type <> 'SELECT';` oraz furtka przez funkcje: `select n.nspname, p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where p.prosecdef and n.nspname not in ('pg_catalog','information_schema') and has_function_privilege('report_ro', p.oid, 'EXECUTE');` (każdy wiersz = możliwy zapis z roli raportowej)
+- *schemat raportowy wystawiony w API* — `rg -n "schemas|extra_search_path" supabase/config.toml` (lokalnie) + panel Settings → API (produkcja)
+- *członkowie GitHub bez 2FA / brak wymuszenia* — `gh api orgs/<org> --jq .two_factor_requirement_enabled`; `gh api "orgs/<org>/members?filter=2fa_disabled" --jq '.[].login'` (wymaga uprawnień właściciela org)
+- *nadmiar Ownerów na platformach* — panel Vercel (Team → Members) i Supabase (Organization → Team); wynik wpisz do RUNBOOK z datą (brak sprawdzonej komendy CLI)
+
+**Audyt „czy się trzymamy".**
+1. Czy baza odrzuca połączenia spoza allowlisty i wymusza SSL? → komendy sieci i SSL.
+2. Czy raporty/BI używają osobnej roli tylko do odczytu, z limitami, na widokach bez PII? → komendy ról i grantów.
+3. Czy nikt poza kodem serwerowym nie używa `postgres`/`service_role`? → komenda `pg_stat_activity` + `rg -n "service_role|SERVICE_ROLE" src | rg -v "server|functions|api"`.
+4. Czy MFA jest wymuszone na GitHub, Vercel i Supabase, a role są minimalne? → komendy `gh api` + przegląd paneli z datą w RUNBOOK.
+5. Czy tokeny platform są fine-grained, z datą wygaśnięcia i w menedżerze sekretów? → przegląd tokenów + `rg -n "ghp_|vercel_|sbp_" -g '!node_modules' .`.
+6. Czy RUNBOOK ma procedurę offboardingu z listą kont i kluczy? → `rg -n -i "offboard|odebra|dostęp" docs/RUNBOOK.md`.
+
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- PrivateLink/VPC peering → wymóg umowny klienta (np. sektor regulowany) albo własna infrastruktura w chmurze łącząca się z bazą.
+- bastion/VPN do bazy → więcej niż ~3 osoby potrzebują bezpośredniego SQL na produkcji i allowlista IP przestaje się dać utrzymać.
+- SSO/SCIM → ~>10 osób z dostępem do platform albo wymóg audytu dostępu klienta.
+- automatyczna rotacja haseł ról → wymóg zgodności albo wyciek, po którym ręczna rotacja trwała ~>1 dzień.
 
 ---
 

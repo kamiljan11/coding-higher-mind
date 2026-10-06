@@ -29,7 +29,7 @@ Każda karta: Problem → Domyślnie u nas / kiedy NIE → Warianty i koszt → 
 2. Czy koszyk/sesja/zadania/liczniki leżą w bazie lub tokenie? → `rg -n "useState|localStorage" src/features | rg -i "cart|order|job"` (tylko stan UI wolno, dane nie).
 3. Czy aplikacja działa poprawnie na ≥2 instancjach naraz? → test: 2 równoległe żądania na ten sam zasób (`curl` x2 w tle) daje spójny wynik.
 4. Czy zapis przerwany w połowie (timeout funkcji) zostawia spójny stan? → szukaj kilku kolejnych `await` zapisów poza transakcją: `rg -n -U "await .*\.(insert|update)\([\s\S]{0,200}await .*\.(insert|update)\(" src supabase/functions`.
-5. Czy dla każdej encji jest jedno źródło prawdy (brak „kopii roboczej")?
+5. Czy dla każdej encji jest jedno źródło prawdy (brak „kopii roboczej")? → `rg -n -i "create table [^ (]*(_copy|_draft|_snapshot|_backup|_old|_tmp)\b" supabase/migrations` (trafienie = uzasadnij w ADR albo usuń).
 
 **Nie potrzebujesz jeszcze.** Redisa na sesje, sticky sessions, rozproszonego cache, własnego stanu współdzielonego między instancjami.
 
@@ -94,7 +94,47 @@ Każda karta: Problem → Domyślnie u nas / kiedy NIE → Warianty i koszt → 
 4. Czy jest alert na wygaśnięcie certyfikatu i domeny (kto dostaje)? → `rg -n -i "cert|domena.*wygas|renew" docs/RUNBOOK.md`.
 5. Czy region danych jest w README/ADR i leży w EEA? → `rg -n -i "region" README.md docs/adr`.
 
-**Nie potrzebujesz jeszcze.** Geo/latency DNS, anycast, multi-region, własnych serwerów DNS, wildcard certów (dopóki brak subdomen per klient).
+**Nie potrzebujesz jeszcze.** Geo/latency DNS, anycast, multi-region, własnych serwerów DNS, wildcard certów (dopóki brak subdomen per klient). Słownik wariantów LB i routingu DNS z sygnałami powrotu → 01 › Równoważenie obciążenia.
+
+---
+
+### Równoważenie obciążenia i routing DNS — co robi platforma
+
+**Problem.** Kurs omawia load balancery L4/L7, algorytmy (round-robin, least connections, least response time, consistent hashing), sticky sessions, globalny LB, redundancję LB w wielu strefach oraz polityki DNS (weighted, geo, latency, failover, anycast) i DNSSEC. Na Vercelu i Supabase prawie wszystko to robi platforma. Karta służy do tego, żeby (a) nie budować tego samemu, (b) rozpoznać, kiedy klient przychodzi z własną infrastrukturą, i (c) znać sygnał, że temat wraca. Sygnały w diffie: reverse proxy (nginx/Caddy/HAProxy) z kilkoma upstreamami, `ip_hash`/sticky cookie, rekordy DNS z wagami lub health checkami, drugi region, klient z własnym serwerem lub klastrem.
+
+**Domyślnie u nas.** Rozkład ruchu, TLS na brzegu i anycast robi sieć brzegowa Vercela; pooler i dostęp do bazy obsługuje Supabase. Aplikacja jest bezstanowa (→ 01 › Bezstanowość), więc sticky sessions i dobór algorytmu nie mają znaczenia. Własny host ma jeden reverse proxy bez równoważenia (→ 03 › Health checki). DNS: proste rekordy A/CNAME, bez polityk routingu (→ 01 › Domena, DNS). Szybkie przełączanie robimy na platformie (promote deployu, → 07 › Strategie wdrożeń), nie w DNS. Dwie pułapki warte znajomości: (1) routing geo w DNS widzi IP resolvera, nie użytkownika (publiczne resolvery, VPN, sieć firmowa), więc „najbliższy region" bywa zły; (2) DNSSEC chroni przed podmianą odpowiedzi (poisoning), ale błędna rotacja kluczy wyłącza całą domenę. Włączaj go tylko u rejestratora, który robi to automatycznie `[NIEPEWNE: obsługa DNSSEC u rejestratora domen floty, w tym ISNIC]`.
+**Kiedy NIE:** własny klaster/VPS z ~≥2 instancjami aplikacji albo wymóg działania przy awarii regionu — wtedy LB i polityka DNS stają się naszą decyzją (ADR).
+
+| Wariant | Koszt operacyjny | Finansowy | Poznawczy |
+|---|---|---|---|
+| LB i anycast platformy | zero | w cenie planu | zero |
+| L7 proxy (Caddy/nginx) przed 1 instancją | TLS, timeouty, logi | VPS | niski |
+| L4/L7 LB z ≥2 instancjami (RR / least-conn / least-RT) | health checki, redundancja samego LB | LB + instancje | średni |
+| consistent hashing / sticky | rebalans przy zmianie węzłów | jak wyżej | średni–wysoki |
+| DNS weighted/geo/latency/failover | health checki DNS, TTL, resolvery ignorujące TTL | płatny DNS | wysoki — tylko multi-region |
+| DNSSEC | rotacja kluczy, ryzyko „domena znika" | zero | średni |
+
+**Awarie i detekcja.**
+- *sticky/stan w pamięci ukrywa się za jedną instancją* — `rg -n -i 'ip_hash|sticky|sessionAffinity|hash \$remote_addr' <konfiguracje proxy>` (pojedyncze cudzysłowy: w podwójnych `$` staje się kotwicą końca linii i wzorzec nic nie łapie); `rg -n "^(let|var) |^const \w+ = new Map\(" src/app/api` (→ 01 › Bezstanowość)
+- *upstream bez health checku (ruch idzie do martwej instancji)* — `rg -n -i "upstream|health_?check|max_fails|lb_policy" <konfiguracje proxy>`
+- *DNS z wagami/failoverem bez potrzeby* — `dig +short <domena>` z kilku resolverów (`@1.1.1.1`, `@8.8.8.8`) — różne odpowiedzi bez celowej polityki = do wyjaśnienia
+- *DNSSEC zepsuty (domena nie rozwiązuje się na walidujących resolverach)* — `dig +dnssec <domena> @1.1.1.1 | rg -i "status|ad;"` (`SERVFAIL` = alarm); `dig DS <domena> +short`
+- *otwarty własny resolver/serwer DNS (amplifikacja)* — `ss -lunp | rg ":53 " | rg -v "127\.0\.0\.5[34]|127\.0\.0\.1|\[::1\]"` (stub `systemd-resolved` na 127.0.0.53/54 jest normalny; po odfiltrowaniu pętli zwrotnej ma być pusto)
+
+**Audyt „czy się trzymamy".**
+1. Czy nie ma własnego LB ani polityk DNS bez ADR? → `rg -n -i "upstream|haproxy|weighted|failover" docs/adr <konfiguracje>`.
+2. Czy aplikacja nie zależy od sticky sessions? → pierwsza komenda.
+3. Czy przełączanie awaryjne jest opisane na warstwie platformy (promote), nie przez DNS? → `rg -n -i "rollback|promote|DNS" docs/RUNBOOK.md`.
+4. Jeśli DNSSEC jest włączony: czy walidacja przechodzi i kto odpowiada za klucze? → komenda DNSSEC + wpis w RUNBOOK.
+5. Czy żaden nasz host nie wystawia serwera DNS na świat? → komenda `ss` (po odfiltrowaniu pętli zwrotnej).
+
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- własny LB L4/L7 i algorytmy (least-conn, least-RT) → własna aplikacja na ≥2 instancjach poza platformą (VPS/K8s klienta).
+- consistent hashing → własny rozproszony cache albo sharding (→ 03 › Wąskie gardło), czyli nie przy tej skali.
+- sticky sessions → nigdy dla aplikacji bezstanowej; WebSockety → pub/sub platformy (→ 04 › Real-time).
+- globalny LB, DNS geo/latency/failover, anycast własny → wymóg działania przy awarii regionu (RTO w umowie ~<1 h) albo użytkownicy na wielu kontynentach z zmierzonym RTT ~>150 ms.
+- redundancja LB w wielu strefach → własny LB (wyżej); platforma ma ją wbudowaną.
+- DNSSEC → wymóg klienta/przetargu albo rejestrator z automatyczną obsługą przy zerowym koszcie operacyjnym.
 
 ---
 

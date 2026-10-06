@@ -168,7 +168,56 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 6. Czy retrieval filtruje po tenancie? → komenda wektorów.
 7. Czy istnieje zestaw przypadków testowych dla zmian promptu/modelu? → komenda eval.
 
-**Nie potrzebujesz jeszcze.** Frameworków agentowych (LangChain itp.), fine-tuningu, osobnej bazy wektorowej, wieloagentowych architektur w produkcie, własnej platformy ewaluacji.
+**Nie potrzebujesz jeszcze.** Frameworków agentowych (LangChain itp.), fine-tuningu, osobnej bazy wektorowej, wieloagentowych architektur w produkcie, własnej platformy ewaluacji. Jakość samego wyszukiwania (chunking, model embeddingów, fuzja, recall ANN, ewaluacja) → 06 › RAG.
+
+---
+
+### RAG: chunking, embeddingi, fuzja i ewaluacja wyszukiwania
+
+**Problem.** Zła odpowiedź asystenta zwykle bierze się ze złego kontekstu, a nie ze złego modelu. Typowe przyczyny: fragment pocięty w pół zdania, wektory z dwóch różnych modeli w jednej kolumnie, indeks ANN gubiący trafienia po filtrze tenanta, brak miary tego, czy właściwy fragment w ogóle trafił do kontekstu. Sygnały w diffie: tabela `documents`/`chunks`/`embeddings`, `vector(`, `<=>`, `hnsw`/`ivfflat`, funkcja `match_*`, `splitText`/`chunk`, zmiana modelu embeddingów, nowy reranker.
+
+**Domyślnie u nas.**
+- **Chunking:** tnij po strukturze (nagłówki, akapity, sekcje instrukcji, wiersze katalogu), nie co N znaków. Rozmiar ~300–800 tokenów, nakładanie ~10–15 % `[~]`. Krótki byt (karta części, wpis FAQ) to jeden chunk. Każdy chunk ma `document_id`, `chunk_index`, `content_hash` i ścieżkę nagłówków (kontekst doklejany do tekstu przed embeddingiem). Reingest obejmuje tylko dokumenty ze zmienionym hashem.
+- **Wersjonowanie modelu embeddingów:** kolumna `embedding_model` (z wersją) przy wektorze, wymiar w typie `vector(N)`. Zapytanie embeduj TYM SAMYM modelem co korpus (u dostawców z `input_type` ustaw `query` dla zapytania i `document` dla korpusu). Zmiana modelu to expand → contract: nowa kolumna lub tabela, backfill w jobie (→ 04 › Zadania w tle), przełączenie odczytu flagą po ewaluacji, dopiero potem usunięcie starej. Wektorów z różnych modeli nigdy nie porównuj.
+- **Fuzja hybrydowa + reranker:** FTS (`simple` + `unaccent`, → 06 › Wyszukiwanie) i wektor liczysz osobno i łączysz przez RRF (Reciprocal Rank Fusion: `score = Σ 1/(k + rank)`, k ~50–60 `[~]`). RRF łączy rangi, a nie surowe wyniki, więc nie trzeba normalizować skal. Wszystko w jednej funkcji SQL z filtrem `org_id` w obu gałęziach; kolumna `fts` budowana z `unaccent(content)`, a zapytanie też przez `unaccent` (bez tego „czesc" nie znajdzie „część" — sprawdzone na PG 17 z pgvector 0.8):
+  `with f as (select id, row_number() over (order by s desc) r from (select id, ts_rank(fts, q) s from chunks, websearch_to_tsquery('simple', unaccent($1)) q where org_id=$2 and fts @@ q order by s desc limit 50) a), v as (select id, row_number() over (order by d) r from (select id, embedding <=> $3 d from chunks where org_id=$2 order by d limit 50) b) select id, sum(1.0/(60+r)) score from (select * from f union all select * from v) u group by id order by score desc limit 20;`
+  Reranker (cross-encoder od dostawcy embeddingów) na top ~20–50 → top ~5 dodaje ~100–300 ms i koszt per zapytanie `[~]` `[NIEPEWNE: model i cena — sprawdź u dostawcy]`. Włączaj go dopiero wtedy, gdy ewaluacja pokaże zysk.
+- **ANN ≠ 100 % recall:** HNSW/IVFFlat są przybliżone. `hnsw.ef_search` (domyślnie 40) wymienia recall na opóźnienie. Filtr `where org_id = …` działa PO przeszukaniu indeksu, więc mały tenant w dużej tabeli może dostać mniej niż `limit` wyników albo nic. Ratunek: iteracyjne skanowanie (`hnsw.iterative_scan` od pgvector 0.8 `[NIEPEWNE: wersja w projekcie — select extversion from pg_extension where extname='vector']`), większe `ef_search` albo indeks częściowy per duży tenant. Przy ~<50 tys. wektorów na tenanta `[~]` dokładny skan bez indeksu bywa wystarczająco szybki i daje 100 % recall. Zmierz to przed dodaniem HNSW.
+- **Ewaluacja wyszukiwania (osobno od ewaluacji odpowiedzi):** ~30–100 par „pytanie → oczekiwany dokument/chunk" `[~]` z prawdziwych pytań klienta, metryki recall@k i MRR, skrypt w repo (`evals/retrieval.*`). Uruchamiaj przy każdej zmianie chunkingu, modelu, indeksu, fuzji lub rerankera; wynik zapisz w PR.
+**Kiedy NIE:** korpus mieści się w prompcie (→ 06 › Funkcje AI); przy ~<kilkuset krótkich dokumentach wystarczy FTS + wstawienie całych dokumentów, bez wektorów.
+
+| Wariant | Koszt operacyjny | Finansowy | Poznawczy |
+|---|---|---|---|
+| chunk stały co N znaków | zero | zero | niski; tnie w pół myśli, gorszy recall |
+| chunk po strukturze + hash | parser formatu, reingest różnicowy | mniej embeddingów | średni |
+| tylko wektor | pipeline embeddingów | embeddingi | średni; słabe na numerach części i nazwach własnych |
+| hybryda FTS + wektor (RRF) | jedna funkcja SQL, dwa indeksy | zero ponad embeddingi | średni |
+| + reranker | dodatkowe wywołanie API, timeout | per zapytanie | średni |
+| dokładny skan vs HNSW | HNSW: pamięć, czas budowy, strojenie `ef_search` | zero | niski vs średni |
+
+**Awarie i detekcja.**
+- *wektory z różnych modeli w jednej kolumnie / brak wersji modelu* — `select embedding_model, count(*) from <chunks> group by 1;` (błąd „column does not exist" = finding); wymiar: `select format_type(atttypid, atttypmod) from pg_attribute where attrelid='<chunks>'::regclass and attname='embedding';`
+- *zapytanie embedowane innym modelem/typem niż korpus* — `rg -n -i "embed\(|embeddings\.create|embedMany|input_?type|model: ?['\"].*(embed|voyage)" src supabase/functions`
+- *duplikaty chunków, reingest wszystkiego* — `select document_id, count(*) n, count(distinct content_hash) u from <chunks> group by 1 having count(*) <> count(distinct content_hash) limit 10;`
+- *chunki za duże/za małe* — `select percentile_cont(array[0.05,0.5,0.95]) within group (order by length(content)) from <chunks>;`
+- *ANN gubi wyniki po filtrze tenanta* — porównaj id z zapytania wektorowego z wynikiem po `set enable_indexscan = off;` w tej samej sesji (różnica = utracony recall); `show hnsw.ef_search;`
+- *brak fuzji (sam wektor na numerach i nazwach)* — `rg -n -i "rrf|reciprocal|ts_rank|websearch_to_tsquery" supabase/migrations src` (0 trafień przy istniejącym `<=>` = sam wektor)
+- *brak ewaluacji wyszukiwania* — `ls evals 2>/dev/null; rg -ln -i "recall@|mrr|retrieval" tests evals 2>/dev/null`
+
+**Audyt „czy się trzymamy".**
+1. Czy każdy wektor ma zapisany model, a zapytanie używa tego samego modelu? → dwie pierwsze komendy.
+2. Czy chunking jest strukturalny, ma `content_hash` i reingest różnicowy? → komenda duplikatów + odczyt kodu ingestii.
+3. Czy wyszukiwanie łączy FTS i wektor (RRF) z filtrem `org_id` w obu gałęziach? → komenda fuzji + odczyt funkcji SQL.
+4. Czy recall ANN po filtrze tenanta zmierzono (indeks vs dokładny skan)? → komenda ANN.
+5. Czy istnieje zestaw ewaluacyjny wyszukiwania i wynik przy ostatniej zmianie? → komenda eval + opis PR.
+6. Czy zmiana modelu embeddingów idzie przez expand → contract z backfillem w jobie? → `rg -n -i "embedding_model|backfill" supabase/migrations src`.
+
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- reranker → ewaluacja pokazuje właściwy dokument w top-20, ale nie w top-5 (recall@20 wysoki, MRR niski).
+- dedykowana baza wektorowa (Pinecone/Qdrant) → ~>kilka mln wektorów albo p95 wyszukiwania ~>200 ms po strojeniu HNSW i indeksach częściowych.
+- przepisywanie zapytania LLM-em (query rewriting, HyDE) → ewaluacja pokazuje porażki na pytaniach potocznych, których nie naprawiła hybryda.
+- GraphRAG, agentic retrieval, fine-tuning embeddingów → zmierzony sufit jakości po chunkingu, hybrydzie i rerankerze.
+- osobny indeks per tenant → tenant z ~>10 % wektorów ma zmierzony zły recall mimo iteracyjnego skanu.
 
 ---
 
@@ -202,3 +251,37 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 6. Czy retencja i odtwarzalność są opisane? → `docs/PRIVACY.md`/`RUNBOOK`.
 
 **Nie potrzebujesz jeszcze.** Własnego silnika szablonów PDF z headless Chrome (dopóki `pdf-lib` wystarcza), archiwizacji PDF/A, podpisu kwalifikowanego, wielu walut/krajów w jednym dokumencie.
+
+---
+
+### Struktury probabilistyczne i konsensus — mapa na później
+
+**Problem.** Kurs system design omawia Bloom filter, HyperLogLog, Count-Min Sketch i konsensus (Raft, Paxos, quorum, wybór lidera). To narzędzia na skalę miliardów zdarzeń i klastrów wielowęzłowych. U nas pojawiają się raczej jako pokusa („dodajmy Bloom filter") niż jako potrzeba. Karta istnieje, żeby decyzja „nie" była zapisana razem z sygnałem powrotu. Sygnały w diffie: zależność `bloom`/`hyperloglog`/moduł probabilistyczny Redisa, własna implementacja wyboru lidera, locka rozproszonego albo quorum.
+
+**Domyślnie u nas.** Postgres robi to dokładnie i wystarczająco szybko przy 1–10 tys. użytkowników. „Czy już widzieliśmy X" → `UNIQUE` + `ON CONFLICT` (→ 05 › Idempotentność). „Ilu unikalnych" → `count(distinct …)` na widoku zmaterializowanym (→ 04 › Zdarzenia). „Top-K" → `group by … order by count(*) desc limit K` z indeksem. Percentyle → `percentile_cont`. Jeden lider albo jeden przebieg crona → `pg_try_advisory_lock` albo lease w tabeli (→ 05 › Współbieżność). Konsensus i replikację załatwia dostawca bazy zarządzanej; nie implementujemy ich i nie wybieramy NewSQL.
+**Kiedy NIE (sygnały przejścia):** dopiero przy wolumenach, przy których dokładna odpowiedź jest za droga (lista niżej), i tylko gdy wynik przybliżony jest akceptowalny dla produktu.
+
+| Wariant | Koszt operacyjny | Finansowy | Poznawczy |
+|---|---|---|---|
+| dokładnie w Postgresie (UNIQUE, count distinct, matview) | indeksy, odświeżanie widoków | zero | niski |
+| HLL/Bloom jako rozszerzenie Postgresa | rozszerzenie do utrzymania `[NIEPEWNE: dostępność w Supabase]` | zero | średni |
+| Redis z modułami probabilistycznymi | osobny magazyn | abonament | średni–wysoki |
+| własny konsensus/lider (Raft, etcd, ZooKeeper) | klaster, quorum, split-brain | wysoki | bardzo wysoki — nie |
+
+**Awarie i detekcja.**
+- *ręczny lock/lider zamiast narzędzia bazy* — `rg -n -i "setnx|redlock|leader|election|zookeeper|etcd|raft" src supabase/functions package.json`
+- *struktura probabilistyczna bez nazwanego problemu* — `rg -n -i "bloom|hyperloglog|hll|count-?min|cuckoo|minhash" package.json src`; brak ADR = finding (dział product)
+- *dokładne zliczanie naprawdę wolne (sygnał powrotu)* — `select calls, mean_exec_time, query from pg_stat_statements where query ~* 'count\(distinct' order by mean_exec_time desc limit 5;`
+
+**Audyt „czy się trzymamy".**
+1. Czy każda struktura przybliżona albo mechanizm konsensusu ma ADR ze zmierzonym problemem? → druga komenda + `rg -n -i "bloom|hll|raft|consensus" docs/adr`.
+2. Czy locki i liderzy idą przez Postgres (advisory lock, lease), a nie przez własny kod? → pierwsza komenda.
+3. Czy wolne `count(distinct)` ma najpierw widok zmaterializowany lub indeks? → trzecia komenda + `EXPLAIN`.
+
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- HyperLogLog → unikalni liczeni po ~>10 mln wierszy, `count(distinct)` na widoku nadal ~>1 s, a błąd ~1–2 % jest akceptowalny.
+- Bloom/Cuckoo filter → sprawdzanie przynależności w ~>100 mln elementów albo filtr przed drogim zewnętrznym wywołaniem przy ~>100 zapytań/s.
+- Count-Min Sketch / top-K Space-Saving → strumień zdarzeń, którego nie zapisujemy w całości (analityka ~>1000 zdarzeń/s).
+- t-digest / HDR histogram → percentyle opóźnień liczone na żywo z ~>mln próbek (zwykle robi to Sentry/APM).
+- MinHash/LSH → deduplikacja prawie identycznych dokumentów w ~>mln dokumentów (do tego czasu: `content_hash` + trigramy).
+- Raft/etcd/ZooKeeper/NewSQL → własny klaster wielowęzłowy z silną spójnością między regionami; przy bazie zarządzanej — nigdy.

@@ -26,13 +26,13 @@ try { ({ VERDICT } = require(path.join(__dirname, '..', 'bin', 'pg-aggregate.js'
   aggLoadError = String(e && e.message || e).slice(0, 160);
   log({ hook: 'stop-gate', event: 'skipped', reason: `pg-aggregate.js nie laduje sie: ${aggLoadError}`, target: __dirname });
 }
-const { classify, modelFor, T3_PATH_RX, contentEscalation } = require('./lib/risk-tier');
+const { classify, modelFor, T3_PATH_RX, contentEscalation, stripFences } = require('./lib/risk-tier');
 const { isTempPath } = require('./lib/protected-paths');
 const { parseUnifiedDiff, archSignals, hasAdr } = require('./lib/arch-signals');
 
 const HOOK = 'stop-gate';
 const MAX_REPOS = 4;
-const BLOCK_REASONS = 4; // lint, testy, review, arch
+const BLOCK_REASONS = 5; // lint, testy, review, arch, obszary
 // Kazda blokada = inna para (powod, repo); sufit = wszystkie mozliwe pary, wiec bramka review nie gasnie
 // po wyczerpaniu limitu przez lint+testy (finding security-reviewer 2026-09-05 na v3.0: max 2).
 const MAX_BLOCKS_PER_CYCLE = BLOCK_REASONS * MAX_REPOS;
@@ -605,6 +605,35 @@ function nudges(root, changed) {
   }
 }
 
+// Macierz obszarow system design (pg/design.md › G, 2026-10-06; lekcja SAGITUM #5: rate limiting i real-time pominiete
+// bez decyzji). Opt-in jak pg.qa_url: osobna linia `pg.sd_matrix: required` w CLAUDE.md (poza blokami kodu) => przy T2+
+// bin/sd-matrix-lint.js musi przejsc (blok [obszary]). Bez linii: tylko podpowiedz przy T3, gdy pliku brak.
+// Bramka niespelnialna bez opt-in uczylaby obchodzenia (GATE-FALSE-POSITIVE-TEACHES-BYPASS) — stad opt-in.
+const SD_MATRIX_LINT = path.join(__dirname, '..', 'bin', 'sd-matrix-lint.js');
+const SD_MATRIX_DOC = path.join('docs', 'architecture', 'obszary.md');
+const SD_MATRIX_LINE_RX = /^\s*(?:-\s*)?`?pg\.sd_matrix:\s*required`?\s*(?:<!--.*)?$/m;
+const SD_MATRIX_TIMEOUT_MS = 10000;
+function sdMatrixRequired(root) {
+  try { return SD_MATRIX_LINE_RX.test(stripFences(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8'))); } catch (e) { return false; }
+}
+// null = komplet (albo skip z logiem — fail-open na wlasne bledy); string = lista brakow do komunikatu blokady.
+function sdMatrixIssues(root) {
+  if (!fs.existsSync(SD_MATRIX_LINT)) { log({ hook: HOOK, event: 'skipped', reason: 'obszary: brak bin/sd-matrix-lint.js', target: root }); return null; }
+  if (budgetLeft() < SD_MATRIX_TIMEOUT_MS + 5000) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (obszary)', target: root }); return null; }
+  const r = spawnSync(process.execPath, [SD_MATRIX_LINT, '--repo', root], { cwd: root, encoding: 'utf8', timeout: SD_MATRIX_TIMEOUT_MS, env: CHILD_ENV });
+  if (r.status === 0) { log({ hook: HOOK, event: 'ran', reason: 'obszary: macierz kompletna', target: root }); return null; }
+  const out = (String(r.stdout || '') + String(r.stderr || '')).trim();
+  // Exit 2 z bledu PG (zly sd-areas.json, argumenty) = fail-open z logiem — wlasny blad nie blokuje sesji (krytyk 2026-10-06);
+  // exit 2 z braku/rozmiaru pliku w repo = problem repo => blok.
+  if (r.status === 2 && /zly plik obszarow|nieznany argument|wymaga wartosci|nieznane grupy/.test(out)) {
+    log({ hook: HOOK, event: 'skipped', reason: `obszary: blad sd-matrix-lint (${out.slice(0, 120)})`, target: root });
+    return null;
+  }
+  if (r.status === 1 || r.status === 2) return out.split('\n').slice(0, 40).join('\n');
+  log({ hook: HOOK, event: 'skipped', reason: `obszary: sd-matrix-lint ${r.error ? r.error.code : 'exit ' + r.status}`, target: root });
+  return null;
+}
+
 // Tier T0..T3 z lib/risk-tier.js (sciezki + rozmiar diffu). T0/T1 nie wymagaja recenzji przy Stop
 // (T1 = code-reviewer zalecany, ale blokujemy dopiero od T2 — proporcjonalnosc, nie paraliz).
 function reviewRequirement(root, changedCode, extraLines, sessionShas) {
@@ -804,6 +833,21 @@ async function main() {
         `Zmiana ${archNeed.tier} jest ARCHITEKTONICZNA (${arch.join('; ')}), a w diffie tej sesji nie ma ADR z trescia (>= 5 linii). ` +
         'Dodaj ADR w docs/adr/NNNN-tytul.md (repo ~/.claude: pg/adr/; szablon ~/.claude/templates/repo/docs/adr/: decyzja, odrzucona alternatywa, konsekwencje). ' +
         'Przed decyzja: skill architecture-advisor (trade-offy); przy sporze/T3: skill pg-council (narada -> adr-draft.md -> docs/adr). Decyzja uzytkownika 2026-10-04: twardo przy T2+.');
+    }
+    // Macierz obszarow: tier liczony osobno, gdy review+arch juz zablokowaly w cyklu (need=null) — inaczej 3. Stop by ja pominal.
+    // Bez ponownego liczenia, gdy archNeed juz wyliczono z tymi samymi plikami (T0/T1 = null) — budzet git w Stop.
+    const sdRequired = sdMatrixRequired(root);
+    if (sdRequired && !alreadyBlocked('obszary', root)) {
+      const needComputed = transcript.available && (!alreadyBlocked('review', root) || !alreadyBlocked('arch', root));
+      const archComputed = needComputed && (!archFiles.length || !alreadyBlocked('arch', root));
+      const sdNeed = archNeed || (transcript.available && !archComputed ? reviewRequirement(root, [...changedCode, ...committedCode, ...archFiles], committed.lines, committed.shas) : null);
+      const sdIssues = sdNeed ? sdMatrixIssues(root) : null;
+      if (sdIssues) block('obszary', root,
+        `Zmiana ${sdNeed.tier}, repo ma \`pg.sd_matrix: required\`, a macierz obszarow ${SD_MATRIX_DOC} jest niekompletna:\n${sdIssues}\n` +
+        'Uzupelnij wiersze (DECYZJA + dowod / NIE DOTYCZY + uzasadnienie / NIE TERAZ + sygnal z liczba) — narada obszarow w skill architecture-advisor; ' +
+        'sprawdz: `node ~/.claude/bin/sd-matrix-lint.js --repo .`. Procedura: ~/.claude/pg/design.md › G.');
+    } else if (!sdRequired && archNeed && archNeed.tier === 'T3' && !fs.existsSync(path.join(root, SD_MATRIX_DOC))) {
+      nudgesOut.push(`[stop-gate] T3 bez macierzy obszarow system design (${SD_MATRIX_DOC}) — pg/design.md › G; szablon: \`node ~/.claude/bin/sd-matrix-lint.js --template\`. Twarda bramka po linii \`pg.sd_matrix: required\` w CLAUDE.md.`);
     }
     nudges(root, changed);
   }

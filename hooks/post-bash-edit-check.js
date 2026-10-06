@@ -8,7 +8,7 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { lintFiles, isCodeFile, isJsonFile, WRITE_COMMAND_RX, CHILD_ENV } = require('./lib/lint-file');
+const { lintFiles, isCodeFile, isJsonFile, isCssFile, WRITE_COMMAND_RX, CHILD_ENV } = require('./lib/lint-file');
 const { log } = require('./lib/gate-log');
 
 const HOOK = 'post-bash-edit';
@@ -67,7 +67,7 @@ function recentlyChangedFiles(root) {
     let rel = line.slice(3).trim();
     if (rel.includes(' -> ')) rel = rel.split(' -> ').pop();
     const abs = path.join(root, rel.replace(/^"|"$/g, ''));
-    if (!isCodeFile(abs) && !isJsonFile(abs)) continue;
+    if (!isCodeFile(abs) && !isJsonFile(abs) && !isCssFile(abs)) continue; // CSS: bilans nawiasow (lekcja 2026-10-06)
     let recent = false;
     try { recent = now - fs.statSync(abs).mtimeMs <= RECENT_MS; } catch (e) { continue; /* zniknal w miedzyczasie */ }
     if (!recent) continue;

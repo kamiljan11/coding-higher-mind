@@ -113,10 +113,18 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 **Domyślnie u nas.** Drabina: (1) refetch po akcji + `refetchInterval` ~15–60 s `[~]` + refetch przy powrocie na kartę; (2) Supabase Realtime — Postgres Changes respektują RLS, Broadcast/Presence do efemerycznych sygnałów; kanały prywatne wymagają autoryzacji `[NIEPEWNE: szczegóły polityk na `realtime.messages` — sprawdź w docs]`; (3) SSE dla jednokierunkowego strumienia (streaming odpowiedzi LLM); (4) własne WebSockety — nie. Po każdym reconnect klient odświeża stan (zdarzenia mogły zginąć); obecność („online", „pisze…") poza główną tabelą. ADR uzasadnia, czemu nie wystarczył polling. Limity połączeń zależą od planu `[NIEPEWNE]`.
 **Kiedy NIE:** statusy zmieniające się rzadziej niż co minutę.
 
+**Transport, przepustowość i limity (kurs → u nas).**
+- **Fallback, gdy WebSocket nie przechodzi.** Proxy korporacyjne i inspekcja TLS (biura, sieci warsztatów, hotele) potrafią zrywać albo blokować `wss://`. Klasyczny ratunek to long polling: serwer trzyma żądanie do zmiany albo ~25 s `[~]`. Na Vercelu każde trzymane żądanie to czas funkcji, więc u nas fallbackiem jest zwykły polling: po N (~3) kolejnych `CHANNEL_ERROR`/`TIMED_OUT` przełącz komponent na `refetchInterval` ~15–30 s `[~]`, a w tle dalej próbuj subskrypcji z backoffem. Czy klient `realtime-js` sam przełącza się na long polling, nie sprawdzono `[NIEPEWNE: sprawdź wersję realtime-js w lockfile i jej docs]`, więc nie zakładaj tego. Test: zablokuj w DevTools żądania do `*.supabase.co/realtime` i sprawdź, czy widok dalej się odświeża.
+- **Backpressure wolnego klienta.** Telefon na słabym zasięgu albo karta w tle nie nadąża z obróbką zdarzeń. Nie aplikuj każdego zdarzenia osobno do stanu i renderu. Zbierz je (debounce ~250–1000 ms `[~]`), a przy burzy (np. >~50 zdarzeń w oknie) porzuć bufor i zrób jeden pełny refetch. Gdy karta jest ukryta (`visibilitychange`), odłącz kanał; po powrocie zrób refetch i subskrybuj ponownie. SSE/streaming LLM: generuj w tempie odbiorcy (`ReadableStream` z `pull`, nie `enqueue` całości) i przerwij generowanie, gdy klient się rozłączy (`request.signal` → `abortSignal` do SDK). Inaczej płacisz za tokeny dla zamkniętej karty.
+- **Limity połączeń planu Supabase.** Plan ogranicza równoczesne połączenia Realtime i liczbę wiadomości na sekundę `[NIEPEWNE: wartości per plan z docs „Realtime Quotas" i panelu projektu — wpisz je do capacity.md]`. Serwetka: połączenia ≈ aktywni jednocześnie × karty na osobę × kanały na kartę. Przykład: 10 tys. użytkowników × ~5 % jednocześnie × 1,5 karty × 2 kanały ≈ 1500 `[~]`, czyli rząd limitów niższych planów. Dźwignie: jeden kanał na kartę z wieloma tematami zamiast kanału per komponent, odłączanie ukrytych kart, polling dla widoków drugorzędnych.
+- **Batchowanie.** Import, cron albo `update` masowy na tabeli w publikacji `supabase_realtime` wysyła zdarzenie na każdy wiersz, więc 10 tys. wierszy oznacza 10 tys. wiadomości. To uderza w limit wiadomości na sekundę i zalewa klientów. Operacje masowe rób na tabeli spoza publikacji albo na końcu wyślij jeden Broadcast („odśwież listę X"). Powiadomienia do użytkownika (licznik, toast) agreguj, np. „5 nowych zleceń" zamiast 5 toastów (→ 06 › Powiadomienia).
+
 | Wariant | Koszt operacyjny | Finansowy | Poznawczy |
 |---|---|---|---|
 | polling/refetch | więcej zapytań | zapytania i transfer | niski |
 | Supabase Realtime | limity planu, polityki kanałów | wg planu | średni |
+| Realtime + fallback na polling | dwie ścieżki odświeżania do testowania | jak wyżej | średni |
+| long polling na funkcjach serverless | żądania trzymane do timeoutu funkcji | czas funkcji × połączenia | średni — nie na Vercelu |
 | SSE | połączenia otwarte, limit czasu funkcji | funkcje | średni |
 | własny WebSocket + pub/sub | stan, skalowanie, reconnect | serwer | wysoki — nie |
 
@@ -126,6 +134,12 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 - *tabela wystawiona w Realtime bez RLS* — `select * from pg_publication_tables where pubname='supabase_realtime';` potem `select tablename, rowsecurity from pg_tables where schemaname='public' and tablename in (<lista>);`
 - *wygasły token w trakcie sesji* — `rg -n -i "setAuth|onAuthStateChange|TOKEN_REFRESHED" src`
 - *„real-time" tam, gdzie wystarczał polling* — liczba subskrypcji: `rg -c "\.subscribe\(" src | awk -F: '{s+=$2} END {print s}'`
+- *brak fallbacku przy zablokowanym WebSocket (proxy)* — `rg -n -i "CHANNEL_ERROR|TIMED_OUT" src -A6 | rg -i "refetchInterval|polling|setInterval"` (puste = brak przełączenia)
+- *burza refetchy (każde zdarzenie = zapytanie)* — `rg -l "postgres_changes" src | xargs -r rg --files-without-match -i "debounce|throttle"` (każdy wypisany plik = refetch per zdarzenie, do poprawy)
+- *kanały otwarte w ukrytych kartach* — `rg -n "visibilitychange|document\.hidden" src` (0 trafień przy ≥1 `.channel(` = finding)
+- *operacja masowa zalewa kanał* — `select schemaname, tablename from pg_publication_tables where pubname='supabase_realtime';` zestawione z tabelami importów/cronów: `rg -n -i "upsert|insert into|update " supabase/functions scripts | rg "<tabela z publikacji>"`
+- *SSE/LLM generuje dalej po zamknięciu karty* — `rg -l "streamText|ReadableStream|text/event-stream" src supabase/functions | xargs -r rg --files-without-match "signal|abort"` (każdy wypisany plik = generuje dalej po zamknięciu karty, koszt tokenów)
+- *zbliżanie się do limitu połączeń* — panel projektu → Realtime → raport/zużycie `[NIEPEWNE: lokalizacja metryk]`; serwetka z karty wpisana do `capacity.md`
 
 **Audyt „czy się trzymamy".**
 1. Czy klient po reconnect nadrabia stan (refetch)? → pierwsza komenda.
@@ -133,8 +147,16 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 3. Czy obecność nie ląduje w głównej tabeli? → `rg -n -i "presence|typing|online" supabase/migrations`.
 4. Czy jest limit kanałów/subskrypcji na użytkownika i sprzątanie przy odmontowaniu? → komenda `removeChannel`.
 5. Czy ADR mówi, czemu nie polling? → `rg -n -i "realtime|polling" docs/adr`.
+6. Czy widok „na żywo" działa przy zablokowanym `wss://` (fallback na polling)? → komenda fallbacku + test w DevTools.
+7. Czy zdarzenia są zbierane (debounce/refetch zbiorczy), a operacje masowe nie idą wierszami przez publikację? → komendy burzy i masowej operacji.
+8. Czy liczba równoczesnych połączeń jest policzona i porównana z limitem planu? → `rg -n -i "realtime|połącze" docs/capacity* docs/adr capacity.md 2>/dev/null`.
 
-**Nie potrzebujesz jeszcze.** Własnych WebSocketów, zewnętrznej usługi push w czasie rzeczywistym (Pusher/Ably — tylko po osiągnięciu limitów Realtime), CRDT/współedycji.
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- własny long polling/SSE jako fallback → zgłoszenia klientów „nie odświeża się" z sieci firmowych, których polling ~15–30 s nie rozwiązuje (wymagane opóźnienie <~5 s).
+- Pusher/Ably/zewnętrzny push → zmierzone zbliżanie się do limitu połączeń lub wiadomości planu (~>70 % w szczycie) i wyższy plan droższy niż usługa.
+- własne WebSockety/pub/sub → nigdy przy tej skali (wymagałyby stałego serwera i sticky/pub-sub backbone).
+- kolejka/bufor zdarzeń po stronie serwera dla klientów → klienci regularnie gubią zdarzenia mimo refetchu po reconnect.
+- CRDT/współedycja → produkt wymaga edycji tego samego dokumentu przez wiele osób naraz.
 
 ---
 

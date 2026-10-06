@@ -147,23 +147,33 @@ function contentEscalation(addedText) {
   return m ? m[0].replace(/^\+\s*/, '').slice(0, 40) : null;
 }
 
+// Diff „bazodanowy" = SQL / migracje / polityki RLS. Tylko wtedy data-reviewer potrzebuje opusa (audyt PG 2026-10-06 #9:
+// r27 = 0 plikow .sql, a data poszedl na opus; zapytania supabase-js w src/server sonnet ocenia wg rubryki + pg-prechecks).
+const DATA_HEAVY_RX = /\.sql$|(^|[\/\\])migrations?[\/\\]|(^|[\/\\])(rls|polic(y|ies))([\/\\.\-_]|$)/i;
+const isDataHeavy = (files, root) => (files || []).some((f) => DATA_HEAVY_RX.test(rel(root, f)));
+
 // Ktory model dla recenzenta w danym tierze (regula uzytkownika: Sonnet do roboty narzedziowej, Opus do trudnego rozumowania).
-function modelFor(reviewer, tier) {
-  if (tier === 'T3' && /security|data/.test(reviewer)) return 'opus';
+// files (opcjonalne): zmienione pliki. Bez nich (wywolania sprzed 2026-10-06, np. komunikat stop-gate) data na T3 = opus
+// (strona bezpieczna); z nimi data = opus tylko przy SQL/migracjach/RLS. security na T3 = zawsze opus.
+function modelFor(reviewer, tier, files, root) {
+  if (tier !== 'T3') return 'sonnet';
+  if (/security/.test(reviewer)) return 'opus';
+  if (/data/.test(reviewer)) return Array.isArray(files) && !isDataHeavy(files, root) ? 'sonnet' : 'opus';
   return 'sonnet';
 }
 
-module.exports = { classify, modelFor, phaseOf, qaGateReady, stripFences, contentEscalation, T3_PATH_RX, REVIEWERS_BY_TIER, TIER_ORDER, PHASES, PROTOTYPE_PHASES, T2_LINE_THRESHOLD, T3_LINE_THRESHOLD };
+module.exports = { classify, modelFor, isDataHeavy, phaseOf, qaGateReady, stripFences, contentEscalation, T3_PATH_RX, REVIEWERS_BY_TIER, TIER_ORDER, PHASES, PROTOTYPE_PHASES, T2_LINE_THRESHOLD, T3_LINE_THRESHOLD };
 
 // CLI: node risk-tier.js <root> <plik>... [--lines N]
 if (require.main === module) {
   const args = process.argv.slice(2);
   const linesIdx = args.indexOf('--lines');
   const lines = linesIdx >= 0 ? Number(args[linesIdx + 1]) : 0;
-  const positional = args.filter((a, i) => a !== '--lines' && i !== linesIdx + 1);
+  // linesIdx -1 => bez filtra po indeksie (wczesniej `i !== 0` wycinalo root, gdy brak --lines).
+  const positional = args.filter((a, i) => a !== '--lines' && (linesIdx < 0 || i !== linesIdx + 1));
   const [root, ...files] = positional;
   const result = classify(files, lines, root);
-  result.models = Object.fromEntries(result.reviewers.map((r) => [r, modelFor(r, result.tier)]));
-  result.optional_models = Object.fromEntries(result.optional_reviewers.map((r) => [r, modelFor(r, result.tier)]));
+  result.models = Object.fromEntries(result.reviewers.map((r) => [r, modelFor(r, result.tier, files, root)]));
+  result.optional_models = Object.fromEntries(result.optional_reviewers.map((r) => [r, modelFor(r, result.tier, files, root)]));
   process.stdout.write(JSON.stringify(result, null, 2) + '\n');
 }

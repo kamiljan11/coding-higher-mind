@@ -88,6 +88,15 @@ deliverable scope is genuinely ambiguous, ask; otherwise produce the appropriate
 offer the rest. AUDIT frequently flows straight into EVOLVE — run them together when the user
 wants both the verdict and the path forward.
 
+### Narada obszarow (mikro-agenci) — macierz `docs/architecture/obszary.md` (pg/design.md › G)
+
+Kiedy: SELECT albo AUDIT przy tierze T2+ (nowy projekt = 12 grup; duza zmiana = grupy dotkniete diffem + grupy z wierszami `one_way`). T0/T1 albo jedna grupa = sesja glowna wypelnia tabele sama, bez agentow.
+1. **Fan-out (rownolegle, jedna wiadomosc, zero czatu miedzy agentami):** po 1 agencie na grupe z `~/.claude/pg/sd-areas.json` (`groups[]`). Model: `opus`, gdy grupa ma obszar `one_way: true` albo `security: true` (dzis: stan-topologia, dane-magazyny, id-numeracja, pliki-cdn, api-kontrakty, tozsamosc-dostep, odpornosc, wydania-dr, koszt-region); reszta `sonnet` (spojnosc, asynchronicznosc, obserwowalnosc). Wiersze `one_way` juz zdecydowane w ADR repo (AUDIT) -> agent tylko weryfikuje dowod, `sonnet`.
+2. **Prompt agenta (tylko jego wycinek):** kontekst projektu (5-10 linii: skala 1-10 tys. uzytkownikow, stack z `references/owner-stack.md`, tier, PRD-lite), lista JEGO obszarow z `sd-areas.json` (id, name, variants, card) i polecenie przeczytania WYLACZNIE tych kart (`references/sd/<card>`). Nie dostaje innych grup ani calej rozmowy. Read-only: repo moze czytac (`rg`, pliki, migracje), nie edytuje.
+3. **Wynik agenta = tylko wiersze tabeli** `| Nazwa (id) | Status | Decyzja / uzasadnienie | Dowod | Sygnal powrotu |`: `DECYZJA` z dowodem (plik/komenda/liczba z serwetki `sd/capacity.md`), `NIE TERAZ` z sygnalem zawierajacym liczbe, `NIE DOTYCZY` z powodem. Wariant z karty wybrany po nazwie; „nie potrzebujesz jeszcze" z karty -> `NIE TERAZ` + prog.
+4. **Sklejenie (sesja glowna):** wiersze w kolejnosci `sd-areas.json` -> `docs/architecture/obszary.md`; konflikty miedzy grupami (np. cache vs spojnosc) rozstrzyga sesja glowna, decyzje `one_way` -> ADR (`docs/adr/`) i link w kolumnie Dowod.
+5. **Bramka 0-tokenowa:** `node ~/.claude/bin/sd-matrix-lint.js --repo . [--groups …]`. Exit 1 -> lista brakow wraca do agenta TEJ grupy (tylko jego wiersze + komunikat lintera), max 2 rundy; potem sesja glowna uzupelnia sama i oznacza [NIEPEWNE] w uzasadnieniu. Exit 0 = macierz gotowa; w repo z `pg.sd_matrix: required` stop-gate blokuje `[obszary]` przy T2+ do kompletu.
+
 ### Mode: SELECT (right architecture for a new project)
 
 1. **Establish context — infer first, then ask.** Pull what you already know from the project, the conversation, and uzytkownik's known stack/memory before asking anything. Then ask only the *load-bearing* unknowns — the one or two facts that would actually change the recommendation (real volume? does it take payments? who maintains it?). Don't interrogate for context you can reasonably infer or that won't move the decision; an unnecessary question is a worse default than a stated assumption the user can correct.

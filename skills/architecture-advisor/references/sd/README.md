@@ -26,22 +26,26 @@ Zasada przewodnia (z `SKILL.md`): burden of proof leży po stronie złożoności
 | Gdzie trzymać stan, czemu wyniki się różnią między wywołaniami | `01 › Bezstanowość i źródło prawdy` |
 | Wolno, ale nie wiadomo czemu; ile zapytań na widok; region bazy | `01 › Round tripy i budżet opóźnień`, `03 › Zapytania i indeksy`, `capacity.md` |
 | Zmiana hostingu/domeny, poczta po migracji, certyfikaty | `01 › Domena, DNS, TLS i poczta` |
+| Load balancer, sticky, algorytmy LB, DNS weighted/geo/failover, DNSSEC (zwykle „platforma robi") | `01 › Równoważenie obciążenia i routing DNS` |
 | Usługa na laptopie (n8n, Infisical, kontenery) | `01 › Własny host`, `07 › Kontenery i orkiestracja` |
 | Czy dodać Redis/Pinecone/Elastic/inny magazyn | `02 › Wybór magazynu danych` |
 | Nowa tabela, migracja, constrainty, statusy | `02 › Model danych, constrainty i migracje` |
 | Kwoty, VAT, daty, strefy PL/IS | `02 › Pieniądze, czas i jednostki` |
 | Kto widzi czyje dane (org, RLS, service_role) | `02 › Multi-tenancy w danych`, `05 › Tożsamość i autoryzacja` |
+| Logowanie Google/Microsoft, usługa → usługa (n8n, cron, funkcje), odwołanie tokenów, klucze API partnerów | `05 › Uwierzytelnianie integracji` |
 | Dane z cache/ISR/repliki bywają stare; „zapisałem, nie widzę" | `02 › Spójność per przepływ`, `02 › Cache i inwalidacja` |
 | Zdjęcia/pliki/załączniki | `02 › Pliki i object storage` |
 | Typ ID, numeracja dokumentów, enumeracja po ID | `02 › Identyfikatory` |
 | „Czy to uniesie?", limity połączeń, plan bazy | `03 › Wąskie gardło i skalowanie`, `capacity.md` |
 | Nagłówki cache, CDN, bezpieczeństwo nagłówków | `03 › CDN, nagłówki i brzeg` |
 | Bot/spam/rachunek za LLM-SMS-mail, logowanie | `03 › Rate limiting i budżety kosztu` |
+| Masowa wysyłka szybsza niż dostawca, pik LLM, 2FA za newsletterem (backpressure, load shedding) | `03 › Backpressure i zrzucanie obciążenia` |
 | `/health`, monitoring dostępności, własny proxy | `03 › Health checki i równoważenie` |
 | Nowy endpoint, kształt błędu, paginacja, wersje | `04 › Kontrakt API i granice` |
 | Wolny/zawodny krok (mail, PDF, LLM, import) | `04 › Zadania w tle i kolejki` |
 | Dostawcy (płatności, SMS, poczty) wołają nas; my wołamy partnerów | `04 › Webhooki przychodzące i wychodzące`, `05 › Idempotentność` |
 | „Na żywo" bez odświeżania | `04 › Real-time` |
+| Real-time za proxy firmowym (fallback), wolny klient, limity połączeń planu, zalew zdarzeń przy imporcie | `04 › Real-time` |
 | Historia zmian, audit log, liczniki, raporty | `04 › Zdarzenia, dzienniki i raporty` |
 | Workflow n8n rośnie, logika w węzłach | `04 › Orkiestracja n8n i automatyzacje` |
 | Duplikaty płatności/maili/zamówień | `05 › Idempotentność i deduplikacja` |
@@ -55,17 +59,21 @@ Zasada przewodnia (z `SKILL.md`): burden of proof leży po stronie złożoności
 | Długie listy, „N nowych", sortowanie | `06 › Listy, feed i paginacja` |
 | Mail/SMS/push, preferencje, opt-out | `06 › Powiadomienia` |
 | Czat/asystent/RAG, koszt i bezpieczeństwo LLM | `06 › Funkcje AI: LLM, embeddingi, RAG` |
+| Asystent odpowiada źle mimo dobrego modelu: chunking, wersja modelu embeddingów, RRF + reranker, recall ANN, ewaluacja wyszukiwania | `06 › RAG: chunking, embeddingi, fuzja i ewaluacja wyszukiwania` |
+| „Dodajmy Bloom filter / HLL / Raft / wybór lidera" | `06 › Struktury probabilistyczne i konsensus` |
 | Faktury, umowy, numeracja, PDF, KSeF | `06 › Dokumenty, faktury i numeracja` |
 | Podział na usługi/repo/funkcje | `07 › Monolit modularny vs usługi` |
 | „Co robi push", hosting, edge functions, Lovable | `07 › Platforma i ścieżka wdrożenia` |
 | CI zielone, ale nic nie testuje; rollback; wydania | `07 › CI/CD i wydania` |
+| Bezpieczne wydanie: canary, blue/green, rolling, feature flags, smoke + automatyczny rollback | `07 › Strategie wdrożeń i rollback` |
 | Środowiska, sekrety, flagi testowe | `07 › Środowiska, konfiguracja i sekrety` |
+| Baza osiągalna z internetu, SSL, rola do raportów/BI, MFA i role na Vercel/Supabase/GitHub, offboarding | `07 › Izolacja sieciowa bazy i najmniejsze uprawnienia` |
 | Rachunek rośnie, lock-in, region | `07 › Koszt, uzależnienie od dostawcy i region` |
 
 ## Jak używać — trzy tryby
 
 ### 1. Projekt nowej rzeczy (SELECT / Dzień 0)
-Kolejność: (1) `capacity.md` §2–3 — policz, co naprawdę boli (zwykle pliki, region, indeksy, nie QPS); (2) karty drzwi jednokierunkowych: `02 › Model danych`, `02 › Identyfikatory`, `02 › Multi-tenancy`, `05 › Tożsamość i autoryzacja`, `02 › Pieniądze, czas`; (3) karty infrastruktury: `07 › Platforma`, `07 › Środowiska`, `07 › Koszt, uzależnienie od dostawcy i region`, `05 › Kopie zapasowe`, `05 › Obserwowalność` (Sentry od dnia 0), `07 › CI/CD` (pipeline przed feature'ami); (4) dla każdej cechy produktu karta z `06`/`04`. Wynik: mini-design (`pg/design.md` B i B+) z tabelą spójności per przepływ, budżetem opóźnień i listą „nie potrzebujemy jeszcze" z sygnałami powrotu; ADR przy decyzjach jednokierunkowych.
+Kolejność: (1) `capacity.md` §2–3 — policz, co naprawdę boli (zwykle pliki, region, indeksy, nie QPS); (2) karty drzwi jednokierunkowych: `02 › Model danych`, `02 › Identyfikatory`, `02 › Multi-tenancy`, `05 › Tożsamość i autoryzacja`, `02 › Pieniądze, czas`; (3) karty infrastruktury: `07 › Platforma`, `07 › Środowiska`, `07 › Izolacja sieciowa bazy i najmniejsze uprawnienia`, `07 › Strategie wdrożeń i rollback`, `07 › Koszt, uzależnienie od dostawcy i region`, `05 › Kopie zapasowe`, `05 › Obserwowalność` (Sentry od dnia 0), `07 › CI/CD` (pipeline przed feature'ami); (4) dla każdej cechy produktu karta z `06`/`04`. Wynik: mini-design (`pg/design.md` B i B+) z tabelą spójności per przepływ, budżetem opóźnień i listą „nie potrzebujemy jeszcze" z sygnałami powrotu; ADR przy decyzjach jednokierunkowych.
 
 ### 2. Audyt istniejącego repo (AUDIT)
 1. Zbierz fakty: `package.json`, `vercel.json`, `supabase/config.toml`, `docs/ARCHITECTURE.md`, `docs/RUNBOOK.md`; zweryfikuj z kodem (docs mogą być przeterminowane).
@@ -99,3 +107,4 @@ Kolejność: (1) `capacity.md` §2–3 — policz, co naprawdę boli (zwykle pli
 - VERIFIED: stack floty (sprawdzone repo: `package.json`, `vercel.json`, ADR/ARCHITECTURE na gałęzi domyślnej, lokalny checkout sklepu, schemat lokalnego Postgresa 17; lista: `../prywatne notatki floty (poza eksportem)`); zapytania SQL z kart wykonane na katalogach PG 17 bez błędów składni (zapytania do `storage.*`, `cron.*`, `pg_stat_statements`, roli `anon` i PostGIS/pgvector wymagają projektu Supabase — niewykonane lokalnie); składnia komend `rg` sprawdzona na lokalnym repo.
 - UNVERIFIED: każde `[NIEPEWNE]` (limity planów, ceny, zachowanie funkcji platform, status Vercel po stronie panelu, stan kodu funkcji czatu wsparcia); komendy dotykające `psql "$DB_URL"`/`supabase`/`gh api` — poza składnią nie uruchamiane na produkcji (SQL tylko w trybie audytu, przez sesję read-only jak wyżej).
 - Karty to heurystyki decyzyjne, nie przepisy: ustępują ADR-owi repo, jeśli ADR nazywa obecną przyczynę.
+- Format kart (6 sekcji w kolejności), odsyłacze `NN › Karta` i kompletność indeksu sprawdza `node ~/.claude/bin/sd-cards-lint.js` (test: `node ~/.claude/bin/test_sd_cards_lint.js`). Nowa karta = wiersz w indeksie w tym samym commicie.

@@ -35,6 +35,14 @@ Reguły:
     `select matviewname from pg_matviews;`; `rg -n -i "refresh materialized" <migracje>`
 13. Backup/restore: migracja T3 ma świeżą kopię i plan rollbacku → 05 › Kopie zapasowe
     `rg -n "Ostatni test restore: [0-9]{4}" docs/RUNBOOK.md`
+14. Tabela embeddingów/chunków: kolumna `embedding_model`, wymiar w `vector(N)`, `content_hash`; zmiana modelu = expand → contract z backfillem, nie nadpisanie w miejscu → 06 › RAG
+    `rg -n -i "vector\(|embedding_model|content_hash" <migracje z diffu>`; `select embedding_model, count(*) from <chunks> group by 1;`
+15. Wyszukiwanie RAG: fuzja FTS + wektor (RRF) z filtrem `org_id` w obu gałęziach; zmiana chunkingu/modelu/indeksu ma wynik ewaluacji wyszukiwania (recall@k/MRR) w PR → 06 › RAG
+    `rg -n -i "rrf|ts_rank|<=>|hnsw" <migracje i funkcje z diffu>`; `rg -ln -i "recall@|mrr" evals tests`
+16. Tabela dopisana do publikacji Realtime nie jest celem operacji masowych (import/cron) albo te operacje wysyłają jeden Broadcast zamiast zdarzeń per wiersz → 04 › Real-time
+    `rg -n -i "supabase_realtime" <migracje z diffu>`; `select tablename from pg_publication_tables where pubname='supabase_realtime';`
+17. Rola raportowa/BI: osobna rola tylko do odczytu z `connection limit` i `statement_timeout`, granty wyłącznie `SELECT` na schemacie raportowym bez PII (+ `alter default privileges` dla przyszłych widoków), schemat niewystawiony w API, brak funkcji `SECURITY DEFINER` wykonywalnych przez tę rolę → 07 › Izolacja sieciowa
+    `rg -n -i "create role|grant |alter default privileges" <migracje z diffu>`; `select grantee, privilege_type from information_schema.role_table_grants where grantee='<rola>' and privilege_type <> 'SELECT';`; `select p.proname from pg_proc p where p.prosecdef and has_function_privilege('<rola>', p.oid, 'EXECUTE');`
 
 ## OPS (ops-reviewer)
 1. Każde wołanie zewnętrzne ma timeout (`AbortSignal`), `User-Agent`, obsługę 429/5xx z `Retry-After` → 05 › Zależności zewnętrzne
@@ -69,6 +77,14 @@ Reguły:
     `rg -n -i "budget|cap|quota|daily" <pliki AI/SMS>`
 16. Health check sprawdza realną zależność, nie tylko port → 03 › Health checki
     `rg -n "health" <pliki>`
+17. Ryzykowna zmiana (płatności, auth, uprawnienia, główna zależność) jest za flagą per org sprawdzaną po stronie serwera, a produkcja ma smoke po deployu z rollbackiem lub alertem → 07 › Strategie wdrożeń
+    `rg -n -i "deployment_status|smoke" .github/workflows`; `rg -n "<klucz-flagi>" src/app/api supabase/functions supabase/migrations`
+18. Nowa flaga ma właściciela i datę usunięcia; RUNBOOK opisuje rollback (promote/`vercel rollback`) dla zmienionej ścieżki → 07 › Strategie wdrożeń
+    `rg -n -i "remove_by|owner" <migracje z diffu>`; `rg -n -i "vercel (rollback|promote)" docs/RUNBOOK.md`
+19. Nowy widok/kanał „na żywo": fallback na polling przy `CHANNEL_ERROR`/`TIMED_OUT`, debounce zdarzeń, odłączanie w ukrytej karcie; liczba połączeń porównana z limitem planu → 04 › Real-time
+    `rg -n -i "CHANNEL_ERROR|TIMED_OUT|refetchInterval|visibilitychange|debounce" <pliki>`
+20. Streaming LLM/SSE przerywa generowanie po rozłączeniu klienta (koszt tokenów) → 04 › Real-time
+    `rg -l "streamText|ReadableStream|text/event-stream" <pliki> | xargs -r rg --files-without-match "signal|abort"` (wypisany plik = finding)
 
 ## SECURITY (security-reviewer)
 1. Authz per rekord: każde zapytanie po `id` ma filtr org/user albo RLS; `service_role` poza kodem serwerowym = 0 → 05 › Tożsamość, 02 › Multi-tenancy
@@ -101,6 +117,14 @@ Reguły:
     `rg -n "^(ENV|ARG) .*(KEY|TOKEN|PASSWORD|SECRET)|:latest" Dockerfile* docker-compose*.yml`
 15. Dane osobowe: brak PII w logach, fixtures bez realnych danych, wpis w `docs/PRIVACY.md` → 05 › Dane osobowe
     `rg -n -i "console\.(log|error|warn)\(.*(email|phone|kennitala|pesel|token)" <pliki>`
+16. Połączenie z bazą: SSL wymuszone (`sslmode=verify-full`/`require`, brak `rejectUnauthorized: false`), bezpośredni Postgres tylko z allowlisty (ograniczenia sieci projektu), nie z rolą `postgres` dla skryptów/BI → 07 › Izolacja sieciowa
+    `rg -n "sslmode=(disable|allow|prefer)|ssl: ?false|rejectUnauthorized: ?false|postgres(ql)?://postgres[.:]" <pliki> .env.example` (`postgres.` = użytkownik poolera Supabase)
+17. Nowa rola/grant w migracji: zasada najmniejszych uprawnień (brak `SUPERUSER`/`BYPASSRLS`/`CREATEROLE`, brak `grant all`, brak hasła w migracji) → 07 › Izolacja sieciowa
+    `rg -n -i "create role|alter role|grant all|bypassrls|superuser|password '" <migracje z diffu>`
+18. Dostęp do platform (nowy członek, token, integracja CI z Vercel/Supabase/GitHub): MFA wymuszone, rola minimalna, token fine-grained z datą wygaśnięcia w menedżerze sekretów → 07 › Izolacja sieciowa
+    `gh api orgs/<org> --jq .two_factor_requirement_enabled`; `rg -n "VERCEL_TOKEN|SUPABASE_ACCESS_TOKEN|GH_TOKEN|GITHUB_TOKEN" .github/workflows`
+19. Fragmenty dokumentów w RAG niosą `org_id`, a obie gałęzie wyszukiwania (FTS i wektor) filtrują po tenancie przed fuzją → 06 › RAG
+    `rg -n -i "org_id" <funkcje match_*/search z diffu>`
 
 ## CODE (code-reviewer)
 1. Brak stanu w zmiennych modułu między żądaniami; brak trwałych zapisów na dysk lokalny; brak „harmonogramu" w procesie → 01 › Bezstanowość

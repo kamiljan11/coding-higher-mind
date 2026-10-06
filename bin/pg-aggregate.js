@@ -6,7 +6,8 @@
 //  1. finding bez `evidence` LUB bez `repro_cmd` jest ODRZUCANY — twierdzenie bez dowodu nie istnieje,
 //  2. dedupe po (plik, zakres linii +-LINE_TOLERANCE, rule_id); agreement = liczba roznych rol,
 //  3. blocker = agreement >= MIN_AGREEMENT_FOR_BLOCKER LUB (agreement == 1 i weryfikator `reproduced`),
-//  4. agreement == 1 bez potwierdzenia -> `note` (trafia do raportu, nigdy nie blokuje),
+//  4. agreement == 1 bez potwierdzenia -> `note` (trafia do raportu, nigdy nie blokuje); minor z agreement == 1 NIE trafia
+//     do needs_verification (zostaje note bez weryfikacji, 2026-10-06); blocker i major z agreement == 1 — tak jak dotad,
 //  5. severity = MAX z zgadzajacych sie finderow (nigdy srednia); weryfikator moze tylko obnizyc.
 //  6. (landscape #1, fail-closed) werdykt INCOMPLETE (exit 3) — nie APPROVE — gdy: 0 plikow findings, plik nieparsowalny
 //     / bez tablicy, brakuje roli wymaganej dla tieru, werdykt weryfikatora z nieznanym/zduplikowanym finding_id,
@@ -92,7 +93,10 @@ function decide(groups) {
     if (refuted) g.decision = 'dropped';
     else if (g.agreement >= MIN_AGREEMENT_FOR_BLOCKER || verified) g.decision = g.severity === 'blocker' ? 'blocker' : 'must_fix';
     else g.decision = 'note';
-    g.needs_verification = !g.verdict && (g.agreement === 1 || g.severity === 'blocker');
+    // minor zgloszony przez 1 dzial = note BEZ weryfikacji (audyt PG 2026-10-06 #6/#7: r27 15/23 findings to minor; kazdy
+    // szedl do weryfikatora (3 calls/finding z 40), a `reproduced` robil z niego must_fix -> petla fixow). Werdykt, jesli
+    // weryfikator i tak go wyda, dalej obowiazuje; --final bez werdyktu go nie wymaga.
+    g.needs_verification = !g.verdict && (g.severity === 'blocker' || (g.agreement === 1 && g.severity !== 'minor'));
   }
   const order = { blocker: 0, must_fix: 1, note: 2, dropped: 3 };
   return groups.sort((a, b) => order[a.decision] - order[b.decision] || SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);

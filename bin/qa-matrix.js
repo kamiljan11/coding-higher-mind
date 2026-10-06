@@ -9,8 +9,10 @@
 //
 // Uzycie: node qa-matrix.js --repo <sciezka> [--base-url URL] [--paths-file plik.json] [--out katalog]
 //         [--only CP1,CP2] [--persona nazwa] [--viewport nazwa] [--locale pl-PL] [--concurrency 4]
-//         [--timeout 15000] [--headed] [--offline] [--dry-run] [--json]
-// Exit: 0 wszystko przeszlo, 1 sa porazki, 2 blad uzycia/konfiguracji, 3 brak Playwrighta
+//         [--timeout 15000] [--headed] [--offline] [--dry-run] [--json] [--require-interaction]
+// Sciezka bez kroku click/fill = „bez interakcji" (SMOKE: goto + expect*): summary.interactionless + ostrzezenie
+// (lekcja 2026-10-06: 116/116 passed z samych goto nie dowodzi CP z UI). --require-interaction: CP* bez interakcji = exit 1.
+// Exit: 0 wszystko przeszlo, 1 sa porazki (albo --require-interaction i CP* bez interakcji), 2 blad uzycia/konfiguracji, 3 brak Playwrighta
 //       (npm i w repo albo ~/.claude/tools/qa-matrix: `npm install && npx playwright install chromium`).
 const fs = require('fs');
 const os = require('os');
@@ -55,7 +57,7 @@ const insideDir = (file, dir) => { const f = path.resolve(file); const d = path.
 function parseArgs(argv) {
   const o = { repo: '.', baseURL: null, pathsFile: null, out: null, only: null, persona: null, viewport: null, locale: null,
     concurrency: DEFAULT_CONCURRENCY, timeout: DEFAULT_TIMEOUT_MS, headed: false, offline: false, dryRun: false, json: false,
-    allowOrigins: [], trustRepoPlaywright: false };
+    allowOrigins: [], trustRepoPlaywright: false, requireInteraction: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -75,6 +77,7 @@ function parseArgs(argv) {
     else if (a === '--json') o.json = true;
     else if (a === '--allow-origin') o.allowOrigins = String(next()).split(',').map((s) => s.trim()).filter(Boolean);
     else if (a === '--trust-repo-playwright') o.trustRepoPlaywright = true;
+    else if (a === '--require-interaction') o.requireInteraction = true;
     else throw new Error(`nieznany argument: ${a}`);
   }
   o.repo = path.resolve(o.repo);
@@ -117,6 +120,19 @@ function expandMatrix(config, opts) {
   }
   return instances;
 }
+
+// Kroki, ktore dzialaja na UI. Reszta (goto, expect*, waitMs, screenshot) tylko patrzy.
+const INTERACTION_STEPS = ['click', 'fill'];
+const hasInteraction = (spec) => (spec.steps || []).some((st) => st && INTERACTION_STEPS.some((k) => st[k] !== undefined));
+
+/** Sciezki (unikalne id z zaplanowanej matrycy) bez zadnego click/fill + CP* bez interakcji. Czysta funkcja. */
+function interactionAudit(instances) {
+  const byId = new Map();
+  for (const inst of instances) for (const p of inst.paths) byId.set(p.id, p);
+  const passive = [...byId.values()].filter((p) => !hasInteraction(p)).map((p) => p.id);
+  return { interactionless: passive.length, interactionlessIds: passive, cpWithoutInteraction: passive.filter((id) => /^CP/.test(String(id))) };
+}
+const interactionWarning = (n) => `${n} sciezek nic nie klika — zielony wynik nie dowodzi CP z UI`;
 
 function resolvePlaywright(repo, opts = {}) {
   // Runtime PG pierwszy (pin, znany kod). node_modules repo tylko jako fallback i tylko dla repo zaufanego —
@@ -226,8 +242,8 @@ async function runAll(instances, opts, playwright) {
   return results.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-function summarize(results) {
-  const s = { instances: results.length, instancesSkipped: 0, paths: 0, passed: 0, failed: 0 };
+function summarize(results, audit) {
+  const s = { instances: results.length, instancesSkipped: 0, paths: 0, passed: 0, failed: 0, interactionless: audit ? audit.interactionless : 0 };
   for (const r of results) {
     if (r.status === 'skipped') s.instancesSkipped++;
     for (const p of r.paths) { s.paths++; if (p.status === 'passed') s.passed++; else s.failed++; }
@@ -240,6 +256,7 @@ function renderMarkdown(report) {
   const s = report.summary;
   const lines = [`# qa-matrix — ${report.startedAt}`, '', `Instancje: ${s.instances} (pominiete: ${s.instancesSkipped}) · sciezki: ${s.paths} · passed: ${s.passed} · failed: ${s.failed} · out: ${report.out}`, '',
     '| Instancja | Sciezka | Status | Kroki | Czas ms |', '|---|---|---|---|---|'];
+  if (s.interactionless) lines.splice(4, 0, `> **Uwaga:** ${interactionWarning(s.interactionless)} (bez click/fill: ${(report.interactionlessIds || []).join(', ')}). Dopisz kroki klikajace w docs/CRITICAL-PATHS.md.`, '');
   for (const inst of report.instances) {
     if (inst.status === 'skipped') { lines.push(`| ${inst.id} | — | SKIPPED | — | ${inst.reason} |`); continue; }
     for (const p of inst.paths) lines.push(`| ${inst.id} | ${p.id} ${p.name} | ${p.status.toUpperCase()} | ${p.stepsDone}/${p.steps} | ${p.durationMs} |`);
@@ -266,23 +283,32 @@ async function main() {
   try { config = loadConfig(opts.repo, opts.pathsFile); } catch (e) { process.stderr.write(`qa-matrix: ${e.message}\n`); return EXIT.USAGE; }
   const instances = expandMatrix(config, opts);
   if (!instances.length) { process.stderr.write('qa-matrix: 0 instancji — sprawdz filtry (--only/--persona/--viewport/--locale) i pole `personas` w sciezkach\n'); return EXIT.USAGE; }
+  const audit = interactionAudit(instances);
+  if (audit.interactionless) process.stderr.write(`qa-matrix: UWAGA: ${interactionWarning(audit.interactionless)} (${audit.interactionlessIds.join(', ')})\n`);
+  const interactionGate = () => {
+    if (!opts.requireInteraction || !audit.cpWithoutInteraction.length) return false;
+    process.stderr.write(`qa-matrix: --require-interaction: CP bez click/fill: ${audit.cpWithoutInteraction.join(', ')}\n`);
+    return true;
+  };
   if (opts.dryRun) {
     const plan = { dryRun: true, out: opts.out, instances: instances.map((i) => ({ id: i.id, status: i.status, reason: i.reason, baseURL: i.baseURL, paths: i.paths.map((p) => p.id) })) };
+    plan.interactionless = audit.interactionless;
     process.stdout.write(opts.json ? JSON.stringify(plan, null, 2) + '\n' : plan.instances.map((i) => `${i.status === 'planned' ? 'RUN ' : 'SKIP'} ${i.id} -> ${i.baseURL || '(brak URL)'} [${i.paths.join(', ')}]${i.reason ? ' — ' + i.reason : ''}`).join('\n') + '\n');
-    return EXIT.OK;
+    return interactionGate() ? EXIT.FAILURES : EXIT.OK;
   }
   const playwright = resolvePlaywright(opts.repo, opts);
   if (!playwright) { process.stderr.write(`qa-matrix: brak pakietu playwright w ${RUNTIME_DIR} (node_modules repo liczy sie tylko dla zaufanego repo / --trust-repo-playwright). Napraw: cd "${RUNTIME_DIR}" && npm install && npx playwright install chromium\n`); return EXIT.NO_PLAYWRIGHT; }
   fs.mkdirSync(opts.out, { recursive: true });
   const startedAt = new Date().toISOString();
   const results = await runAll(instances, opts, playwright);
-  const report = { startedAt, repo: opts.repo, out: opts.out, baseURL: opts.baseURL || config.baseURL || null, summary: summarize(results), instances: results };
+  const report = { startedAt, repo: opts.repo, out: opts.out, baseURL: opts.baseURL || config.baseURL || null, summary: summarize(results, audit), interactionlessIds: audit.interactionlessIds, instances: results };
   fs.writeFileSync(path.join(opts.out, 'report.json'), JSON.stringify(report, null, 2));
   fs.writeFileSync(path.join(opts.out, 'report.md'), renderMarkdown(report));
   if (opts.json) process.stdout.write(JSON.stringify(report) + '\n');
   else process.stdout.write(renderMarkdown(report));
-  return report.summary.failed ? EXIT.FAILURES : EXIT.OK;
+  const gate = interactionGate();
+  return report.summary.failed || gate ? EXIT.FAILURES : EXIT.OK;
 }
 
-module.exports = { parseArgs, loadConfig, expandMatrix, summarize, renderMarkdown, safeName, isAllowedUrl, allowedOrigins, envValueFor, resolvePlaywright, EXIT };
+module.exports = { parseArgs, loadConfig, expandMatrix, summarize, interactionAudit, hasInteraction, interactionWarning, renderMarkdown, safeName, isAllowedUrl, allowedOrigins, envValueFor, resolvePlaywright, EXIT };
 if (require.main === module) main().then((code) => process.exit(code)).catch((e) => { process.stderr.write(`qa-matrix: blad: ${e && e.stack || e}\n`); process.exit(EXIT.USAGE); });

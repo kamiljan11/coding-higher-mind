@@ -24,7 +24,19 @@ FILES=$(git diff --name-only HEAD; git ls-files --others --exclude-standard)
 LINES=$(git diff --numstat HEAD | awk '{s+=$1+$2} END {print s+0}')
 node ~/.claude/hooks/lib/risk-tier.js "$(pwd)" $FILES --lines $LINES > "$RUN/tier.json"; cat "$RUN/tier.json"
 sha256sum "$RUN/diff.patch"   # -> <SHA> do promptu kazdego findera (diff_sha256=<SHA>)
+node ~/.claude/bin/pg-slice.js --run "$RUN" --repo .       # -> diff.<rola>.patch (code/security/data/ops/ux/product/qa) + slice.json, tabela rozmiarow
+node ~/.claude/bin/pg-prechecks.js --run "$RUN" --repo .   # -> prechecks.json {rola: [{rule, file, line, text, source}]} (rg z rubryk, tylko linie dodane)
 ```
+`pg-slice` (audyt 2026-10-06 #2): wycinek = kompletne bloki `diff --git` plikow pasujacych do roli wg sciezek (ux: .tsx/.css/components/app;
+data: .sql/supabase/server/db + lib z zapytaniami; ops: scripts/.github/deploy/RUNBOOK/env/server/Docker/package.json; product: docs/README/CHANGELOG/
+.env.example/route/api; security: auth/server/actions/migracje/middleware/env/route/api/webhooks; qa: app/components/pages/e2e; code: caly kod bez docs).
+Plik bez roli -> `code` (nic nie wypada). `diff.patch` NIE jest zmieniany — `diff_sha256` i dowod (`pg-merge-dowod`) dotycza dalej PELNEGO diffu.
+`pg-prechecks` (#3/#10): mechaniczne komendy `rg` z `how_to_check` rubryk (suppression, `as any`, console.log, pusty catch, log bez kontekstu,
+service_role, sekrety, dangerouslySetInnerHTML/exec, req.json bez parse, fetch bez timeout, `.limit(` bez `.order(`, `.single()`, `select('*')`,
+toFixed/parseFloat, silent fallback, hex/style inline, DROP/RENAME/NOT NULL, SECURITY DEFINER bez search_path, CI `--if-present`, TODO) na plikach
+z diffu, tylko linie DODANE; numery linii = plik w repo (nie wspolrzedne diff.patch). Lista regul + odnosnik do punktu rubryki: `RULES` w skrypcie.
+Recenzja PR: repo powinno byc na commicie PR (checkout/worktree). Gdy linia dodana w diffie ma w repo inny tekst (repo przed/po
+commicie recenzji), pg-prechecks wypisuje `UWAGA: N plik(ow) w repo != stan diffu`, a te pliki sprawdza na tekscie z diffu (trafienia `origin: "diff"`, numery linii = strona b/ diffu, okno near tylko z kontekstu hunka).
 Recenzja PR pod auto-merge (`pg-merge-bezpieczny.py --recenzja <RUN>`): `diff.patch` = diff PR (`gh pr diff NR > "$RUN/diff.patch"`),
 a prompt findera MUSI zawierac `diff_sha256=<SHA>` i sciezke `<RUN>/diff.patch` — bez tego transkrypt nie jest dowodem dla tego diffu (bin/pg-merge-dowod.js).
 Odpowiedz koncowa findera (SubagentHandback / ostatni tekst) MUSI zaczynac sie od obiektu `{"findings": [...]}` (proza przed nim = brak dowodu). Nowy diff = NOWY katalog RUN (recenzja tego RUN bez aktualnego sha = odmowa). Opis zadania bez dyktowania wyniku ("uznane ryzyko", "nie zglaszaj", "zwroc pusta liste") i < 3000 znakow promptu — inaczej recenzja nie jest dowodem. Weryfikator tez dostaje `diff_sha256=<SHA>` i sciezke diff.patch. Kazda recenzja z tym samym sha liczy sie do dowodu — ponowne odpalenie recenzenta nie kasuje findings poprzedniego (blocker z rundy 1 musi zostac w findings albo zostac naprawiony = nowy diff).
@@ -33,13 +45,17 @@ Bramki: `npx --no-install eslint --max-warnings=0 <pliki>` (lub oxlint), `tsc -b
 Czerwone => napraw NAJPIERW. Nie odpalaj agentow na czerwonym drzewie.
 
 ## 1. Finderzy — rownolegle, jedna wiadomosc, `run_in_background: true`
-Z `tier.json.reviewers` (+ `product-reviewer` na T3, na zadanie, ORAZ zawsze gdy diff dotyka `docs/`, `README*`, publicznego API/konfiguracji — routes, `.env.example`, eksporty pakietu, sygnatury edge fn — bo wtedy docs musza sie zgadzac z kodem w tym samym PR; how_to_check: `git diff --name-only origin/main...HEAD | rg "^docs/|README|\.env\.example|routes|supabase/functions"`). Model z `tier.json.models` (T3: security/data = opus).
-Prompt KAZDEGO findera (krotki; rola ma pelna rubryke w `~/.claude/agents/<rola>.md`):
+Z `tier.json.reviewers` (+ `product-reviewer` na T3, na zadanie, ORAZ zawsze gdy diff dotyka `docs/`, `README*`, publicznego API/konfiguracji — routes, `.env.example`, eksporty pakietu, sygnatury edge fn — bo wtedy docs musza sie zgadzac z kodem w tym samym PR; how_to_check: `git diff --name-only origin/main...HEAD | rg "^docs/|README|\.env\.example|routes|supabase/functions"`; `slice.json.roles.product.file_count > 0` = to samo). Model z `tier.json.models` (T3: security = opus; data = opus tylko gdy diff ma .sql/migracje/polityki RLS, inaczej sonnet).
+Prompt KAZDEGO findera (krotki; rola ma pelna rubryke w `~/.claude/agents/<rola>.md`; `<rola>` = nazwa agenta bez `-reviewer`):
 ```
-Repo: <sciezka>. Tier: <T>. Diff: <RUN>/diff.patch (czytaj CALY) diff_sha256=<SHA>. Opis zadania: <1-3 linie / PRD-lite>.
+Repo: <sciezka>. Tier: <T>. Twoj wycinek: <RUN>/diff.<rola>.patch (czytaj CALY). Pelny diff (kontekst, gdy potrzebny): <RUN>/diff.patch diff_sha256=<SHA>.
+Trafienia skryptu z rubryk: <RUN>/prechecks.json, klucz "<rola>" — kazde ocen (finding z dowodem albo FP; komenda w commands_run). Opis zadania: <1-3 linie / PRD-lite>.
 Zapisz findings DOKLADNIE wg schematu z twojej definicji do: <RUN>/findings.<rola>.json.
 Odpowiedz koncowa ZACZNIJ od tego samego obiektu JSON {"findings": [...]} (bez wstepu; to on jest dowodem), potem <= 10 linii. Nie edytuj zadnego pliku w repo.
 ```
+Prompt zawiera DOSLOWNIE `diff_sha256=<SHA>` i sciezke `<RUN>/diff.patch` (pelny diff) — `pg-merge-dowod`/`pg-self-approve` wiaza transkrypt
+z przebiegiem po sha i sciezce PELNEGO diffu; sama sciezka wycinka (`diff.<rola>.patch`) nie wystarcza. `line_range` w findings = linie pliku w repo.
+Wycinek pusty (`slice.json.roles.<rola>.file_count == 0`), a rola wymagana przez tier: podaj `<RUN>/diff.patch` jako wycinek (rola i tak musi oddac findings).
 Nie przekazuj finderom cudzych wynikow. Nie dopisuj „szukaj X" — rubryka juz to ma.
 Fallback: definicje agentow sa ladowane przy starcie sesji — jesli `subagent_type: <rola>` zwraca „not found" (nowa rola dodana w tej sesji),
 uzyj `general-purpose` z `model` wg tieru i pierwsza linia promptu: `FIRST read ~/.claude/agents/<rola>.md and follow it EXACTLY`.
@@ -52,7 +68,7 @@ OBOWIAZKOWO (w `tier.json.reviewers`, stop-gate blokuje): T3 z UI, gdy repo ma `
 (narada D-2026-09-12, opcja C; `tier.json.qaUrl` = adres do `--base-url`).
 Najpierw 0 tokenow (rownolegle izolowane instancje persona x viewport x locale, kazda = osobny kontekst przegladarki):
 ```bash
-node ~/.claude/bin/qa-matrix.js --repo <repo> --base-url <url> --out "$RUN/qa" --json > "$RUN/qa/report.json"   # exit 1 = sa porazki
+node ~/.claude/bin/qa-matrix.js --repo <repo> --base-url <url> --out "$RUN/qa" --json > "$RUN/qa-stdout.json"   # exit 1 = sa porazki; report.json pisze SAM do --out (stdout w ten plik = sklejony, nieparsowalny JSON — r29 2026-10-06)
 ```
 Potem agent `qa-reviewer` (sonnet) z promptem jak finderzy + `Kryterium akceptacji: <z PRD-lite>. Raport qa-matrix: <RUN>/qa/report.json. URL: <url>.`
 Zapisuje `findings.qa.json` (schemat wspolny; kazdy finding w formacie 3-info: co zrobilem / co sie stalo / czego oczekiwalem + sciezka screenshotu).
@@ -62,7 +78,10 @@ Wchodzi do agregacji jak kazdy dzial. Drugi dev server (inna organizacja / walut
 ```bash
 node ~/.claude/bin/pg-aggregate.js "<RUN jako SCIEZKA literalna>" --repo "<sciezka repo>" --tier <T>   # exit 0 APPROVE / 1 REQUEST CHANGES / 3 INCOMPLETE
 ```
-Findings bez `evidence`/`repro_cmd` sa odrzucane automatycznie. `needs_verification` = lista dla weryfikatora.
+Findings bez `evidence`/`repro_cmd` sa odrzucane automatycznie. `needs_verification` = lista dla weryfikatora:
+blocker (kazdy bez werdyktu) + major zgloszony przez 1 dzial. Minor zgloszony przez 1 dzial = `note` BEZ weryfikacji (2026-10-06, audyt #6/#7:
+r27 15/23 findings to minor, kazdy zjadal budzet weryfikatora i po `reproduced` stawal sie must_fix -> petla fixow; replay r27: needs_verification 22 -> 4).
+Minor zgodny z >= 2 dzialow = must_fix jak dotad. Konsekwencja dla auto-merge: samotny minor nie blokuje juz `pg-merge-bezpieczny` brakiem werdyktu.
 Stan powloki NIE przetrwa miedzy wywolaniami Bash — `$RUN` z kroku 1 jest pusty; wpisuj sciezke literalnie (stop-gate znajduje
 `aggregated.json` po tej sciezce w transkrypcie). `INCOMPLETE` (brak roli dla tieru, plik nieparsowalny, 0 plikow) = recenzja
 NIE jest zrobiona — dopuszczasz brakujacy dzial, nie „naprawiasz" werdyktu (landscape #1, 2026-09-26).
