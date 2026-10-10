@@ -59,7 +59,7 @@ const H = normalizePath(HOME);
 const C = H + '/.claude';
 // Prefiksy (katalogi) i pliki warstwy kontrolnej. Porownanie na znormalizowanych sciezkach.
 // + mody Claude Code (2026-10-09): mod to kod wykonywany WEWNATRZ Claude Code (tool.call, $.process, $.fs) — omija hooki
-// settings. ~/mods = zrodlo lokalnego marketplace kamil-mods (przejrzane kopie), ~/.claude/plugins = cache, z ktorego
+// settings. ~/mods = zrodlo lokalnego marketplace local-mods (przejrzane kopie), ~/.claude/plugins = cache, z ktorego
 // mody faktycznie sie laduja (podmiana po przegladzie = obejscie przegladu), ~/.claude/dev-mods = mody pisane przez plugin-authoring.
 const CONTROL_DIRS = [C + '/hooks/', C + '/git-hooks/', C + '/bin/', C + '/agents/', C + '/scheduled-tasks/', C + '/logs/overrides/', C + '/logs/stop-gate-wm/', C + '/logs/pg-seen/',
   H + '/mods/', C + '/plugins/', C + '/dev-mods/'];

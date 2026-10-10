@@ -78,10 +78,10 @@ const ALLOW = ['git commit -m "fix --no-verify docs"', 'git push -u origin featu
   'rm -rf /tmp/a && rm -rf /tmp/b'];
 BLOCK.push('rm -rf node_modules && rm -rf src'); // kazde `rm -r` w lancuchu sprawdzane osobno
 // 2026-10-09 mody: zapis do kodu modow i zmiana zestawu wtyczek = warstwa kontrolna; odczyt/testy wolne.
-BLOCK.push('sed -i s/a/b/ ~/mods/blast-radius/hooks/blast-radius.mjs', 'cp x.js ~/.claude/plugins/cache/kamil-mods/m/1/hooks/r.js',
+BLOCK.push('sed -i s/a/b/ ~/mods/blast-radius/hooks/blast-radius.mjs', 'cp x.js ~/.claude/plugins/cache/local-mods/m/1/hooks/r.js',
   'python3 -c "open(\'' + HOME.replace(/\\/g, '/') + '/mods/x/hooks/r.ts\',\'w\').write(\'x\')"', 'claude plugin install evil@mkt', 'claude plugins enable x@y',
   'claude plugin marketplace add someone/repo', 'npx @anthropic-ai/claude-code plugin update x',
-  'claude plugin marketplace update kamil-mods',
+  'claude plugin marketplace update local-mods',
   '$C plugin install x@y', 'claude --debug plugin install x@y', 'claude plugin eval ~/mods/x',
   // security-review faza 0: skill-plugin (auto-ladowanie), sklejanie sciezek w interpreterze, git w ~/mods, prune
   'claude plugin init evil --with hooks mcp', 'claude plugin new evil',
@@ -208,7 +208,7 @@ BLOCK.push('psql --dbname=postgres://u@db.abc.supabase.co/postgres -c "drop tabl
 ALLOW.push('cat > /tmp/claude-1000/f.json <<EOF\n{"claim":"psql $URL -c drop table users"}\nEOF', 'git commit -m "test: psql drop table users na zdalnej bazie"',
   'psql "$DATABASE_URL" -c "update users set email = null where id = 5"', 'supabase db query "select count(*) from orders" --linked', 'psql -c "drop table t"');
 // 2026-10-10 D6: odejmowanie modow wolne (awaryjny wylacznik)
-ALLOW.push('claude plugin disable blast-radius@kamil-mods', 'claude plugin uninstall x@y', 'claude plugin marketplace remove kamil-mods', 'claude plugin prune');
+ALLOW.push('claude plugin disable blast-radius@local-mods', 'claude plugin uninstall x@y', 'claude plugin marketplace remove local-mods', 'claude plugin prune');
 ALLOW.push('claude plugin install --help', 'claude plugin marketplace add -h', 'claude plugin list', 'claude plugin validate ~/mods/x/.claude-plugin/plugin.json', 'claude plugin test ~/mods/cache-tax',
   'claude plugin marketplace list', 'grep -rn process.run ~/mods/filetree/hooks', 'echo x > src/mods/y.ts');
 // cwd = zwykly katalog projektu: nie ~/.claude (tam `git stash` to zmiana warstwy kontrolnej) i nie %TEMP% (tam `rm -rf src` jest bezpieczne).
@@ -467,7 +467,7 @@ check('post-bash-edit-check: komenda bez zapisu => 0', runHook('post-bash-edit-c
   check('edit-guard: desktop-commander write_file ~/.gitconfig => 2', eg({ tool_name: 'mcp__desktop-commander__write_file', tool_input: { path: path.join(HOME, '.gitconfig'), content: 'x' } }).status === 2);
   // 2026-10-09 mody: kod moda wykonuje sie w Claude Code poza hookami — zrodlo, cache i dev-mods = warstwa kontrolna.
   check('edit-guard: Write do ~/mods/<mod> bez zgody => 2', eg({ tool_name: 'Write', tool_input: { file_path: path.join(HOME, 'mods', 'x-mod', 'hooks', 'register.ts'), content: 'x' } }).status === 2);
-  check('edit-guard: Edit cache ~/.claude/plugins bez zgody => 2', eg({ tool_name: 'Edit', tool_input: { file_path: path.join(HOME, '.claude', 'plugins', 'cache', 'kamil-mods', 'x', '1.0.0', 'hooks', 'register.ts'), old_string: 'a', new_string: 'b' } }).status === 2);
+  check('edit-guard: Edit cache ~/.claude/plugins bez zgody => 2', eg({ tool_name: 'Edit', tool_input: { file_path: path.join(HOME, '.claude', 'plugins', 'cache', 'local-mods', 'x', '1.0.0', 'hooks', 'register.ts'), old_string: 'a', new_string: 'b' } }).status === 2);
   check('edit-guard: Write ~/.claude/dev-mods bez zgody => 2', eg({ tool_name: 'Write', tool_input: { file_path: path.join(HOME, '.claude', 'dev-mods', 'sid', 'm', 'hooks', 'register.ts'), content: 'x' } }).status === 2);
   check('edit-guard: nowy skill przez Write SKILL.md => 0', eg({ tool_name: 'Write', tool_input: { file_path: path.join(HOME, '.claude', 'skills', 'nowy-skill', 'SKILL.md'), content: 'x' } }).status === 0);
   check('edit-guard: manifest pluginu w skillu => 2', eg({ tool_name: 'Write', tool_input: { file_path: path.join(HOME, '.claude', 'skills', 'nowy-skill', '.claude-plugin', 'plugin.json'), content: '{}' } }).status === 2);

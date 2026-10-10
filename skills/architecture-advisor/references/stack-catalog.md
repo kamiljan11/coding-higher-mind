@@ -332,7 +332,7 @@ Pytanie: Kto płaci, w jakiej walucie i kto rozlicza VAT? Zwykle u nas: brak (za
 | Tpay | Polska | Polska bramka z BLIK i szybkimi przelewami. | Mały sklep w PL, prosta integracja. |
 | Mollie | UE | Europejska bramka z lokalnymi metodami płatności. | Sprzedaż w wielu krajach UE. |
 | Adyen | globalnie | Globalna platforma płatności enterprise. | Duży wolumen, wiele krajów i kanałów. |
-| Rapyd | Islandia | Hostowany checkout, subskrypcje, wiele walut (w tym ISK). | Produkty floty na rynku islandzkim. |
+| Rapyd | Islandia | Hostowany checkout, subskrypcje, wiele walut (w tym ISK). | Płatności na rynku islandzkim (ISK). |
 | Straumur | Islandia | Islandzki procesor płatności krajowych. | Płatności w ISK na rynku islandzkim. |
 
 ### Faktury / księgowość (`stack-inv`)
