@@ -1301,7 +1301,7 @@
        "market": "PL"
       },
       {
-       "name": "Mollie",
+       "name": "payment-provider",
        "what": "Europejska bramka z lokalnymi metodami płatności.",
        "when": "Sprzedaż w wielu krajach UE.",
        "market": "EU"
@@ -1313,13 +1313,13 @@
        "market": ""
       },
       {
-       "name": "Rapyd",
+       "name": "payment-gateway",
        "what": "Hostowany checkout, subskrypcje, wiele walut (w tym ISK).",
        "when": "Płatności na rynku islandzkim (ISK).",
        "market": "IS"
       },
       {
-       "name": "Straumur",
+       "name": "local-acquirer",
        "what": "Islandzki procesor płatności krajowych.",
        "when": "Płatności w ISK na rynku islandzkim.",
        "market": "IS"
@@ -1417,13 +1417,13 @@
        "market": ""
       },
       {
-       "name": "Signicat",
+       "name": "esign-provider",
        "what": "Europejski agregator e-ID i podpisu dla wielu krajów.",
        "when": "Jedna integracja na kilka krajów UE i Nordyki.",
        "market": "EU"
       },
       {
-       "name": "Dokobit",
+       "name": "esign-provider-b",
        "what": "Podpis i e-ID w krajach bałtyckich i nordyckich.",
        "when": "Podpis prawnie wiążący w Islandii/Bałtyku.",
        "market": "IS"
@@ -1431,7 +1431,7 @@
       {
        "name": "eid-provider",
        "what": "Islandzka narodowa tożsamość cyfrowa.",
-       "when": "Islandia; zwykle przez Signicat.",
+       "when": "Islandia; zwykle przez esign-provider.",
        "market": "IS"
       }
      ]

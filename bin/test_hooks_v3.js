@@ -183,6 +183,9 @@ BLOCK.push('supabase db query "drop table users" --linked', 'supabase --workdir 
 BLOCK.push('infisical run --env=dev -- sh -c \'psql "$DATABASE_URL" -c "truncate orders"\'', 'infisical run --env=dev -- supabase db reset --linked',
   'doppler run -- psql -c "drop table users"', 'op run -- psql "$DATABASE_URL" -c "truncate orders"');
 ALLOW.push('infisical run --env=dev -- psql "$DATABASE_URL" -c "select 1"', 'op run -- npm test');
+// Forma `--command "..."` (code-review 1.6.0: przechodzila przy DROP/TRUNCATE).
+BLOCK.push('infisical run --env=dev --command="psql $DATABASE_URL -c \'truncate orders\'"', 'doppler run --command "psql -c \'drop table u\'"');
+ALLOW.push('infisical run --env=dev --command="psql $DATABASE_URL -c \'select 1\'"', 'infisical run --env=dev --command="npm test"');
 // r3 (data review): wrappery, dropdb, prisma, ALTER COLUMN TYPE
 BLOCK.push('infisical run --env=dev -- sh -c \'psql "$DATABASE_URL" -c "truncate orders"\'',
   'infisical run --env=dev -- psql -U postgres -c "drop table users"',

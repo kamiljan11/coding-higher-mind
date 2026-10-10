@@ -127,7 +127,7 @@ Cel zdalny, dopoki nie udowodniono lokalnego; SQL niewidoczny na zdalnym = blok;
 - SQL w zmiennej (`-c "$Q"`) albo `$(cat plik.sql)`: tekst niewidoczny w momencie oceny — przechodzi, gdy cel lokalny/nieznany-ale-niezdalny.
 - `docker compose exec db psql` traktowane jak wrapper nieznany (blok przy destrukcji) — `docker exec <kontener>` jest wyjatkiem lokalnym.
 - Heurystyka SQL na tekscie: `'drop'` w literale = blok (FP), UPDATE z podzapytaniem z WHERE = przechodzi (FN).
-- Przelacznik awaryjny: `mode: 'observe'` w regule `remote-sql-destructive` w `hooks/lib/bash-rules.js` (regula loguje, nie blokuje; fraza CONTROL_PLANE), potem `node bin/pg-seal.js`. Pelne wycofanie = revert commita wydania, ktory ja wprowadzil (1.6.0).
+- Przelacznik awaryjny: `mode: 'observe'` w regule `remote-sql-destructive` w `hooks/lib/bash-rules.js` (regula loguje, nie blokuje; fraza CONTROL_PLANE), potem `node bin/pg-seal.js`. Pelne wycofanie: w repo publicznym revert commita wydania 1.6.0; w repo zrodlowym regula weszla seria commitow — revert calej serii (lista poza repo, w notatce projektu wlasciciela).
 - Wyjatek poziomu C wspolny z gh-delete (jedna fraza odblokowuje oba na 30 min / 3 uzycia).
 
 ## control-plane: zapis wzgledem cwd (2026-10-10, security-review r1-r3 + code-review r1-r2)

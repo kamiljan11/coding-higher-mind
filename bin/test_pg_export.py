@@ -167,5 +167,13 @@ head = "\n".join(lines[: upto + 1]) + "\necho DOSZLO"
 r = subprocess.run(["bash", "-c", head, "x", "feat: x"], capture_output=True, text=True, check=False)
 check("pg-publish-public: naglowek wykonuje sie do MSG=", r.returncode == 0 and "DOSZLO" in r.stdout, (r.stderr or r.stdout)[-160:])
 
+# 1.6.0 (code-review): klient i prywatny marketplace wycinane; katalog stacku BEZ wyjatku dla dostawcow (decyzja 2026-10-04).
+t_c, _ = exp.substitute("tender-app, tender-app, marketplace local-mods")
+check("klient tender-app i local-mods wycinane", not exp.scan(t_c, "f") and "tender-app" in t_c and "local-mods" in t_c, t_c)
+check("denylista lapie tender-app, gdyby substytucja zawiodla", bool(exp.scan("projekt tender-app", "f")))
+t_s, _ = exp.substitute('| payment-gateway | Islandia | Hostowany checkout | ["payment-provider","Europejska bramka"] |')
+check("katalog stacku: dostawcy wycieci jak wszedzie", not exp.scan(t_s, "skills/architecture-advisor/references/stack-catalog.md")
+      and "payment-gateway" not in t_s and "payment-provider" not in t_s, t_s)
+
 print("TESTY: " + ("wszystkie OK" if not FAILS else f"{len(FAILS)} FAIL"))
 sys.exit(1 if FAILS else 0)

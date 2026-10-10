@@ -330,10 +330,10 @@ Pytanie: Kto płaci, w jakiej walucie i kto rozlicza VAT? Zwykle u nas: brak (za
 | Przelewy24 | Polska | Polska bramka: szybkie przelewy, BLIK, karty. | Sklep/usługa dla klientów w Polsce. |
 | PayU | Polska | Bramka płatności w Polsce i regionie (BLIK, raty, karty). | Sklep w PL, raty i płatności odroczone. |
 | Tpay | Polska | Polska bramka z BLIK i szybkimi przelewami. | Mały sklep w PL, prosta integracja. |
-| Mollie | UE | Europejska bramka z lokalnymi metodami płatności. | Sprzedaż w wielu krajach UE. |
+| payment-provider | UE | Europejska bramka z lokalnymi metodami płatności. | Sprzedaż w wielu krajach UE. |
 | Adyen | globalnie | Globalna platforma płatności enterprise. | Duży wolumen, wiele krajów i kanałów. |
-| Rapyd | Islandia | Hostowany checkout, subskrypcje, wiele walut (w tym ISK). | Płatności na rynku islandzkim (ISK). |
-| Straumur | Islandia | Islandzki procesor płatności krajowych. | Płatności w ISK na rynku islandzkim. |
+| payment-gateway | Islandia | Hostowany checkout, subskrypcje, wiele walut (w tym ISK). | Płatności na rynku islandzkim (ISK). |
+| local-acquirer | Islandia | Islandzki procesor płatności krajowych. | Płatności w ISK na rynku islandzkim. |
 
 ### Faktury / księgowość (`stack-inv`)
 
@@ -360,9 +360,9 @@ Pytanie: Czy prawo wymaga potwierdzonej tożsamości albo podpisu? Zwykle u nas:
 | mObywatel | Polska | Cyfrowa tożsamość w aplikacji państwowej. | Weryfikacja tożsamości osoby w Polsce. |
 | Autenti | Polska | Polska platforma podpisu elektronicznego. | Umowy podpisywane online z klientami w PL. |
 | DocuSign | globalnie | Globalna platforma podpisu elektronicznego. | Umowy międzynarodowe, klient zna DocuSign. |
-| Signicat | UE | Europejski agregator e-ID i podpisu dla wielu krajów. | Jedna integracja na kilka krajów UE i Nordyki. |
-| Dokobit | Islandia | Podpis i e-ID w krajach bałtyckich i nordyckich. | Podpis prawnie wiążący w Islandii/Bałtyku. |
-| eid-provider | Islandia | Islandzka narodowa tożsamość cyfrowa. | Islandia; zwykle przez Signicat. |
+| esign-provider | UE | Europejski agregator e-ID i podpisu dla wielu krajów. | Jedna integracja na kilka krajów UE i Nordyki. |
+| esign-provider-b | Islandia | Podpis i e-ID w krajach bałtyckich i nordyckich. | Podpis prawnie wiążący w Islandii/Bałtyku. |
+| eid-provider | Islandia | Islandzka narodowa tożsamość cyfrowa. | Islandia; zwykle przez esign-provider. |
 
 ### SMS / głos (`stack-sms`)
 

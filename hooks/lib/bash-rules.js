@@ -52,6 +52,12 @@ function sqlRisk(cmd, ctx, wrapper, depth) {
       const w2 = wrapper === 'docker-exec' ? 'docker-exec' : cmd.prog;
       try { return !!code && parse(code).commands.some((sub) => sqlRisk(sub, ctx, w2, depth + 1)); } catch (e) { return false; }
     }
+    // `infisical run --command "psql ..."` / `doppler run --command=...` — komenda w stringu jak `sh -c` (code-review 1.6.0)
+    if (/^(infisical|doppler)$/.test(cmd.prog)) {
+      const ci = args.findIndex((a) => /^--command(=|$)/.test(a));
+      const code = ci < 0 ? '' : args[ci].includes('=') ? args[ci].slice(args[ci].indexOf('=') + 1) : (args[ci + 1] || '');
+      if (code) { try { return parse(code).commands.some((sub) => sqlRisk(sub, ctx, cmd.prog, depth + 1)); } catch (e) { return true; } }
+    }
     // `npx -y supabase@latest`, `pnpm dlx supabase` — nazwa pakietu z wersja (ops-review r2)
     const tool = (a) => progName(a).replace(/@[^/]*$/, '');
     const k = args.findIndex((a) => SQL_TOOLS.test(tool(a)) || /^(sh|bash|zsh|dash)$/.test(tool(a)));
