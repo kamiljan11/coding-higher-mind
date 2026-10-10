@@ -24,7 +24,8 @@ jobs:
           git config --global user.name ci
           git config --global init.defaultBranch main
       - name: Python tools for the lint/pytest gates (tests expect them to block)
-        run: pip install --quiet ruff pytest
+        # ruff pinned: the newest release added rules (UP017, FURB162) that turned unchanged code red (release 1.6.0)
+        run: pip install --quiet "ruff==0.16.10" pytest
       - name: Stage PG into ~/.claude (tests resolve paths from there)
         run: node install.mjs --yes
       - name: Unit + fixture tests
@@ -41,7 +42,7 @@ jobs:
           node bin/pg-rule-coverage.js
       - name: Python tools lint (ruff)
         run: |
-          pip install --quiet ruff
+          pip install --quiet "ruff==0.16.10"
           ruff check bin hooks
   secrets:
     name: Secret scan
