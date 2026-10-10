@@ -15,11 +15,14 @@ rules, and a security review that kept finding ways around a patch-based rule un
   enabling or updating a plugin, or adding a marketplace, needs the owner's phrase. Disabling and uninstalling are free:
   removing an extension never needs permission.
 - **Destructive SQL on a remote database is blocked.** `psql`, `supabase`, `prisma`, `dropdb` and `pg_restore` are parsed
-  for their target (flags, connection URLs, `PGHOST`, variables set earlier in the command, wrappers such as `docker exec`
-  or `ssh`). `DROP`, `TRUNCATE`, `DELETE` without a filter and similar statements against anything that is not provably
+  for their target (flags, connection URLs, `PGHOST`, variables set earlier in the command, wrappers such as `docker exec`,
+  `ssh` or secret runners like `infisical run`). `DROP`, `TRUNCATE`, `DELETE` without a filter and similar statements against anything that is not provably
   local are blocked; SQL the guard cannot see (a file, a heredoc) counts as destructive. Local databases stay free.
-- **Writes relative to the working directory.** `patch`, archive extraction (`tar x`, `unzip`, `7z`, `cpio`) and scripted
-  editors (`ed`, `ex`, `vim -es`) are blocked when they run in or above the control directory. The rule is fail-closed:
+- **Writes relative to the working directory.** The first version of this rule read the patch to see which files it touched;
+  the first security review found three ways around it (option values taken for file names, patch headers it did not parse,
+  piping a patch in from a parent folder). After the rule was turned around, two more rounds found eight further gaps (four
+  blocking, four serious), all fixed and re-checked. `patch`, archive extraction (`tar x`, `unzip`, `7z`, `cpio`) and scripted
+  editors (`ed`, `ex`, `vim -es`) are now blocked when they run in or above the control directory. The rule is fail-closed:
   when the guard cannot tell where a command runs (a `cd` into a variable, `CDPATH`, a symlink made earlier in the chain)
   it blocks. In any repository, `patch` with a patch it cannot read, or one that touches `.git/` or `.claude/`, is blocked:
   GNU patch writes `.git/config` (a local `core.hooksPath` switches off every git hook) and `.claude/settings.json`

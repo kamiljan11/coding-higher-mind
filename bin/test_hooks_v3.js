@@ -179,6 +179,10 @@ BLOCK.push('supabase db query "drop table users" --linked', 'supabase --workdir 
   'psql "$PROD_DB_URL" -f drop.sql', 'psql "$PROD_DB_URL" < drop.sql', 'echo "drop table u" | psql "$URL"',
   'psql postgres://u@db.abc.supabase.co/postgres -c "drop table users" # localhost', 'psql postgresql://u@localhost.attacker.example/db -c "drop table users"',
   'psql "$DATABASE_URL" -c "update users set email = null"', 'pg_restore -cd "$DATABASE_URL" dump.sql');
+// Publiczny eksport podmienia most na `infisical run --` (CI coding-higher-mind 1.6.0: 3 FAIL) — wrapper sekretow = cel nieznany.
+BLOCK.push('infisical run --env=dev -- sh -c \'psql "$DATABASE_URL" -c "truncate orders"\'', 'infisical run --env=dev -- supabase db reset --linked',
+  'doppler run -- psql -c "drop table users"', 'op run -- psql "$DATABASE_URL" -c "truncate orders"');
+ALLOW.push('infisical run --env=dev -- psql "$DATABASE_URL" -c "select 1"', 'op run -- npm test');
 // r3 (data review): wrappery, dropdb, prisma, ALTER COLUMN TYPE
 BLOCK.push('infisical run --env=dev -- sh -c \'psql "$DATABASE_URL" -c "truncate orders"\'',
   'infisical run --env=dev -- psql -U postgres -c "drop table users"',

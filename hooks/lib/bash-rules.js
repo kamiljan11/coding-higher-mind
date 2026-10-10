@@ -34,7 +34,8 @@ const API_WRITE_RX = /open\([^)]*['"][wax]\+?b?['"]|\.write_(text|bytes)\(|write
 // DATABASE_URL) jest niewidoczne => cel nieznany, wyjatek `docker exec <kontener>` = baza w kontenerze (lokalna).
 const SQL_DESTRUCTIVE = /\bdrop\b|\btruncate\b|\bdelete\s+from\b|\balter\s+table\b[^;]*\b(drop|alter\s+(column\s+)?[\w"]+\s+(set\s+data\s+)?type)\b|\bupdate\s+[\w."]+\s+set\b(?![^;]*\bwhere\b)/i;
 const SQL_TOOLS = /^(psql|pg_restore|pgcli|usql|dropdb|supabase|prisma)$/;
-const SQL_WRAPPERS = /^(python3?|docker|npx|bunx|pnpx|pnpm|yarn|env|timeout|nohup|sudo|nice|ssh|kubectl|sh|bash|zsh|dash)$/;
+// + infisical/doppler/op run -- (wstrzykuja sekrety jak most; eksport publiczny podmienia most na `infisical run --`, CI 1.6.0)
+const SQL_WRAPPERS = /^(python3?|infisical|doppler|op|docker|npx|bunx|pnpx|pnpm|yarn|env|timeout|nohup|sudo|nice|ssh|kubectl|sh|bash|zsh|dash)$/;
 const SQL_LOCAL = /^(localhost|127\.0\.0\.1|::1|\[::1\]|host\.docker\.internal|\/var\/run\/postgresql|\/tmp)$/i;
 function sqlRisk(cmd, ctx, wrapper, depth) {
   if (depth > 3) return false;
