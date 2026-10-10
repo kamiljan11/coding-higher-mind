@@ -155,8 +155,8 @@ with tempfile.TemporaryDirectory() as d:
     wiki = clone("wiki", "https://github.com/<github-owner>/coding-higher-mind.wiki.git")
     check("is_public_clone: tylko korzen klonu z dokladnym URL", exp.is_public_clone(ok) and not exp.is_public_clone(os.path.join(ok, "docs"))
           and not exp.is_public_clone(priv) and not exp.is_public_clone(wiki))
-check("DIR_EXCLUDES: rutyny klienckie sagitum-* poza eksportem",
-      any(fnmatch.fnmatch("scheduled-tasks/sagitum-x/SKILL.md", g) for g in exp.DIR_EXCLUDES))
+check("DIR_EXCLUDES: rutyny klienckie tender-app-* poza eksportem",
+      any(fnmatch.fnmatch("scheduled-tasks/tender-app-x/SKILL.md", g) for g in exp.DIR_EXCLUDES))
 
 # pg-publish-public.sh: naglowek (set -e, trap ERR, MSG) musi sie wykonac — `bash -n` nie zlapal sklejonej linii trap (2026-10-04)
 PUB = os.path.join(HERE, "pg-publish-public.sh")

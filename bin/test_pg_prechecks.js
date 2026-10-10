@@ -134,6 +134,15 @@ try {
   let usage = 0;
   try { execFileSync(process.execPath, [cli, '--run', runDir], { stdio: 'pipe' }); } catch (e) { usage = e.status; }
   check('CLI: brak --repo => exit 2', usage === 2, String(usage));
+  // ---------- pg-review 2026-10-06: security dostaje sinki spoza swojego wycinka; pliki bin/test_* = testy ----------
+  write('src/lib/render.tsx', ['export const R = (h: string) => <div dangerouslySetInnerHTML={{ __html: h }} />;']);
+  write('bin/test_tool.js', ["const { execFileSync } = require('child_process');"]);
+  const sinkDiff = fileDiff('src/lib/render.tsx', ['export const R = (h: string) => <div dangerouslySetInnerHTML={{ __html: h }} />;'], [1])
+    + fileDiff('bin/test_tool.js', ["const { execFileSync } = require('child_process');"], [1]);
+  const resSink = prechecks(sinkDiff, repo);
+  check('DANGEROUS-SINK w src/lib (poza wycinkiem security) -> security', resSink.security.some((h) => h.rule === 'DANGEROUS-SINK' && h.file === 'src/lib/render.tsx'), JSON.stringify(resSink.security));
+  check('DANGEROUS-SINK w src/lib -> code tez', resSink.code.some((h) => h.rule === 'DANGEROUS-SINK' && h.file === 'src/lib/render.tsx'));
+  check('bin/test_*.js = plik testowy (bez DANGEROUS-SINK)', !Object.values(resSink).flat().some((h) => h.file === 'bin/test_tool.js'), JSON.stringify(resSink));
 } finally {
   fs.rmSync(repo, { recursive: true, force: true });
   fs.rmSync(runDir, { recursive: true, force: true });

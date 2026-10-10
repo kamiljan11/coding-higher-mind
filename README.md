@@ -2,7 +2,7 @@
 
 # Coding Higher Mind — PG (PROMPT-GUARD) for Claude Code
 
-**Version v1.5.0 — last updated 2026-10-06.** 12 public releases since 1.0.0 (2026-09-12). Every system needs time to mature: this one is young, changes fast and is honest about its limits ([known limits](pg/known-limits.md)).
+**Version v1.6.0 — last updated 2026-10-10.** 13 public releases since 1.0.0 (2026-09-12). Every system needs time to mature: this one is young, changes fast and is honest about its limits ([known limits](pg/known-limits.md)).
 
 **Quality gates, reviewer agents, routines and an anti-hallucination protocol for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Claude Desktop — enforced by events, not by willpower.**
 
@@ -31,12 +31,12 @@ This repository is that system, exported and sanitized so you can install it on 
 | **Merge with proof of review** | merging a PR (only through the script) | `bin/pg-merge-bezpieczny.py` merges without a typed phrase when all checks are green and there is proof: none for docs (T0), a code review of the exact diff (T1), code + ops (T2); T3 and sensitive paths still need the human phrase. A second proof comes from the PR review in CI (`pg-review.yml`) read through the Actions API; a kill-switch file turns it off | `bin/pg-merge-bezpieczny.py`, `bin/pg-merge-dowod.js`, `templates/repo/.github/workflows/pg-review.yml`, `pg/adr/0003-*.md` |
 | **Session notes** | end of every session (`SessionEnd`) | appends a short note (first request, changed files, commits, clipped last answer; secrets, e-mail addresses and national ID numbers redacted; phone numbers and names are not) to `~/.claude/session-notes` or `AUTO_DOC_DIR`; never blocks | `hooks/auto-doc.py` |
 | **System design** | a prompt that makes an engineering decision; step B+ of `design.md` | decision cards per building block (when it pays for itself, default "you don't need it yet", cost, how it fails, review questions with a search command), a capacity worksheet and reviewer checklists; the prompt-guard points at them | `skills/architecture-advisor/references/sd/`, `pg/design.md` |
-| **Doctrine** | loaded on the event that needs it | `design.md` (before code: PRD-lite incl. sponsor/ROI, mini-design, STRIDE-lite, ADR), `dod.md` (definition of done per tier), `prr.md` (before deploy), `postmortem.md` (incident → new gate or new scar), `paradigm.md` (functional core / imperative shell; a stranger takes the repo over in one day), `cases.md` (**168 scars** — every gate points at the real failure that created it) | `pg/` |
+| **Doctrine** | loaded on the event that needs it | `design.md` (before code: PRD-lite incl. sponsor/ROI, mini-design, STRIDE-lite, ADR), `dod.md` (definition of done per tier), `prr.md` (before deploy), `postmortem.md` (incident → new gate or new scar), `paradigm.md` (functional core / imperative shell; a stranger takes the repo over in one day), `cases.md` (**169 scars** — every gate points at the real failure that created it) | `pg/` |
 | **Repo template** | new repository | CI (`quality.yml`, mutation testing on changed files, release, optional Claude review that *skips* without a token instead of faking green), strict eslint/tsconfig, PR template with docs-parity checkbox, `docs/ARCHITECTURE.md` with a **parsed module-boundary block**, `GLOSSARY`, `RUNBOOK`, `PRIVACY`, `CRITICAL-PATHS` QA matrix, ADR template | `templates/repo/`, `bin/mas-quality-init.ps1` |
 | **Fleet tools** | on demand / scheduled | strict branch protection from workflow job names, PR merge only on an up-to-date merge-ref, single-file rollouts as PRs, production proof from the Vercel API (never a hand-typed URL), session and git-history mining, weekly guard health, monthly reviewer calibration (the same defect in two wrappers must get the same verdict) | `bin/mas_*.py`, `scheduled-tasks/` |
 | **Self-tests** | `node bin/pg-selftest.js` | every gate has a **positive** test (it must block) and the rule→gate coverage is checked by script; the README index of tools is generated from the tools' own headers (a tool without a self-description shows up as debt) | `bin/test_*.js`, `bin/pg-rule-coverage.js`, `bin/pg-map.py` |
 
-Counted, not estimated: 365 files (export of 2026-10-06); the rest as counted for 1.4.0 (2026-10-05): ~45 800 lines, 43 tools, 15 test suites, 11 hooks, 3 git hooks, 9 reviewer agents, 168 scars, 26 template files, 18 skills, 7 Claude Code routines + 7 desktop routines.
+Counted, not estimated: 371 files (export of 2026-10-10); the rest as counted for 1.4.0 (2026-10-05): ~45 800 lines, 43 tools, 15 test suites, 11 hooks, 3 git hooks, 9 reviewer agents, 169 scars, 26 template files, 18 skills, 7 Claude Code routines + 7 desktop routines.
 
 ---
 
@@ -95,7 +95,7 @@ Any red result stops the change right there. Every escape hatch is a named env v
 ## Three ideas the whole thing rests on
 
 1. **Gates, not prose.** A rule the agent can forget is not a rule. Everything that matters fires on an event (prompt, edit, command, stop, commit, push, CI) and has a test proving it blocks its own case. Rules that only exist in a document are checked by `bin/pg-rule-coverage.js` — a rule without a gate fails the audit.
-2. **Scar → gate.** `pg/cases.md` holds 168 real failures from the fleet (RLS gate on the wrong state, a fallback that silently changed the seller on an invoice, green CI on a stale merge-ref that broke `main`, a hook that read stdin twice and never ran, …). Every checklist item and every gate cites the scar it came from — the Google SRE rule. Postmortems end with a new gate or a new scar, never with "be more careful".
+2. **Scar → gate.** `pg/cases.md` holds 169 real failures from the fleet (RLS gate on the wrong state, a fallback that silently changed the seller on an invoice, green CI on a stale merge-ref that broke `main`, a hook that read stdin twice and never ran, …). Every checklist item and every gate cites the scar it came from — the Google SRE rule. Postmortems end with a new gate or a new scar, never with "be more careful".
 3. **Proof, not prose.** "Done" means a command, an exit code and an observed state. Reports end with `VERIFIED` (evidence cited) / `UNVERIFIED` (what is missing) / `FAILED` (what happened). This matters most where agents are known to overstate success (75.8 % of agent "successes" in one benchmark were claims without evidence) and to fold under pushback. See [docs/VERIFIED-PROTOCOL.md](docs/VERIFIED-PROTOCOL.md) — it is the single most useful thing to paste into any Claude Cowork or scheduled-task prompt.
 
 ---

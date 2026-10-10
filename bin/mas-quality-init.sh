@@ -37,6 +37,22 @@ for rel in "${CREATE_ONLY[@]}"; do
   if [ ! -e "$REPO/$rel" ]; then mkdir -p "$(dirname "$REPO/$rel")"; cp "$TPL/$rel" "$REPO/$rel"; echo "[+] $rel dodany"; fi
 done
 
+# Macierz obszarow od dnia 0 (pg/design.md G): 37 obszarow system design + 25 warstw stack-* — kazda do rozstrzygniecia
+# (DECYZJA / NIE TERAZ / NIE DOTYCZY). Pusty szablon, nie decyzje; CREATE-ONLY. Warstwy stack: artefakt Stack Picker.
+MATRIX="$REPO/docs/architecture/obszary.md"
+if [ ! -e "$MATRIX" ]; then
+  # najpierw szablon do zmiennej: bez node (albo blad lintera) NIE zostawiamy samego naglowka, ktorego CREATE-ONLY potem nie naprawi
+  if TABLE=$(node "$HOME/.claude/bin/sd-matrix-lint.js" --template 2>/dev/null) && [ -n "$TABLE" ]; then
+    mkdir -p "$(dirname "$MATRIX")"
+    { echo "# Macierz obszarow (pg/design.md G)"; echo
+      echo "Kazdy wiersz: DECYZJA (+Dowod: plik/ADR/komenda) / NIE TERAZ (+Sygnal powrotu z liczba) / NIE DOTYCZY (+powod)."
+      echo "Warstwy stack-*: Stack Picker (https://claude.ai/artifact/CaWzJDJ4iikuxtnh2FZooD; kopia ~/.claude/skills/architecture-advisor/assets/stack-picker.html) -> „Kopiuj wiersze do obszary.md”. Sprawdzenie: node ~/.claude/bin/sd-matrix-lint.js --repo ."; echo
+      printf '%s\n' "$TABLE"; } > "$MATRIX" && echo "[+] docs/architecture/obszary.md dodany (pusty szablon macierzy)"
+  else
+    echo "[!] docs/architecture/obszary.md NIE utworzony (brak node albo blad sd-matrix-lint) — po instalacji node uruchom init ponownie"
+  fi
+fi
+
 # eslint: istniejacej konfiguracji nie nadpisujemy: strict baseline obok jako propozycja
 if compgen -G "$REPO/eslint.config.*" > /dev/null; then
   if [ ! -e "$REPO/eslint.config.mas-strict.mjs" ]; then

@@ -1,0 +1,2271 @@
+{
+ "verified": "2026-10-10",
+ "note": "Skrot orientacyjny, nie cennik ani benchmark. „usual\" = podpowiedz floty (owner-stack.md), nie decyzja.",
+ "groups": [
+  {
+   "name": "Klient",
+   "cats": [
+    {
+     "id": "fe",
+     "name": "Frontend",
+     "ask": "Czym rysujemy interfejs i czy liczy się SEO?",
+     "usual": [
+      "Next.js",
+      "React",
+      "TanStack Start"
+     ],
+     "hard_to_reverse": false,
+     "pg": "`F.1` boring stack; Lovable tylko przy lovable-tagger.",
+     "options": [
+      {
+       "name": "Next.js",
+       "what": "React z renderowaniem na serwerze, routingiem i API w jednym.",
+       "when": "SEO + dynamiczne strony, sklep, Payload.",
+       "market": ""
+      },
+      {
+       "name": "React",
+       "what": "Biblioteka UI; u nas zwykle jako SPA na Vite.",
+       "when": "Panel/aplikacja za logowaniem, gdzie SEO nie gra roli.",
+       "market": ""
+      },
+      {
+       "name": "TanStack Start",
+       "what": "Full-stack React na typowanym TanStack Router.",
+       "when": "SSR i typowany routing bez Next.js (tak działa kamiljan.com).",
+       "market": ""
+      },
+      {
+       "name": "Vue",
+       "what": "Framework UI o łagodnej krzywej nauki, alternatywa dla React.",
+       "when": "Klient albo jego zespół już pracuje w Vue.",
+       "market": ""
+      },
+      {
+       "name": "Svelte",
+       "what": "Kompilowany framework, mało JS w paczce.",
+       "when": "Lekkie, bardzo szybkie widgety; słabe telefony użytkowników.",
+       "market": ""
+      },
+      {
+       "name": "Astro",
+       "what": "Strony treściowe, domyślnie zero JS, interaktywne „wyspy”.",
+       "when": "Blog, landing, dokumentacja: najszybsza strona z treścią.",
+       "market": ""
+      },
+      {
+       "name": "SolidJS",
+       "what": "Reaktywność bez wirtualnego DOM, składnia jak JSX.",
+       "when": "Rzadko; gdy liczy się ekstremalna wydajność UI.",
+       "market": ""
+      },
+      {
+       "name": "Angular",
+       "what": "Pełny framework Google z TypeScript i DI.",
+       "when": "Klient korporacyjny ze standardem Angular.",
+       "market": ""
+      },
+      {
+       "name": "Remix",
+       "what": "React oparty na formularzach i loaderach; dziś rozwijany jako React Router 7.",
+       "when": "Aplikacje mocno formularzowe, progressive enhancement.",
+       "market": ""
+      },
+      {
+       "name": "Nuxt",
+       "what": "Odpowiednik Next.js dla Vue.",
+       "when": "Vue + SSR/SEO.",
+       "market": ""
+      },
+      {
+       "name": "Blazor",
+       "what": "UI pisane w C# (.NET), bez JavaScriptu.",
+       "when": "Klient z zespołem .NET, który przejmie kod.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "ui",
+     "name": "Styling / UI",
+     "ask": "Skąd komponenty i tokeny designu?",
+     "usual": [
+      "Tailwind CSS"
+     ],
+     "hard_to_reverse": false,
+     "pg": "Design system = tokeny; skill `design-styles`.",
+     "options": [
+      {
+       "name": "Tailwind CSS",
+       "what": "Klasy użytkowe CSS pisane w markupie.",
+       "when": "Domyślnie we flocie (Tailwind 4).",
+       "market": ""
+      },
+      {
+       "name": "shadcn/ui",
+       "what": "Komponenty kopiowane do repo (Radix + Tailwind), nie zależność.",
+       "when": "Szybki własny design system; częste w kodzie z Lovable.",
+       "market": ""
+      },
+      {
+       "name": "Radix UI",
+       "what": "Dostępne prymitywy bez stylu (dialog, menu, tabs).",
+       "when": "Własne komponenty z porządnym a11y.",
+       "market": ""
+      },
+      {
+       "name": "Chakra UI",
+       "what": "Gotowe komponenty stylowane propsami.",
+       "when": "Szybki panel bez Tailwinda.",
+       "market": ""
+      },
+      {
+       "name": "Mantine",
+       "what": "Duża biblioteka komponentów + hooki (daty, formularze, tabele).",
+       "when": "Panel admina z dużą ilością formularzy i tabel.",
+       "market": ""
+      },
+      {
+       "name": "MUI",
+       "what": "Komponenty Material Design (Google), DataGrid.",
+       "when": "Klient chce wygląd Material albo gotową zaawansowaną tabelę.",
+       "market": ""
+      },
+      {
+       "name": "Bootstrap",
+       "what": "Klasyczny framework CSS z komponentami.",
+       "when": "Stare projekty i gotowe szablony.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "mobile",
+     "name": "Aplikacja mobilna",
+     "ask": "Czy użytkownik potrzebuje aplikacji ze sklepu, czy wystarczy strona?",
+     "usual": [
+      "PWA"
+     ],
+     "hard_to_reverse": false,
+     "pg": "Karta `sd/04`: offline, push, wersjonowanie API pod stare aplikacje.",
+     "options": [
+      {
+       "name": "PWA",
+       "what": "Strona instalowana na ekranie, push i offline w przeglądarce.",
+       "when": "Najpierw to: zero sklepów, jeden kod z webem.",
+       "market": ""
+      },
+      {
+       "name": "React Native (Expo)",
+       "what": "Natywna aplikacja w React/TS, wspólna logika z webem.",
+       "when": "Potrzebny sklep, aparat, tło, płynny natywny UI.",
+       "market": ""
+      },
+      {
+       "name": "Flutter",
+       "what": "Aplikacja w Dart z własnym silnikiem rysowania.",
+       "when": "Zespół klienta zna Flutter; identyczny UI na iOS i Android.",
+       "market": ""
+      },
+      {
+       "name": "Capacitor",
+       "what": "Opakowanie aplikacji web w natywną skorupę.",
+       "when": "Istniejąca aplikacja web ma trafić do sklepu małym kosztem.",
+       "market": ""
+      },
+      {
+       "name": "Swift / Kotlin",
+       "what": "Osobne natywne aplikacje.",
+       "when": "Wymagające funkcje sprzętowe albo zespół natywny klienta.",
+       "market": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "Serwer",
+   "cats": [
+    {
+     "id": "rt",
+     "name": "Runtime",
+     "ask": "W czym działa logika serwera?",
+     "usual": [
+      "Node.js",
+      "Deno"
+     ],
+     "hard_to_reverse": false,
+     "pg": "Edge Functions nie deployują się z gita (`prr.md`).",
+     "options": [
+      {
+       "name": "Node.js",
+       "what": "Standardowy runtime JavaScript/TypeScript na serwerze.",
+       "when": "Domyślnie (Next, Payload, skrypty).",
+       "market": ""
+      },
+      {
+       "name": "Bun",
+       "what": "Szybki runtime + bundler + test runner, zgodny z Node.",
+       "when": "Szybsze skrypty i testy; nowe narzędzia CLI.",
+       "market": ""
+      },
+      {
+       "name": "Deno",
+       "what": "Runtime TS z uprawnieniami; na nim działają Supabase Edge Functions.",
+       "when": "Webhooki, płatności, integracje w Supabase.",
+       "market": ""
+      },
+      {
+       "name": "Python (FastAPI)",
+       "what": "API w Pythonie z typami przez Pydantic.",
+       "when": "ML/AI, OCR, pandas: biblioteki, które są tylko w Pythonie.",
+       "market": ""
+      },
+      {
+       "name": "Go",
+       "what": "Kompilowany, mało pamięci, prosta współbieżność.",
+       "when": "Wydajny worker/serwis, CLI, tysiące połączeń.",
+       "market": ""
+      },
+      {
+       "name": "Ruby on Rails",
+       "what": "Full-stack Ruby z mocnymi konwencjami.",
+       "when": "Przejmujesz kod klienta w Rails.",
+       "market": ""
+      },
+      {
+       "name": "Elixir / Phoenix",
+       "what": "Maszyna BEAM: ogromna liczba równoległych połączeń, LiveView.",
+       "when": "Realtime na dużą skalę (czaty, powiadomienia na żywo).",
+       "market": ""
+      },
+      {
+       "name": "NestJS",
+       "what": "Backend Node z modułami i DI (styl Angulara).",
+       "when": "Duży backend Node z kilkoma programistami.",
+       "market": ""
+      },
+      {
+       "name": "Hono",
+       "what": "Mały framework HTTP na edge (Workers, Deno, Bun).",
+       "when": "API na Cloudflare Workers albo w Edge Functions.",
+       "market": ""
+      },
+      {
+       "name": "ASP.NET Core (.NET)",
+       "what": "Backend w C#/.NET.",
+       "when": "Ekosystem Microsoft u klienta.",
+       "market": ""
+      },
+      {
+       "name": "Spring Boot",
+       "what": "Backend w Javie (JVM).",
+       "when": "Bank/korporacja ze standardem Java.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "host",
+     "name": "Compute / Hosting",
+     "ask": "Gdzie działa kod i w jakim regionie leżą dane?",
+     "usual": [
+      "Vercel"
+     ],
+     "hard_to_reverse": true,
+     "pg": "Region i DR = drzwi jednokierunkowe (`sd-areas: koszt-region`).",
+     "options": [
+      {
+       "name": "Vercel",
+       "what": "Hosting frontu i funkcji, preview per PR.",
+       "when": "Domyślnie.",
+       "market": ""
+      },
+      {
+       "name": "AWS EC2",
+       "what": "Własna maszyna wirtualna w AWS.",
+       "when": "Długie procesy, specyficzny soft, pełna kontrola.",
+       "market": ""
+      },
+      {
+       "name": "AWS Lambda",
+       "what": "Funkcje uruchamiane zdarzeniem, płatne za wywołanie.",
+       "when": "Klient na AWS; zdarzenia z S3/SQS.",
+       "market": ""
+      },
+      {
+       "name": "Google Cloud Run",
+       "what": "Kontener skalowany do zera.",
+       "when": "Python/Go w kontenerze, dłuższe requesty niż serverless.",
+       "market": ""
+      },
+      {
+       "name": "Azure App Service",
+       "what": "Hosting aplikacji web w Azure.",
+       "when": "Klient z umową Microsoft/Azure.",
+       "market": ""
+      },
+      {
+       "name": "Azure Functions",
+       "what": "Serverless w Azure.",
+       "when": "Zdarzenia i integracje w ekosystemie Microsoft 365.",
+       "market": ""
+      },
+      {
+       "name": "Cloudflare Workers",
+       "what": "Kod na brzegu sieci blisko użytkownika.",
+       "when": "Globalny ruch, proxy/API, tani przy dużej liczbie requestów.",
+       "market": ""
+      },
+      {
+       "name": "Fly.io",
+       "what": "Kontenery/maszyny w wybranych regionach blisko użytkownika.",
+       "when": "WebSockety, stan w pamięci, region w Europie.",
+       "market": ""
+      },
+      {
+       "name": "Railway",
+       "what": "PaaS: repo → serwis + baza w kilka kliknięć.",
+       "when": "Worker, cron albo kontener, którego Vercel nie uciągnie.",
+       "market": ""
+      },
+      {
+       "name": "Render",
+       "what": "PaaS w stylu Heroku: web, workery, cron, Postgres.",
+       "when": "Proste background workery i usługi długo działające.",
+       "market": ""
+      },
+      {
+       "name": "Netlify",
+       "what": "Hosting Jamstack, alternatywa dla Vercel.",
+       "when": "Statyczne strony, wbudowane formularze.",
+       "market": ""
+      },
+      {
+       "name": "DigitalOcean",
+       "what": "Tanie VPS + App Platform.",
+       "when": "Przewidywalny miesięczny koszt, własny serwer.",
+       "market": ""
+      },
+      {
+       "name": "Hetzner",
+       "what": "Europejskie serwery i VPS, dane w UE, niski koszt.",
+       "when": "Własny serwer w UE: workery, self-host (n8n, Infisical), RODO.",
+       "market": "EU"
+      },
+      {
+       "name": "OVHcloud",
+       "what": "Europejska chmura i serwery, w tym regiony w Polsce.",
+       "when": "Klient wymaga danych w Polsce/UE albo chmury europejskiej.",
+       "market": "PL"
+      }
+     ]
+    },
+    {
+     "id": "auth",
+     "name": "Auth",
+     "ask": "Kto się loguje, czym i czy są organizacje/role?",
+     "usual": [
+      "Supabase Auth",
+      "Payload auth"
+     ],
+     "hard_to_reverse": true,
+     "pg": "T3 zawsze; `security-reviewer` + RLS od dnia 0.",
+     "options": [
+      {
+       "name": "Clerk",
+       "what": "Gotowe ekrany logowania, organizacje, MFA.",
+       "when": "B2B SaaS z organizacjami i gotowym UI, gdy nie ma Supabase.",
+       "market": ""
+      },
+      {
+       "name": "Auth0",
+       "what": "Platforma tożsamości enterprise (Okta).",
+       "when": "Klient wymaga SSO/SAML i compliance.",
+       "market": ""
+      },
+      {
+       "name": "Supabase Auth",
+       "what": "Logowanie zintegrowane z RLS w Postgres.",
+       "when": "Domyślnie.",
+       "market": ""
+      },
+      {
+       "name": "NextAuth / Auth.js",
+       "what": "Biblioteka OAuth dla Next; dane zostają u ciebie.",
+       "when": "Logowanie Google/GitHub bez dostawcy auth.",
+       "market": ""
+      },
+      {
+       "name": "WorkOS",
+       "what": "SSO SAML i SCIM dla klientów enterprise.",
+       "when": "Sprzedajesz SaaS firmom, które żądają SSO.",
+       "market": ""
+      },
+      {
+       "name": "Firebase Auth",
+       "what": "Auth z ekosystemu Firebase.",
+       "when": "Aplikacja mobilna na Firebase.",
+       "market": ""
+      },
+      {
+       "name": "Better Auth",
+       "what": "Open-source biblioteka auth w TS z pluginami (2FA, organizacje).",
+       "when": "Własne auth w swojej bazie bez uzależnienia od dostawcy.",
+       "market": ""
+      },
+      {
+       "name": "AWS Cognito",
+       "what": "Tożsamość w AWS.",
+       "when": "Klient w pełni na AWS.",
+       "market": ""
+      },
+      {
+       "name": "Microsoft Entra ID",
+       "what": "Konta firmowe Microsoft (dawne Azure AD).",
+       "when": "Pracownicy klienta logują się kontem Microsoft 365.",
+       "market": ""
+      },
+      {
+       "name": "Payload auth",
+       "what": "Konta i role wbudowane w Payload CMS.",
+       "when": "Sklep/panel na Payload.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "ai",
+     "name": "AI / LLM",
+     "ask": "Czy produkt ma część AI, i jaki ma limit kosztu?",
+     "usual": [
+      "Anthropic Claude",
+      "Vercel AI SDK"
+     ],
+     "hard_to_reverse": false,
+     "pg": "Model per krok: skill `model-router`; cap kosztu per organizacja.",
+     "options": [
+      {
+       "name": "Anthropic Claude",
+       "what": "Modele Claude (Haiku/Sonnet/Opus).",
+       "when": "Domyślnie.",
+       "market": ""
+      },
+      {
+       "name": "OpenAI",
+       "what": "Modele GPT, embeddingi, mowa (Whisper, TTS).",
+       "when": "Transkrypcja/głos albo konkretny model.",
+       "market": ""
+      },
+      {
+       "name": "Vercel AI Gateway",
+       "what": "Jeden endpoint do wielu dostawców z fallbackiem i limitami.",
+       "when": "Przełączanie modeli bez zmiany kodu, jeden rachunek.",
+       "market": ""
+      },
+      {
+       "name": "Google Gemini",
+       "what": "Modele Google z długim kontekstem i multimodalnością.",
+       "when": "Dużo wideo/PDF w jednym zapytaniu, niski koszt.",
+       "market": ""
+      },
+      {
+       "name": "Replicate",
+       "what": "Modele open-source (obraz, audio, wideo) przez API.",
+       "when": "Konkretny model OSS bez własnego GPU.",
+       "market": ""
+      },
+      {
+       "name": "Together AI",
+       "what": "Hosting otwartych modeli (Llama, Qwen) + fine-tuning.",
+       "when": "Otwarty model albo dostrojenie na własnych danych.",
+       "market": ""
+      },
+      {
+       "name": "Groq",
+       "what": "Bardzo szybka inferencja na własnych układach.",
+       "when": "Niski czas odpowiedzi, np. agent głosowy.",
+       "market": ""
+      },
+      {
+       "name": "Vercel AI SDK",
+       "what": "Biblioteka TS do LLM: streaming, narzędzia, wielu dostawców.",
+       "when": "Domyślnie w produktach z AI.",
+       "market": ""
+      },
+      {
+       "name": "Mistral",
+       "what": "Europejski dostawca modeli (Francja), także modele otwarte.",
+       "when": "Klient wymaga dostawcy z UE albo modelu do self-hostu.",
+       "market": "EU"
+      }
+     ]
+    },
+    {
+     "id": "rtm",
+     "name": "Realtime",
+     "ask": "Czy ktoś musi widzieć zmiany bez odświeżania?",
+     "usual": [
+      "Supabase Realtime"
+     ],
+     "hard_to_reverse": false,
+     "pg": "Karta `sd/01` stateful vs stateless; WebSocket = osobny koszt i limity.",
+     "options": [
+      {
+       "name": "Supabase Realtime",
+       "what": "Zmiany z Postgres i kanały broadcast przez WebSocket.",
+       "when": "Domyślnie: powiadomienia, statusy, prosty czat.",
+       "market": ""
+      },
+      {
+       "name": "Ably",
+       "what": "Zarządzane kanały realtime z gwarancjami dostarczenia.",
+       "when": "Duża liczba połączeń, historia wiadomości, SLA.",
+       "market": ""
+      },
+      {
+       "name": "Pusher",
+       "what": "Proste kanały realtime jako usługa.",
+       "when": "Szybkie powiadomienia na żywo bez własnego serwera.",
+       "market": ""
+      },
+      {
+       "name": "Liveblocks",
+       "what": "Współdzielona edycja i obecność użytkowników.",
+       "when": "Wspólna edycja dokumentu/tablicy, kursory innych.",
+       "market": ""
+      },
+      {
+       "name": "Polling",
+       "what": "Okresowe odpytywanie API.",
+       "when": "Zmiany co minuty, nie sekundy: najtańsze i najprostsze.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "jobs",
+     "name": "Joby / automatyzacja",
+     "ask": "Co dzieje się poza requestem: cron, kolejka, długie zadania?",
+     "usual": [
+      "Edge Function + cron",
+      "n8n"
+     ],
+     "hard_to_reverse": false,
+     "pg": "n8n tylko wewnętrznie; produkcja klienta = kod w repo z testami.",
+     "options": [
+      {
+       "name": "Edge Function + cron",
+       "what": "Kod w Supabase wywoływany harmonogramem (pg_cron).",
+       "when": "Domyślnie dla produkcji klienta.",
+       "market": ""
+      },
+      {
+       "name": "Inngest",
+       "what": "Funkcje sterowane zdarzeniami z ponawianiem i krokami.",
+       "when": "Wieloetapowe procesy w tle z retry, bez własnej kolejki.",
+       "market": ""
+      },
+      {
+       "name": "Trigger.dev",
+       "what": "Długie zadania w tle w TS (open source).",
+       "when": "Importy, generowanie raportów dłuższe niż limit funkcji.",
+       "market": ""
+      },
+      {
+       "name": "QStash (Upstash)",
+       "what": "Kolejka HTTP z opóźnieniem i ponawianiem.",
+       "when": "Proste opóźnione wywołania i webhooki z retry.",
+       "market": ""
+      },
+      {
+       "name": "GitHub Actions cron",
+       "what": "Zadanie cykliczne w CI.",
+       "when": "Raporty i joby bez bazy.",
+       "market": ""
+      },
+      {
+       "name": "n8n",
+       "what": "Automatyzacje wizualne, self-host.",
+       "when": "Domyślnie dla pracy wewnętrznej.",
+       "market": ""
+      },
+      {
+       "name": "Zapier",
+       "what": "Automatyzacje SaaS dla nietechnicznych.",
+       "when": "Klient sam ma utrzymywać automatyzację.",
+       "market": ""
+      },
+      {
+       "name": "Make",
+       "what": "Wizualne scenariusze automatyzacji.",
+       "when": "Jak Zapier, tańszy przy wielu krokach.",
+       "market": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "Dane",
+   "cats": [
+    {
+     "id": "db",
+     "name": "Database",
+     "ask": "Gdzie leżą dane i jaki mają kształt?",
+     "usual": [
+      "Supabase"
+     ],
+     "hard_to_reverse": true,
+     "pg": "Nowa tabela = ADR; migracje dwuetapowe (`design.md B.4`).",
+     "options": [
+      {
+       "name": "PostgreSQL",
+       "what": "Sama baza (self-host albo zarządzana, np. RDS).",
+       "when": "Gdy potrzebujesz tylko bazy, bez platformy.",
+       "market": ""
+      },
+      {
+       "name": "Neon",
+       "what": "Serverless Postgres z gałęzią bazy na każdy PR.",
+       "when": "Skalowanie do zera albo gdy Supabase Branching (płatny) nie pasuje — najpierw sprawdź Branching.",
+       "market": ""
+      },
+      {
+       "name": "Supabase",
+       "what": "Postgres + Auth + Storage + Edge Functions + Realtime.",
+       "when": "Domyślnie.",
+       "market": ""
+      },
+      {
+       "name": "PlanetScale",
+       "what": "Zarządzana baza na Vitess, zmiany schematu przez gałęzie.",
+       "when": "Duża skala zapisu, zespół MySQL.",
+       "market": ""
+      },
+      {
+       "name": "MySQL",
+       "what": "Klasyczna relacyjna baza.",
+       "when": "WordPress albo system klienta na MySQL.",
+       "market": ""
+      },
+      {
+       "name": "MongoDB",
+       "what": "Dokumentowa baza NoSQL.",
+       "when": "Dane o bardzo zmiennym kształcie (zwykle wystarczy JSONB w Postgres).",
+       "market": ""
+      },
+      {
+       "name": "Firebase",
+       "what": "Backend Google: Firestore z realtime i trybem offline.",
+       "when": "Aplikacja mobilna z synchronizacją offline.",
+       "market": ""
+      },
+      {
+       "name": "DynamoDB",
+       "what": "Klucz-wartość AWS w dowolnej skali.",
+       "when": "Znany z góry wzorzec dostępu, ogromna skala na AWS.",
+       "market": ""
+      },
+      {
+       "name": "Convex",
+       "what": "Reaktywny backend: baza + funkcje TS + zapytania na żywo.",
+       "when": "Współdzielony stan na żywo (tablica, czat) bez pisania synchronizacji.",
+       "market": ""
+      },
+      {
+       "name": "Turso",
+       "what": "Rozproszony SQLite (libSQL), replika blisko użytkownika.",
+       "when": "Osobna baza na klienta, edge, tanio.",
+       "market": ""
+      },
+      {
+       "name": "Redis",
+       "what": "Szybka pamięć klucz-wartość.",
+       "when": "Cache, rate limit, kolejki, sesje (np. Upstash serverless).",
+       "market": ""
+      },
+      {
+       "name": "SQL Server",
+       "what": "Relacyjna baza Microsoft.",
+       "when": "System klienta na Microsoft.",
+       "market": ""
+      },
+      {
+       "name": "Azure SQL",
+       "what": "SQL Server jako usługa w Azure.",
+       "when": "Klient w Azure.",
+       "market": ""
+      },
+      {
+       "name": "Cosmos DB",
+       "what": "Globalnie rozproszona NoSQL w Azure.",
+       "when": "Dane w wielu regionach świata u klienta w Azure.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "orm",
+     "name": "ORM / Data Layer",
+     "ask": "Jak kod rozmawia z bazą i kto pilnuje uprawnień?",
+     "usual": [
+      "supabase-js",
+      "Payload Local API"
+     ],
+     "hard_to_reverse": false,
+     "pg": "Payload Local API domyślnie omija `access`.",
+     "options": [
+      {
+       "name": "Prisma",
+       "what": "ORM ze schematem, migracjami i generowanym klientem.",
+       "when": "Zespół woli podejście schema-first, dużo relacji.",
+       "market": ""
+      },
+      {
+       "name": "Drizzle",
+       "what": "Lekki ORM TS blisko SQL, działa na edge.",
+       "when": "Typowane zapytania bez ciężkiego runtime.",
+       "market": ""
+      },
+      {
+       "name": "Kysely",
+       "what": "Typowany query builder SQL.",
+       "when": "SQL z typami, bez ORM.",
+       "market": ""
+      },
+      {
+       "name": "TypeORM",
+       "what": "ORM z dekoratorami (styl Javy).",
+       "when": "Przejmowany kod NestJS.",
+       "market": ""
+      },
+      {
+       "name": "Sequelize",
+       "what": "Starszy ORM dla Node.",
+       "when": "Przejmowany stary kod.",
+       "market": ""
+      },
+      {
+       "name": "Raw SQL",
+       "what": "Ręcznie pisany SQL, funkcje i widoki Postgres.",
+       "when": "Raporty, złożone zapytania, logika w bazie.",
+       "market": ""
+      },
+      {
+       "name": "Entity Framework Core",
+       "what": "ORM dla .NET.",
+       "when": "Backend w ASP.NET Core.",
+       "market": ""
+      },
+      {
+       "name": "supabase-js",
+       "what": "Klient Supabase; z kluczem anon/JWT użytkownika zapytania przechodzą przez RLS, z service_role RLS jest OMIJANY (filtr org_id w kodzie).",
+       "when": "Domyślnie.",
+       "market": ""
+      },
+      {
+       "name": "Payload Local API",
+       "what": "Zapytania przez Payload na serwerze.",
+       "when": "Sklep/panel na Payload.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "blob",
+     "name": "File / Blob Storage",
+     "ask": "Czy są pliki użytkowników i kto może je pobrać?",
+     "usual": [
+      "Supabase Storage"
+     ],
+     "hard_to_reverse": true,
+     "pg": "Bucket i ścieżki = `one_way` w macierzy obszarów.",
+     "options": [
+      {
+       "name": "AWS S3",
+       "what": "Standard magazynu obiektowego.",
+       "when": "Duża skala, ekosystem AWS.",
+       "market": ""
+      },
+      {
+       "name": "Vercel Blob",
+       "what": "Pliki hostowane w Vercel.",
+       "when": "Mała aplikacja bez Supabase.",
+       "market": ""
+      },
+      {
+       "name": "Cloudflare R2",
+       "what": "Magazyn zgodny z S3 bez opłat za transfer wychodzący.",
+       "when": "Dużo pobrań: wideo, galerie, pliki do ściągnięcia.",
+       "market": ""
+      },
+      {
+       "name": "Google Cloud Storage",
+       "what": "Magazyn obiektowy GCP.",
+       "when": "Klient w Google Cloud.",
+       "market": ""
+      },
+      {
+       "name": "Azure Blob",
+       "what": "Magazyn obiektowy Azure.",
+       "when": "Klient w Azure.",
+       "market": ""
+      },
+      {
+       "name": "UploadThing",
+       "what": "Upload plików dla React/Next z gotowym UI.",
+       "when": "Szybki upload bez konfigurowania S3.",
+       "market": ""
+      },
+      {
+       "name": "Supabase Storage",
+       "what": "Pliki z politykami RLS obok bazy.",
+       "when": "Domyślnie.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "search",
+     "name": "Search",
+     "ask": "Czy użytkownik czegoś szuka, i ile tego jest?",
+     "usual": [
+      "Postgres FTS",
+      "pgvector"
+     ],
+     "hard_to_reverse": false,
+     "pg": "FTS → pgvector → dopiero osobny silnik (`owner-stack`).",
+     "options": [
+      {
+       "name": "Algolia",
+       "what": "Hostowane wyszukiwanie natychmiastowe z merchandisingiem.",
+       "when": "Sklep z dużym katalogiem, klient płaci za jakość.",
+       "market": ""
+      },
+      {
+       "name": "Meilisearch",
+       "what": "Open-source, tolerancja literówek, prosty self-host.",
+       "when": "Katalog z literówkami i filtrami, tanio.",
+       "market": ""
+      },
+      {
+       "name": "Typesense",
+       "what": "Open-source alternatywa dla Algolii.",
+       "when": "Jak Meilisearch; wybór według potrzebnych funkcji.",
+       "market": ""
+      },
+      {
+       "name": "Elastic",
+       "what": "Pełny silnik wyszukiwania i analityki logów.",
+       "when": "Ogromne zbiory danych, analityka logów.",
+       "market": ""
+      },
+      {
+       "name": "Postgres FTS",
+       "what": "Pełnotekstowe szukanie w Postgres (+ pg_trgm, unaccent; polski słownik wymaga konfiguracji).",
+       "when": "Domyślnie.",
+       "market": ""
+      },
+      {
+       "name": "pgvector",
+       "what": "Embeddingi i wyszukiwanie semantyczne w Postgres.",
+       "when": "Domyślnie dla RAG.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "cms",
+     "name": "CMS / Content",
+     "ask": "Kto i jak często zmienia treści?",
+     "usual": [
+      "Payload",
+      "Tabela w Supabase"
+     ],
+     "hard_to_reverse": false,
+     "pg": "To, co zmienia klient, ma być danymi, nie kodem.",
+     "options": [
+      {
+       "name": "Sanity",
+       "what": "Headless CMS, edycja na żywo, wielu redaktorów.",
+       "when": "Zespół marketingu klienta edytuje dużo treści.",
+       "market": ""
+      },
+      {
+       "name": "Contentful",
+       "what": "Headless CMS enterprise.",
+       "when": "Korporacja ze standardem Contentful.",
+       "market": ""
+      },
+      {
+       "name": "Payload",
+       "what": "CMS w kodzie (TS) na Postgres, panel admina.",
+       "when": "Domyślnie dla sklepu/panelu treści.",
+       "market": ""
+      },
+      {
+       "name": "Strapi",
+       "what": "Open-source headless CMS do self-hostingu.",
+       "when": "Panel treści na własnym serwerze.",
+       "market": ""
+      },
+      {
+       "name": "Notion",
+       "what": "Notion jako źródło treści przez API.",
+       "when": "Klient już pisze wszystko w Notion.",
+       "market": ""
+      },
+      {
+       "name": "Markdown / MDX",
+       "what": "Treść w plikach w repo.",
+       "when": "Blog dewelopera, dokumentacja.",
+       "market": ""
+      },
+      {
+       "name": "Tabela w Supabase",
+       "what": "Treści jako wiersze w bazie + prosty formularz.",
+       "when": "Domyślnie dla prostych stron.",
+       "market": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "Operacje",
+   "cats": [
+    {
+     "id": "mon",
+     "name": "Monitoring / APM",
+     "ask": "Skąd dowiemy się o błędzie przed klientem?",
+     "usual": [
+      "Sentry"
+     ],
+     "hard_to_reverse": false,
+     "pg": "Sentry od dnia 0; brak = finding (`fleet-status`).",
+     "options": [
+      {
+       "name": "Sentry",
+       "what": "Błędy + wydajność + nagrania sesji.",
+       "when": "Domyślnie od dnia 0.",
+       "market": ""
+      },
+      {
+       "name": "Datadog",
+       "what": "Pełna obserwowalność enterprise: logi, metryki, APM.",
+       "when": "Duża infrastruktura, klient płaci.",
+       "market": ""
+      },
+      {
+       "name": "New Relic",
+       "what": "APM i obserwowalność enterprise.",
+       "when": "Klient ma już New Relic.",
+       "market": ""
+      },
+      {
+       "name": "AWS CloudWatch",
+       "what": "Logi i metryki AWS.",
+       "when": "Aplikacja na AWS.",
+       "market": ""
+      },
+      {
+       "name": "Google Cloud Monitoring",
+       "what": "Logi i metryki GCP.",
+       "when": "Aplikacja na Cloud Run/GCP.",
+       "market": ""
+      },
+      {
+       "name": "Grafana",
+       "what": "Dashboardy (+ Loki na logi, Tempo na trace'y).",
+       "when": "Własne metryki, self-host.",
+       "market": ""
+      },
+      {
+       "name": "Prometheus",
+       "what": "Zbieranie metryk, zwykle z Grafaną.",
+       "when": "Własne serwery i kontenery.",
+       "market": ""
+      },
+      {
+       "name": "Honeycomb",
+       "what": "Trace'y i zdarzenia o wysokiej kardynalności.",
+       "when": "Debugowanie systemu z wieloma usługami.",
+       "market": ""
+      },
+      {
+       "name": "Axiom",
+       "what": "Tanie przechowywanie logów i zdarzeń, integracja z Vercel.",
+       "when": "Długie trzymanie logów z Vercel/edge.",
+       "market": ""
+      },
+      {
+       "name": "Better Stack",
+       "what": "Uptime + logi + strona statusu + dyżury.",
+       "when": "Monitoring dostępności i publiczna strona statusu dla klienta.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "pa",
+     "name": "Product Analytics",
+     "ask": "Jaką metrykę z PRD-lite mierzymy i jakim eventem?",
+     "usual": [],
+     "hard_to_reverse": false,
+     "pg": "PRD-lite `A.4` wymaga metryki i eventu; flota nie ma tu domyślnego narzędzia.",
+     "options": [
+      {
+       "name": "PostHog",
+       "what": "Analityka produktu + nagrania sesji + feature flagi + A/B; open source, hosting w EU.",
+       "when": "Pierwszy kandydat: jedna paczka zamiast czterech narzędzi.",
+       "market": ""
+      },
+      {
+       "name": "Amplitude",
+       "what": "Lejki, kohorty, retencja na poziomie enterprise.",
+       "when": "Duży produkt z zespołem analityków.",
+       "market": ""
+      },
+      {
+       "name": "Mixpanel",
+       "what": "Analityka zdarzeń i lejków.",
+       "when": "Klasyczne lejki konwersji.",
+       "market": ""
+      },
+      {
+       "name": "Heap",
+       "what": "Automatycznie zbiera kliknięcia bez ręcznego trackingu.",
+       "when": "Nie wiesz jeszcze, co mierzyć.",
+       "market": ""
+      },
+      {
+       "name": "June",
+       "what": "Analityka dla B2B SaaS (sprawdź aktualny status projektu).",
+       "when": "Raporty per firma-klient.",
+       "market": ""
+      },
+      {
+       "name": "Statsig",
+       "what": "Feature flagi i eksperymenty z analityką.",
+       "when": "Dużo testów A/B.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "wa",
+     "name": "Web Analytics",
+     "ask": "Czy liczymy ruch na stronie, i czy wymaga to zgody cookie?",
+     "usual": [],
+     "hard_to_reverse": false,
+     "pg": "GA wymaga zgody cookie (RODO); bez cookies = prostszy baner.",
+     "options": [
+      {
+       "name": "Vercel Analytics",
+       "what": "Odsłony i Web Vitals wbudowane w Vercel.",
+       "when": "Strona na Vercel, minimum konfiguracji.",
+       "market": ""
+      },
+      {
+       "name": "Google Analytics",
+       "what": "Darmowa, pełna analityka; cookies i zgoda RODO.",
+       "when": "Klient prowadzi Google Ads.",
+       "market": ""
+      },
+      {
+       "name": "Plausible",
+       "what": "Lekka analityka bez cookies, z EU, open source.",
+       "when": "Strona klienta z prostszym RODO.",
+       "market": "EU"
+      },
+      {
+       "name": "Fathom",
+       "what": "Prywatna, płatna analityka bez cookies.",
+       "when": "Jak Plausible, inny dostawca.",
+       "market": ""
+      },
+      {
+       "name": "Simple Analytics",
+       "what": "Prywatna analityka z EU.",
+       "when": "Jak Plausible, inny dostawca.",
+       "market": "EU"
+      },
+      {
+       "name": "Umami",
+       "what": "Open-source analityka bez cookies do self-hostu.",
+       "when": "Dane analityczne na własnym serwerze.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "ci",
+     "name": "CI / CD",
+     "ask": "Jak kod trafia na produkcję i co go zatrzymuje?",
+     "usual": [
+      "GitHub Actions",
+      "Vercel Deploys"
+     ],
+     "hard_to_reverse": false,
+     "pg": "`quality.yml` + ochrona main; czerwone = brak merge.",
+     "options": [
+      {
+       "name": "GitHub Actions",
+       "what": "CI w GitHub.",
+       "when": "Domyślnie.",
+       "market": ""
+      },
+      {
+       "name": "Vercel Deploys",
+       "what": "Deploy i preview na każdy push.",
+       "when": "Domyślnie.",
+       "market": ""
+      },
+      {
+       "name": "CircleCI",
+       "what": "CI jako usługa z mocnym cache.",
+       "when": "Długie buildy, klient już używa.",
+       "market": ""
+      },
+      {
+       "name": "GitLab CI",
+       "what": "CI wbudowane w GitLab.",
+       "when": "Kod klienta na GitLabie.",
+       "market": ""
+      },
+      {
+       "name": "Buildkite",
+       "what": "CI z własnymi runnerami.",
+       "when": "Duże monorepo, własna infrastruktura.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "sec",
+     "name": "Sekrety",
+     "ask": "Gdzie żyją klucze i kto je rotuje?",
+     "usual": [
+      "Infisical",
+      "Vercel env"
+     ],
+     "hard_to_reverse": false,
+     "pg": "Nigdy w kodzie; most `infisical`.",
+     "options": [
+      {
+       "name": "Infisical",
+       "what": "Menedżer sekretów (self-host albo chmura).",
+       "when": "Domyślnie.",
+       "market": ""
+      },
+      {
+       "name": "Vercel env",
+       "what": "Zmienne środowiskowe projektu w Vercel.",
+       "when": "Domyślnie dla produkcji.",
+       "market": ""
+      },
+      {
+       "name": "Doppler",
+       "what": "Menedżer sekretów jako usługa.",
+       "when": "Klient chce SaaS zamiast self-host.",
+       "market": ""
+      },
+      {
+       "name": "1Password",
+       "what": "Sekrety w 1Password (CLI, Secrets Automation).",
+       "when": "Zespół klienta już używa 1Password.",
+       "market": ""
+      },
+      {
+       "name": "AWS Secrets Manager",
+       "what": "Sekrety z rotacją w AWS.",
+       "when": "Aplikacja na AWS.",
+       "market": ""
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "Biznes i rynek",
+   "cats": [
+    {
+     "id": "mail",
+     "name": "Transactional Email",
+     "ask": "Jakie maile wysyła system i z jakiej domeny?",
+     "usual": [
+      "Resend"
+     ],
+     "hard_to_reverse": false,
+     "pg": "SPF/DKIM/DMARC na domenie; dostawca = ADR (`design.md E`).",
+     "options": [
+      {
+       "name": "Resend",
+       "what": "Proste API e-mail + szablony React Email.",
+       "when": "Domyślnie.",
+       "market": ""
+      },
+      {
+       "name": "Postmark",
+       "what": "Nastawiony na dostarczalność wiadomości transakcyjnych.",
+       "when": "Krytyczne maile (reset hasła, faktury) muszą dojść.",
+       "market": ""
+      },
+      {
+       "name": "SendGrid",
+       "what": "Duży wolumen + marketing (Twilio).",
+       "when": "Masowe wysyłki.",
+       "market": ""
+      },
+      {
+       "name": "AWS SES",
+       "what": "Bardzo tani przy dużej skali, więcej konfiguracji.",
+       "when": "Setki tysięcy maili, klient na AWS.",
+       "market": ""
+      },
+      {
+       "name": "Mailgun",
+       "what": "API + przetwarzanie maili przychodzących.",
+       "when": "Aplikacja ma odbierać maile.",
+       "market": ""
+      },
+      {
+       "name": "Loops",
+       "what": "E-mail marketing i sekwencje dla SaaS.",
+       "when": "Onboarding, newslettery, kampanie.",
+       "market": ""
+      },
+      {
+       "name": "Brevo",
+       "what": "Europejska platforma e-mail i SMS (transakcyjne + marketing).",
+       "when": "Klient chce dostawcy z UE i jednego narzędzia do kampanii.",
+       "market": "EU"
+      }
+     ]
+    },
+    {
+     "id": "pay",
+     "name": "Payments",
+     "ask": "Kto płaci, w jakiej walucie i kto rozlicza VAT?",
+     "usual": [],
+     "hard_to_reverse": true,
+     "pg": "Hostowany checkout + webhook HMAC + idempotencja; T3. Dostawca zależy od rynku.",
+     "options": [
+      {
+       "name": "Stripe",
+       "what": "Standard płatności, subskrypcje, Connect; obsługuje też BLIK i Przelewy24.",
+       "when": "Globalnie; subskrypcje, marketplace (Connect).",
+       "market": ""
+      },
+      {
+       "name": "Lemon Squeezy",
+       "what": "Merchant of Record: rozlicza VAT za ciebie.",
+       "when": "Sprzedaż produktów cyfrowych na świat.",
+       "market": ""
+      },
+      {
+       "name": "Paddle",
+       "what": "Merchant of Record dla SaaS.",
+       "when": "Subskrypcje SaaS globalnie bez własnej rejestracji VAT.",
+       "market": ""
+      },
+      {
+       "name": "Polar",
+       "what": "Merchant of Record dla deweloperów: subskrypcje, licencje.",
+       "when": "Sprzedaż narzędzi/licencji dla programistów.",
+       "market": ""
+      },
+      {
+       "name": "PayPal",
+       "what": "Płatności kontem PayPal.",
+       "when": "Klienci przyzwyczajeni do PayPal.",
+       "market": ""
+      },
+      {
+       "name": "Przelewy24",
+       "what": "Polska bramka: szybkie przelewy, BLIK, karty.",
+       "when": "Sklep/usługa dla klientów w Polsce.",
+       "market": "PL"
+      },
+      {
+       "name": "PayU",
+       "what": "Bramka płatności w Polsce i regionie (BLIK, raty, karty).",
+       "when": "Sklep w PL, raty i płatności odroczone.",
+       "market": "PL"
+      },
+      {
+       "name": "Tpay",
+       "what": "Polska bramka z BLIK i szybkimi przelewami.",
+       "when": "Mały sklep w PL, prosta integracja.",
+       "market": "PL"
+      },
+      {
+       "name": "Mollie",
+       "what": "Europejska bramka z lokalnymi metodami płatności.",
+       "when": "Sprzedaż w wielu krajach UE.",
+       "market": "EU"
+      },
+      {
+       "name": "Adyen",
+       "what": "Globalna platforma płatności enterprise.",
+       "when": "Duży wolumen, wiele krajów i kanałów.",
+       "market": ""
+      },
+      {
+       "name": "Rapyd",
+       "what": "Hostowany checkout, subskrypcje, wiele walut (w tym ISK).",
+       "when": "Produkty floty na rynku islandzkim.",
+       "market": "IS"
+      },
+      {
+       "name": "Straumur",
+       "what": "Islandzki procesor płatności krajowych.",
+       "when": "Płatności w ISK na rynku islandzkim.",
+       "market": "IS"
+      }
+     ]
+    },
+    {
+     "id": "inv",
+     "name": "Faktury / księgowość",
+     "ask": "Czy system wystawia faktury, i w jakim kraju?",
+     "usual": [],
+     "hard_to_reverse": false,
+     "pg": "W Polsce faktury idą przez KSeF; sprawdź aktualny harmonogram obowiązku.",
+     "options": [
+      {
+       "name": "KSeF (API MF)",
+       "what": "Krajowy System e-Faktur: polskie ustrukturyzowane e-faktury.",
+       "when": "Wystawiasz faktury w Polsce bezpośrednio z systemu.",
+       "market": "PL"
+      },
+      {
+       "name": "Fakturownia",
+       "what": "Polski SaaS do faktur z API (integracja z KSeF).",
+       "when": "Faktury PL bez własnej integracji z KSeF.",
+       "market": "PL"
+      },
+      {
+       "name": "inFakt",
+       "what": "Polski SaaS do faktur i księgowości z API.",
+       "when": "Klient prowadzi księgowość w inFakt.",
+       "market": "PL"
+      },
+      {
+       "name": "wFirma",
+       "what": "Polski SaaS księgowy z API.",
+       "when": "Klient prowadzi księgowość w wFirma.",
+       "market": "PL"
+      },
+      {
+       "name": "Stripe Invoicing",
+       "what": "Faktury i subskrypcje w Stripe.",
+       "when": "Płatności i tak idą przez Stripe, rynek poza PL.",
+       "market": ""
+      },
+      {
+       "name": "Xero",
+       "what": "Księgowość w chmurze z API (UK, AU, NZ i inne).",
+       "when": "Klient poza Polską z księgowością w Xero.",
+       "market": ""
+      },
+      {
+       "name": "Merchant of Record",
+       "what": "Faktury wystawia dostawca płatności (Paddle, Lemon Squeezy, Polar).",
+       "when": "Sprzedaż cyfrowa na świat bez własnego VAT.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "eid",
+     "name": "e-ID / podpis",
+     "ask": "Czy prawo wymaga potwierdzonej tożsamości albo podpisu?",
+     "usual": [],
+     "hard_to_reverse": true,
+     "pg": "Kupuj, nie buduj weryfikacji tożsamości; dane osobowe = RODO + T3.",
+     "options": [
+      {
+       "name": "Brak",
+       "what": "Produkt nie potrzebuje e-ID ani podpisu.",
+       "when": "Brak wymogu prawnego.",
+       "market": ""
+      },
+      {
+       "name": "Profil Zaufany / login.gov.pl",
+       "what": "Logowanie obywatela przez Węzeł Krajowy.",
+       "when": "Usługa dla obywateli PL wymaga potwierdzonej tożsamości.",
+       "market": "PL"
+      },
+      {
+       "name": "mObywatel",
+       "what": "Cyfrowa tożsamość w aplikacji państwowej.",
+       "when": "Weryfikacja tożsamości osoby w Polsce.",
+       "market": "PL"
+      },
+      {
+       "name": "Autenti",
+       "what": "Polska platforma podpisu elektronicznego.",
+       "when": "Umowy podpisywane online z klientami w PL.",
+       "market": "PL"
+      },
+      {
+       "name": "DocuSign",
+       "what": "Globalna platforma podpisu elektronicznego.",
+       "when": "Umowy międzynarodowe, klient zna DocuSign.",
+       "market": ""
+      },
+      {
+       "name": "Signicat",
+       "what": "Europejski agregator e-ID i podpisu dla wielu krajów.",
+       "when": "Jedna integracja na kilka krajów UE i Nordyki.",
+       "market": "EU"
+      },
+      {
+       "name": "Dokobit",
+       "what": "Podpis i e-ID w krajach bałtyckich i nordyckich.",
+       "when": "Podpis prawnie wiążący w Islandii/Bałtyku.",
+       "market": "IS"
+      },
+      {
+       "name": "eid-provider",
+       "what": "Islandzka narodowa tożsamość cyfrowa.",
+       "when": "Islandia; zwykle przez Signicat.",
+       "market": "IS"
+      }
+     ]
+    },
+    {
+     "id": "sms",
+     "name": "SMS / głos",
+     "ask": "Czy kontaktujemy się telefonicznie lub SMS-em?",
+     "usual": [
+      "Twilio"
+     ],
+     "hard_to_reverse": false,
+     "pg": "Koszt per wiadomość = cap i alert (`prr.md`).",
+     "options": [
+      {
+       "name": "Twilio",
+       "what": "SMS, głos, IVR na całym świecie.",
+       "when": "Domyślnie poza PL; głos i IVR.",
+       "market": ""
+      },
+      {
+       "name": "SMSAPI",
+       "what": "Polska bramka SMS z API.",
+       "when": "Tanie i pewne SMS-y do odbiorców w Polsce.",
+       "market": "PL"
+      },
+      {
+       "name": "Vonage",
+       "what": "Globalne API SMS i głosu.",
+       "when": "Alternatywa dla Twilio, klient ma umowę.",
+       "market": ""
+      },
+      {
+       "name": "RetellAI",
+       "what": "Platforma agentów głosowych AI.",
+       "when": "Agent telefoniczny rozmawiający z klientami.",
+       "market": ""
+      },
+      {
+       "name": "Brak",
+       "what": "Bez SMS i telefonii.",
+       "when": "Produkt bez kanału telefonicznego.",
+       "market": ""
+      }
+     ]
+    },
+    {
+     "id": "ship",
+     "name": "Wysyłka",
+     "ask": "Czy fizyczny towar trafia do klienta?",
+     "usual": [],
+     "hard_to_reverse": false,
+     "pg": "Tylko sklepy z towarem; status przesyłki = webhook + idempotencja.",
+     "options": [
+      {
+       "name": "Brak",
+       "what": "Produkt cyfrowy albo usługa.",
+       "when": "Nic nie jest wysyłane.",
+       "market": ""
+      },
+      {
+       "name": "InPost (API)",
+       "what": "Paczkomaty i kurier InPost.",
+       "when": "Sklep wysyłający w Polsce.",
+       "market": "PL"
+      },
+      {
+       "name": "Furgonetka",
+       "what": "Polski broker wielu kurierów z jednym API.",
+       "when": "Kilku kurierów w PL bez osobnych umów.",
+       "market": "PL"
+      },
+      {
+       "name": "Shippo",
+       "what": "Globalne API etykiet i stawek przewoźników.",
+       "when": "Wysyłki za granicę, wielu przewoźników.",
+       "market": ""
+      },
+      {
+       "name": "EasyPost",
+       "what": "Globalne API wysyłek i śledzenia.",
+       "when": "Jak Shippo, inny dostawca.",
+       "market": ""
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "scenarios": [
+  {
+   "title": "Sklep z towarem w Polsce",
+   "why": "Klienci płacą BLIK-iem, paczki idą do paczkomatów, faktury przez KSeF.",
+   "stack": {
+    "fe": [
+     "Next.js"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "Node.js"
+    ],
+    "host": [
+     "Vercel"
+    ],
+    "auth": [
+     "Supabase Auth"
+    ],
+    "db": [
+     "Supabase"
+    ],
+    "orm": [
+     "supabase-js"
+    ],
+    "blob": [
+     "Supabase Storage"
+    ],
+    "search": [
+     "Postgres FTS"
+    ],
+    "mon": [
+     "Sentry"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ],
+    "pay": [
+     "Przelewy24"
+    ],
+    "ship": [
+     "InPost (API)"
+    ],
+    "inv": [
+     "Fakturownia"
+    ],
+    "sms": [
+     "SMSAPI"
+    ],
+    "wa": [
+     "Plausible"
+    ]
+   }
+  },
+  {
+   "title": "SaaS B2B na całą UE",
+   "why": "Firmy z kilku krajów, subskrypcje, dane w UE.",
+   "stack": {
+    "fe": [
+     "Next.js"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "Node.js"
+    ],
+    "host": [
+     "Vercel",
+     "Hetzner"
+    ],
+    "auth": [
+     "Supabase Auth"
+    ],
+    "db": [
+     "Supabase"
+    ],
+    "orm": [
+     "supabase-js"
+    ],
+    "blob": [
+     "Supabase Storage"
+    ],
+    "search": [
+     "Postgres FTS"
+    ],
+    "mon": [
+     "Sentry"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ],
+    "pay": [
+     "Paddle"
+    ],
+    "inv": [
+     "Merchant of Record"
+    ],
+    "pa": [
+     "PostHog"
+    ]
+   }
+  },
+  {
+   "title": "Usługa dla obywateli w PL",
+   "why": "Tożsamość musi być potwierdzona (np. wniosek, umowa).",
+   "stack": {
+    "fe": [
+     "Next.js"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "Node.js"
+    ],
+    "host": [
+     "Vercel",
+     "OVHcloud"
+    ],
+    "auth": [
+     "Supabase Auth"
+    ],
+    "db": [
+     "Supabase"
+    ],
+    "orm": [
+     "supabase-js"
+    ],
+    "blob": [
+     "Supabase Storage"
+    ],
+    "search": [
+     "Postgres FTS"
+    ],
+    "mon": [
+     "Sentry"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ],
+    "eid": [
+     "Profil Zaufany / login.gov.pl",
+     "Autenti"
+    ]
+   }
+  },
+  {
+   "title": "Współdzielony stan na żywo",
+   "why": "Tablica, wspólna edycja, czat: wielu użytkowników widzi zmiany natychmiast.",
+   "stack": {
+    "fe": [
+     "Next.js"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "Node.js"
+    ],
+    "host": [
+     "Vercel"
+    ],
+    "auth": [
+     "Clerk"
+    ],
+    "db": [
+     "Convex"
+    ],
+    "search": [
+     "Postgres FTS"
+    ],
+    "mon": [
+     "Sentry"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ],
+    "rtm": [
+     "Liveblocks"
+    ]
+   }
+  },
+  {
+   "title": "Dużo pobieranych plików",
+   "why": "Wideo, galerie, pliki do ściągnięcia: transfer wychodzący zjada budżet.",
+   "stack": {
+    "fe": [
+     "Next.js"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "Node.js"
+    ],
+    "host": [
+     "Vercel"
+    ],
+    "auth": [
+     "Supabase Auth"
+    ],
+    "db": [
+     "Supabase"
+    ],
+    "orm": [
+     "supabase-js"
+    ],
+    "blob": [
+     "Cloudflare R2"
+    ],
+    "search": [
+     "Postgres FTS"
+    ],
+    "mon": [
+     "Sentry"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ]
+   }
+  },
+  {
+   "title": "SaaS dla firm z SSO",
+   "why": "Klient enterprise żąda logowania kontem firmowym (SAML/SCIM).",
+   "stack": {
+    "fe": [
+     "Next.js"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "Node.js"
+    ],
+    "host": [
+     "Vercel"
+    ],
+    "auth": [
+     "Supabase Auth",
+     "WorkOS"
+    ],
+    "db": [
+     "Supabase"
+    ],
+    "orm": [
+     "supabase-js"
+    ],
+    "blob": [
+     "Supabase Storage"
+    ],
+    "search": [
+     "Postgres FTS"
+    ],
+    "mon": [
+     "Sentry"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ],
+    "pa": [
+     "PostHog"
+    ]
+   }
+  },
+  {
+   "title": "Klient na Microsoft 365",
+   "why": "Pracownicy logują się kontem firmowym, IT klienta pilnuje Azure.",
+   "stack": {
+    "fe": [
+     "React"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "ASP.NET Core (.NET)"
+    ],
+    "host": [
+     "Azure App Service"
+    ],
+    "auth": [
+     "Microsoft Entra ID"
+    ],
+    "db": [
+     "Azure SQL"
+    ],
+    "orm": [
+     "Entity Framework Core"
+    ],
+    "blob": [
+     "Azure Blob"
+    ],
+    "search": [
+     "Postgres FTS"
+    ],
+    "mon": [
+     "Sentry"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ]
+   }
+  },
+  {
+   "title": "Sprzedaż software'u na świat",
+   "why": "Subskrypcje w wielu krajach bez własnej rejestracji VAT.",
+   "stack": {
+    "fe": [
+     "Next.js"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "Node.js"
+    ],
+    "host": [
+     "Vercel"
+    ],
+    "auth": [
+     "Supabase Auth"
+    ],
+    "db": [
+     "Supabase"
+    ],
+    "orm": [
+     "supabase-js"
+    ],
+    "blob": [
+     "Supabase Storage"
+    ],
+    "search": [
+     "Postgres FTS"
+    ],
+    "mon": [
+     "Sentry"
+    ],
+    "mail": [
+     "Resend",
+     "Loops"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ],
+    "pay": [
+     "Paddle"
+    ],
+    "inv": [
+     "Merchant of Record"
+    ],
+    "pa": [
+     "PostHog"
+    ]
+   }
+  },
+  {
+   "title": "Ciężki Python obok aplikacji",
+   "why": "OCR, pandas, modele ML: biblioteki są tylko w Pythonie.",
+   "stack": {
+    "fe": [
+     "Next.js"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "Node.js",
+     "Python (FastAPI)"
+    ],
+    "host": [
+     "Vercel",
+     "Google Cloud Run"
+    ],
+    "auth": [
+     "Supabase Auth"
+    ],
+    "db": [
+     "Supabase"
+    ],
+    "orm": [
+     "supabase-js"
+    ],
+    "blob": [
+     "Supabase Storage"
+    ],
+    "search": [
+     "Postgres FTS"
+    ],
+    "mon": [
+     "Sentry",
+     "Google Cloud Monitoring"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ]
+   }
+  },
+  {
+   "title": "Strona z treścią pod SEO",
+   "why": "Blog, poradnik, landing: liczy się szybkość i łatwa edycja.",
+   "stack": {
+    "fe": [
+     "Astro"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "host": [
+     "Vercel"
+    ],
+    "cms": [
+     "Sanity"
+    ],
+    "wa": [
+     "Plausible"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "Vercel Deploys"
+    ]
+   }
+  },
+  {
+   "title": "Osobna baza na klienta",
+   "why": "Twarda izolacja danych per klient albo baza blisko użytkownika.",
+   "stack": {
+    "fe": [
+     "Next.js"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "Node.js"
+    ],
+    "host": [
+     "Vercel"
+    ],
+    "auth": [
+     "Better Auth"
+    ],
+    "db": [
+     "Turso"
+    ],
+    "orm": [
+     "Drizzle"
+    ],
+    "blob": [
+     "Cloudflare R2"
+    ],
+    "search": [
+     "Postgres FTS"
+    ],
+    "mon": [
+     "Sentry"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ]
+   }
+  },
+  {
+   "title": "Baza na każdy preview PR",
+   "why": "Testy migracji na kopii bazy dla każdej gałęzi (najpierw Supabase Branching — zostajesz na Supabase).",
+   "stack": {
+    "fe": [
+     "Next.js"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "Node.js"
+    ],
+    "host": [
+     "Vercel"
+    ],
+    "auth": [
+     "Better Auth"
+    ],
+    "db": [
+     "Neon"
+    ],
+    "orm": [
+     "Drizzle"
+    ],
+    "blob": [
+     "Supabase Storage"
+    ],
+    "search": [
+     "Postgres FTS"
+    ],
+    "mon": [
+     "Sentry"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ]
+   }
+  },
+  {
+   "title": "Długie joby i kolejki",
+   "why": "Generowanie raportów, importy, przetwarzanie dłuższe niż limit funkcji.",
+   "stack": {
+    "fe": [
+     "Next.js"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "Node.js"
+    ],
+    "host": [
+     "Vercel"
+    ],
+    "auth": [
+     "Supabase Auth"
+    ],
+    "db": [
+     "Supabase",
+     "Redis"
+    ],
+    "orm": [
+     "supabase-js"
+    ],
+    "blob": [
+     "Supabase Storage"
+    ],
+    "search": [
+     "Postgres FTS"
+    ],
+    "mon": [
+     "Sentry"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ],
+    "jobs": [
+     "Trigger.dev"
+    ]
+   }
+  },
+  {
+   "title": "Duży katalog do przeszukania",
+   "why": "Tysiące produktów, literówki, filtry fasetowe.",
+   "stack": {
+    "fe": [
+     "Next.js"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "Node.js"
+    ],
+    "host": [
+     "Vercel"
+    ],
+    "auth": [
+     "Supabase Auth"
+    ],
+    "db": [
+     "Supabase"
+    ],
+    "orm": [
+     "Payload Local API"
+    ],
+    "blob": [
+     "Supabase Storage"
+    ],
+    "search": [
+     "Meilisearch"
+    ],
+    "mon": [
+     "Sentry"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ],
+    "cms": [
+     "Payload"
+    ]
+   }
+  },
+  {
+   "title": "Agent głosowy",
+   "why": "Rozmowa telefoniczna z AI: liczy się czas odpowiedzi.",
+   "stack": {
+    "fe": [
+     "Next.js"
+    ],
+    "ui": [
+     "Tailwind CSS"
+    ],
+    "rt": [
+     "Node.js",
+     "Deno"
+    ],
+    "host": [
+     "Vercel"
+    ],
+    "auth": [
+     "Supabase Auth"
+    ],
+    "db": [
+     "Supabase"
+    ],
+    "orm": [
+     "supabase-js"
+    ],
+    "blob": [
+     "Supabase Storage"
+    ],
+    "search": [
+     "Postgres FTS"
+    ],
+    "mon": [
+     "Sentry"
+    ],
+    "mail": [
+     "Resend"
+    ],
+    "ci": [
+     "GitHub Actions",
+     "Vercel Deploys"
+    ],
+    "sec": [
+     "Infisical",
+     "Vercel env"
+    ],
+    "ai": [
+     "Anthropic Claude",
+     "Groq"
+    ],
+    "sms": [
+     "Twilio",
+     "RetellAI"
+    ]
+   }
+  }
+ ]
+}

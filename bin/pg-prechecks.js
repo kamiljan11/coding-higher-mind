@@ -16,7 +16,7 @@ const { ROLES, splitDiff, rolesForFile } = require(path.join(__dirname, 'pg-slic
 const CODE_FILES = /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte)$/i;
 const UI_FILES = /\.(tsx|jsx|vue|svelte)$/i;
 const SQL_FILES = /\.sql$/i;
-const TEST_FILES = /(\.(test|spec)\.|(^|\/)(tests?|__tests__|e2e)\/)/i;
+const TEST_FILES = /(\.(test|spec)\.|(^|\/)(tests?|__tests__|e2e)\/|(^|\/)test_[^/]+\.(js|mjs|cjs|py)$)/i;
 const SCRIPT_FILES = /(^|\/)scripts?\/|\.(sh|ps1)$/i;
 const CI_FILES = /(^|\/)\.github\/workflows\/|(^|\/)package\.json$/i;
 const ANY_TEXT = /./;
@@ -32,7 +32,7 @@ const RULES = [
   { id: 'PII-IN-LOG', rx: 'console\\.(log|error|warn)\\(.*(email|phone|token|kennitala|password)', i: true, files: CODE_FILES, skip: TEST_FILES, roles: ['ops', 'security'], source: 'agents/ops-reviewer.md#4' },
   { id: 'SERVICE-ROLE', rx: 'service_role|SERVICE_ROLE', files: ANY_TEXT, skip: /\.env[\w.-]*\.(example|sample|template|dist)$/i, roles: ['security', 'data'], source: 'agents/security-reviewer.md#1, review-checklists.md (security)' },
   { id: 'SECRET-LITERAL', rx: 'sk_(live|test)_[A-Za-z0-9]{8,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sbp_[A-Za-z0-9]{20,}|Bearer [A-Za-z0-9._-]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY', files: ANY_TEXT, skip: null, roles: ['ops', 'security'], source: 'agents/ops-reviewer.md#6' },
-  { id: 'DANGEROUS-SINK', rx: 'dangerouslySetInnerHTML|execSync\\(|\\beval\\(|new Function\\(|child_process', files: CODE_FILES, skip: null, roles: ['security', 'code'], source: 'agents/security-reviewer.md#6' },
+  { id: 'DANGEROUS-SINK', rx: 'dangerouslySetInnerHTML|execSync\\(|\\beval\\(|new Function\\(|child_process', files: CODE_FILES, skip: TEST_FILES, roles: ['security', 'code'], source: 'agents/security-reviewer.md#6' },
   { id: 'REQ-JSON-NO-PARSE', rx: '(req|request)\\.json\\(\\)', near: { rx: 'safeParse|\\.parse\\(', before: 2, after: 6 }, files: CODE_FILES, skip: TEST_FILES, roles: ['security'], source: 'agents/security-reviewer.md#3' },
   { id: 'FETCH-NO-TIMEOUT', rx: '\\bfetch\\(', near: { rx: 'signal|timeout|AbortSignal', before: 2, after: 6 }, files: CODE_FILES, skip: TEST_FILES, roles: ['ops', 'security'], source: 'agents/ops-reviewer.md#3, agents/security-reviewer.md#8, review-checklists.md (niezawodnosc)' },
   { id: 'LIMIT-WITHOUT-ORDER', rx: '\\.limit\\(', near: { rx: '\\.order\\(|order by', before: 12, after: 4, statement: true, start: '\\.from\\(|\\bselect\\b' }, files: CODE_FILES, skip: TEST_FILES, roles: ['data', 'code'], source: 'agents/data-reviewer.md#5, audyt #10 (keyset/stronicowanie)' },
@@ -178,8 +178,11 @@ function prechecks(diffText, repo) {
       perFile[hit.file] = (perFile[hit.file] || 0) + 1;
       if (perFile[hit.file] > MAX_HITS_PER_RULE_FILE) continue;
       // Rola dostaje trafienie, gdy plik jest w jej wycinku; gdy w zadnym z wycinkow rol reguly -> pierwsza rola reguly.
-      const targets = rule.roles.filter((r) => meta.roles.includes(r));
-      for (const role of targets.length ? targets : [rule.roles[0]]) {
+      const inSlice = rule.roles.filter((r) => meta.roles.includes(r));
+      const targets = inSlice.length ? inSlice : [rule.roles[0]];
+      // security dostaje swoje reguly zawsze: XSS/injection w lib/components nie jest w wycinku sciezek security (2026-10-06).
+      if (rule.roles.includes('security') && !targets.includes('security')) targets.push('security');
+      for (const role of targets) {
         const row = { rule: rule.id, file: hit.file, line: hit.line, text: hit.text.trim().slice(0, 200), source: rule.source };
         if (hit.origin) row.origin = hit.origin;
         result[role].push(row);

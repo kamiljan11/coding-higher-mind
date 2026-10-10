@@ -37,6 +37,8 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 
 **Nie potrzebujesz jeszcze.** GraphQL, gRPC, tRPC dla zewnętrznych, API gateway, wersjonowania nagłówkami, generowanych SDK.
 
+**„A apka na telefon?" (klient zapyta).** Kolejność: (1) responsywny front + PWA (instalacja na ekranie, offline podstawowy) — zero nowego kodu po stronie API; (2) React Native/Expo — ten sam TypeScript, ten sam kontrakt API, sklepy z aplikacjami; (3) natywne Swift/Kotlin — dopiero przy realnej potrzebie sprzętu/wydajności. Warunek od kroku 2: API ma stały kontrakt i wersjonowanie (stara aplikacja w telefonie żyje miesiącami — pole usunięte z API psuje ją bez możliwości szybkiej poprawki). Decyzja o kroku 2+ = ADR. (2026-10-10, tier list Arjaya)
+
 ---
 
 ### Zadania w tle i kolejki

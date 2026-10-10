@@ -13,9 +13,9 @@ const PS_SHELLS = new Set(['powershell', 'pwsh']);
 // Opakowania, ktore uruchamiaja komende z reszty argumentow (zdejmujemy je, zeby regula widziala wlasciwe argv[0]).
 // npx/bunx/pnpx uruchamiaja pakiet z reszty argumentow (weryfikator 2026-09-26: `npx rimraf ~/.claude/hooks`).
 // do/then/else/!: slowa kluczowe powloki przed komenda (`for X in a; do rm -rf $X; done`) — regula musi widziec `rm`.
-const WRAPPERS = new Set(['sudo', 'doas', 'env', 'timeout', 'nice', 'nohup', 'command', 'exec', 'time', 'xargs', 'stdbuf', 'ionice', 'builtin', 'unbuffer', 'npx', 'bunx', 'pnpx', 'do', 'then', 'else', 'elif', '!']);
+const WRAPPERS = new Set(['busybox', 'setsid', 'flock', 'sudo', 'doas', 'env', 'timeout', 'nice', 'nohup', 'command', 'exec', 'time', 'xargs', 'stdbuf', 'ionice', 'builtin', 'unbuffer', 'npx', 'bunx', 'pnpx', 'do', 'then', 'else', 'elif', '!']);
 // Flagi opakowan, ktore biora wartosc (sudo -u root, timeout -s KILL 5, nice -n 10, xargs -I {}, npx -p pkg).
-const WRAPPER_VALUE_FLAGS = { sudo: /^-(u|g|C|D|h|p|r|t|U)$/, timeout: /^-(s|k)$/, nice: /^-n$/, xargs: /^-(I|L|n|P|s|d|E|a)$/, stdbuf: /^-(i|o|e)$/, ionice: /^-(c|n|p)$/, npx: /^(-p|--package|-c|--call)$/, pnpx: /^(-p|--package)$/, bunx: /^(-p|--package)$/ };
+const WRAPPER_VALUE_FLAGS = { env: /^(-C|--chdir|-u|--unset)$/, flock: /^(-w|-E|--timeout|--conflict-exit-code)$/, sudo: /^-(u|g|C|D|h|p|r|t|U)$/, timeout: /^-(s|k)$/, nice: /^-n$/, xargs: /^-(I|L|n|P|s|d|E|a)$/, stdbuf: /^-(i|o|e)$/, ionice: /^-(c|n|p)$/, npx: /^(-p|--package|-c|--call)$/, pnpx: /^(-p|--package)$/, bunx: /^(-p|--package)$/ };
 const ASSIGN_RX = /^[A-Za-z_][A-Za-z0-9_]*=/;
 // Programy, ktore WYKONUJA tresc heredoca (kod, nie dane).
 const INTERPRETERS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'powershell', 'pwsh', 'cmd', 'python', 'python3', 'py', 'node', 'perl', 'ruby', 'deno', 'bun', 'php', 'lua', 'osascript', 'psql', 'sqlite3', 'mysql']);
@@ -163,6 +163,8 @@ function tokenize(src, notes, dialect) {
 function unwrap(words) {
   const assigns = [];
   const values = {};
+  let chdir = null;
+  const via = []; // `env -C X prog` — prog dziala w X (security-review 2026-10-10)
   let i = 0;
   let guard = 0;
   while (i < words.length && guard++ < 50) {
@@ -170,14 +172,27 @@ function unwrap(words) {
     if (ASSIGN_RX.test(w)) { const eq = w.indexOf('='); assigns.push(w.slice(0, eq)); values[w.slice(0, eq)] = w.slice(eq + 1); i++; continue; }
     const name = progName(w);
     if (!WRAPPERS.has(name)) break;
+    via.push(name); // np. busybox: aplet ma inna semantyke niz GNU (code-review 2026-10-10)
     i++;
     const valueFlag = WRAPPER_VALUE_FLAGS[name];
     while (i < words.length && /^-/.test(words[i])) {
       if (words[i] === '--') { i++; break; }
+      // env -C / sudo -D (+ klastry `-iC X`, skroty `--ch=`) — security-review r2: inaczej DIR stawal sie argv[0].
+      const cdLetter = name === 'env' ? 'C' : name === 'sudo' ? 'D' : null;
+      if (cdLetter) {
+        const w0 = words[i];
+        const longN = /^--[^-=]/.test(w0) ? w0.slice(2).split('=')[0] : '';
+        const isLong = longN.length >= 2 && 'chdir'.startsWith(longN);
+        const k = /^-[^-]/.test(w0) ? w0.indexOf(cdLetter) : -1;
+        if (isLong) { chdir = w0.includes('=') ? w0.slice(w0.indexOf('=') + 1) : (words[i + 1] || ''); i += w0.includes('=') ? 1 : 2; continue; }
+        if (k > 0) { chdir = k + 1 < w0.length ? w0.slice(k + 1) : (words[i + 1] || ''); i += k + 1 < w0.length ? 1 : 2; continue; }
+      }
       const takesValue = valueFlag && valueFlag.test(words[i]);
       i += takesValue ? 2 : 1;
     }
     if (name === 'timeout' && i < words.length && /^\d+(\.\d+)?[smhd]?$/.test(words[i])) i++;
+    // `flock PLIK cmd` — pierwszy argument pozycyjny to plik blokady, nie program (security-review r2).
+    if (name === 'flock' && i < words.length && !/^-/.test(words[i])) i++;
   }
   let argv = words.slice(i);
   // `git\ push --force` = jedno slowo "git push" (w bashu: komenda nie istnieje), ale probe R1 liczyl to jako obejscie —
@@ -188,9 +203,9 @@ function unwrap(words) {
   if (psAssign && (psAssign[2] || argv[1] === '=')) {
     values[psAssign[1]] = psAssign[2] ? psAssign[3] : argv.slice(2).join(' ');
     assigns.push(psAssign[1]);
-    return { argv: [], assigns, values };
+    return { argv: [], assigns, values, chdir, via };
   }
-  return { argv, assigns, values };
+  return { argv, assigns, values, chdir, via };
 }
 
 // PowerShell -EncodedCommand = base64 z UTF-16LE.
@@ -223,14 +238,17 @@ function parse(raw, opts) {
     for (const c of cmds) { group.push(c); if (c.sep !== '|') { pipelines.push(group); group = []; } }
     if (group.length) pipelines.push(group);
     for (const pipe of pipelines) {
+      // Id potoku rezerwowany PRZED zejsciem w `$(...)` — inaczej podstawienie przesuwalo licznik i `cat $(x) | vi f`
+      // dawalo `vi` w innym potoku niz `cat` (code-review 2026-10-10).
+      const myPipeline = pipelineId++;
       const unwrapped = pipe.map((c) => Object.assign({ c }, unwrap(c.words)));
       const shellInPipe = unwrapped.find((u) => isShell(progName(u.argv[0])));
-      for (const { c, argv, assigns, values } of unwrapped) {
+      for (const { c, argv, assigns, values, chdir, via } of unwrapped) {
         const prog = progName(argv[0]);
         // heredocs[].executed: tresc trafia do interpretera (kod), a nie do pliku (dane) — reguly na surowym tekscie
         // wycinaja DANE (replay 2026-09-26: JSON findings z nazwami sciezek PG w `cat > f <<EOF` = FP).
         const executed = !!shellInPipe || INTERPRETERS.has(prog);
-        out.commands.push({ argv, prog, assigns, values, redirects: c.redirects, pipeline: pipelineId, depth, heredocs: c.heredocs.map((h) => ({ body: h.body, executed })) });
+        out.commands.push({ argv, prog, assigns, values, chdir, via, redirects: c.redirects, pipeline: myPipeline, depth, heredocs: c.heredocs.map((h) => ({ body: h.body, executed })) });
         for (const inner of c.subst) walk(inner, depth + 1, dialect === 'ps' ? 'ps' : 'sh');
         if (shellInPipe) for (const h of c.heredocs) walk(h.body, depth + 1, dialectOf(progName(shellInPipe.argv[0])));
         // sh -c "..." / bash -lc "..." / zsh -c
@@ -252,7 +270,6 @@ function parse(raw, opts) {
         }
         if (prog === 'invoke-expression' || prog === 'iex') walk(argv.slice(1).join(' '), depth + 1, 'ps');
       }
-      pipelineId++;
     }
   };
   walk(src, 0, (opts && opts.dialect) || 'sh');

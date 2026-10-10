@@ -6,7 +6,7 @@ const { execFileSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { addedLinesByFile, lostLines } = require('./merge-integrity.js');
+const { addedLinesByFile, lostLines, mergesExit } = require('./merge-integrity.js');
 
 const CLI = path.join(__dirname, 'merge-integrity.js');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'merge-integrity-'));
@@ -105,6 +105,69 @@ it('bledy uzycia / gita = exit 2', () => {
   assert.equal(cli('--base', 'base').status, 2);
   assert.equal(cli('--base', '--upload-pack=x', '--branches', 'a').status, 2);
   assert.equal(cli('--base', 'base', '--branches', 'nie-ma-takiej').status, 2);
+});
+
+it('mergesExit: blokuje tylko CSS nadal rozbity na wierzcholku', () => {
+  assert.equal(mergesExit([]), 0);
+  assert.equal(mergesExit([{ stillBroken: [] }, { stillBroken: [] }]), 0);
+  assert.equal(mergesExit([{ stillBroken: [] }, { stillBroken: [{ file: 'a.css', line: 1 }] }]), 1);
+  // pominiete scalenie (blad gita) = 2 (ostrzezenie + log), ale rozbity CSS gdzie indziej nadal blokuje
+  assert.equal(mergesExit([{ stillBroken: [], error: true }, { stillBroken: [] }]), 2);
+  assert.equal(mergesExit([{ stillBroken: [], error: true }, { stillBroken: [{ file: 'a.css', line: 1 }] }]), 1);
+});
+
+it('--merges-of: JSX z apostrofem nie jest bledem; CSS rozbity w scaleniu blokuje, poprawiony pozniej nie', () => {
+  git('checkout', '-q', '-b', 'mo-base', 'base');
+  write('src/ok.tsx', 'export const A = () => <p>Don\'t panic</p>;\n');
+  write('src/m.css', '.a { color: red; }\n');
+  commit('mo base');
+  git('checkout', '-q', '-b', 'mo-x', 'mo-base');
+  write('src/m.css', '.a { color: red; }\n.x { color: blue; }\n');
+  commit('x');
+  git('checkout', '-q', '-b', 'mo-y', 'mo-base');
+  write('src/ok.tsx', 'export const A = () => <p>Don\'t panic</p>;\nexport const B = (i: number) => i++ / 2;\n');
+  commit('y');
+  git('merge', '-q', '--no-edit', '--no-verify', 'mo-x');
+  const good = cli('--merges-of', 'HEAD');
+  assert.equal(good.status, 0, good.stdout + good.stderr);
+  // scalenie, ktore ucina '}' (jak 2026-10-06), a potem poprawka
+  git('checkout', '-q', '-b', 'mo-bad', 'mo-y^1');
+  git('merge', '-q', '--no-commit', '--no-verify', 'mo-x');
+  write('src/m.css', '.a { color: red;\n.x { color: blue; }\n');
+  commit('merge ucina klamre');
+  const bad = cli('--merges-of', 'HEAD');
+  assert.equal(bad.status, 1, bad.stdout + bad.stderr);
+  write('src/m.css', '.a { color: red; }\n.x { color: blue; }\n');
+  commit('poprawka');
+  const fixed = cli('--merges-of', 'HEAD');
+  assert.equal(fixed.status, 0, fixed.stdout + fixed.stderr);
+});
+
+it('git-hooks/pre-push: rozbity CSS w scaleniu blokuje push, ALLOW_MERGE_INTEGRITY=1 przepuszcza, poprawka zdejmuje blokade', () => {
+  const hook = path.join(__dirname, '..', 'git-hooks', 'pre-push');
+  const push = (extraEnv) => {
+    const sha = git('rev-parse', 'HEAD').trim();
+    const env = Object.assign({}, ENV, { PG_GATE_LOG: path.join(TMP, 'gates.jsonl') }, extraEnv);
+    return spawnSync('sh', [hook, 'origin', 'https://example.invalid/x.git'], { cwd: TMP, env, encoding: 'utf8', input: `refs/heads/feat ${sha} refs/heads/feat 0000000000000000000000000000000000000000\n` });
+  };
+  git('checkout', '-q', '-b', 'pp-bad', 'mo-y^1');
+  git('merge', '-q', '--no-commit', '--no-verify', 'mo-x');
+  write('src/m.css', '.a { color: red;\n.x { color: blue; }\n');
+  commit('merge ucina klamre (pre-push)');
+  const blocked = push({});
+  assert.equal(blocked.status, 1, blocked.stdout + blocked.stderr);
+  assert.match(blocked.stderr, /merge-integrity/);
+  assert.equal(push({ ALLOW_MERGE_INTEGRITY: '1' }).status, 0);
+  write('src/m.css', '.a { color: red; }\n.x { color: blue; }\n');
+  commit('poprawka (pre-push)');
+  const ok = push({});
+  assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  // exit 2 (blad narzedzia: nieistniejacy commit) = ostrzezenie, push idzie dalej, wpis `skipped` w logu bramek
+  const env = Object.assign({}, ENV, { PG_GATE_LOG: path.join(TMP, 'gates.jsonl') });
+  const bogus = spawnSync('sh', [hook, 'origin', 'https://example.invalid/x.git'], { cwd: TMP, env, encoding: 'utf8', input: 'refs/heads/feat 1111111111111111111111111111111111111111 refs/heads/feat 0000000000000000000000000000000000000000\n' });
+  assert.equal(bogus.status, 0, bogus.stdout + bogus.stderr);
+  assert.match(bogus.stderr, /nie udalo sie sprawdzic scalen/);
+  assert.match(fs.readFileSync(path.join(TMP, 'gates.jsonl'), 'utf8'), /merge-integrity: blad narzedzia/);
 });
 
 fs.rmSync(TMP, { recursive: true, force: true });

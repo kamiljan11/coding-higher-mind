@@ -7,7 +7,9 @@ i nie bylo wypelniane (ADR = 0 w 6/7 repo, audyt 2026-09-05).
 
 ## A. PRD-lite (dzial: Product) — 4 linie
 1. **Problem i dla kogo** (rola uzytkownika, nie „system ma").
+1b. **Target user** (2026-10-10, proces z filmu): jedna konkretna persona — rola, urządzenie (telefon w warsztacie? biurko?), kontekst (pośpiech, rękawice, słaby zasięg). Z tego wynikają viewport i scenariusze w `docs/CRITICAL-PATHS.md`. Prototyp/T0-T1: „nie dotyczy" dopuszczalne.
 2. **Kryterium akceptacji** — obserwowalne: „mechanik widzi X po Y", „faktura ma Z".
+2b. **Sposób sprawdzenia — ZANIM powstanie kod** (2026-10-10): komenda albo scenariusz, który udowodni kryterium (test e2e Playwright / `qa-matrix.js` / zapytanie SQL / `curl`). Bez tego „done" jest deklaracją. Prototyp/T0: „nie dotyczy" jawnie.
 3. **Non-goals** — czego celowo NIE robimy teraz (prawo Zawinskiego; YAGNI feature'ow).
 4. **Metryka sukcesu + event** — skad bedziemy wiedziec, ze zadzialalo (dzial: Analytics). Brak metryki = brak eventu w kodzie = OK, ale jawnie.
 5. **Sponsor, budzet, ROI** (software-house „Inzynier 2027 vs Klepacz Taskow", 2026-09-12): kto placi i przed kim sie z tego rozlicza; ile budzetu/limitu zostalo; ktory modul stoi NAJBLIZEJ przychodu — ten idzie pierwszy. Zmiana, ktora nie przybliza do zwrotu, to pytanie „czy w ogole budowac?", nie task do zamkniecia.
@@ -70,10 +72,12 @@ Szablon: `templates/repo/docs/adr/0000-template.md`. Tresc: kontekst, decyzja, o
 9. **Backup zanim pojawi sie pierwszy realny rekord**: plan (Supabase Pro/PITR albo `pg_dump` cron) + pierwszy restore drill (`bin/backup-drill.py`) z data w RUNBOOK. Supabase Free = brak PITR = decyzja, nie przeoczenie.
 
 ## G. Macierz obszarow system design (dzial: Architecture; audyt sd-course-coverage 2026-10-06) — artefakt, nie odpowiedz w czacie
-Dlaczego: bez macierzy nie da sie odroznic „swiadomie nie dotyczy" od „przeoczone" (SAGITUM 2026-10: rate limiting i real-time pominiete bez decyzji); B+ dziala tylko od T2, a drzwi jednokierunkowe (ID, pliki, tozsamosc, region) nie czekaja na tier.
-- **Lista obszarow:** `~/.claude/pg/sd-areas.json` — 37 obszarow kursu w 12 grupach (id, karta `sd/NN › Sekcja`, `one_way`, warianty). Szablon tabeli: `node ~/.claude/bin/sd-matrix-lint.js --template > docs/architecture/obszary.md`.
+Dlaczego: bez macierzy nie da sie odroznic „swiadomie nie dotyczy" od „przeoczone" (tender-app 2026-10: rate limiting i real-time pominiete bez decyzji); B+ dziala tylko od T2, a drzwi jednokierunkowe (ID, pliki, tozsamosc, region) nie czekaja na tier.
+- **Lista obszarow:** `~/.claude/pg/sd-areas.json` — 37 obszarow kursu w 12 grupach + grupa `stack`: 25 warstw narzedzi `stack-*` (frontend … wysylka; karta `stack-catalog.md`, artefakt Stack Picker https://claude.ai/artifact/CaWzJDJ4iikuxtnh2FZooD — nic nie jest wybrane z gory, rynek PL/UE/globalny/IS) = 62 wiersze (id, karta, `one_way`, warianty). `mas-quality-init.sh` tworzy pusty `docs/architecture/obszary.md` przy bootstrapie. Szablon tabeli: `node ~/.claude/bin/sd-matrix-lint.js --template > docs/architecture/obszary.md`.
 - **Kiedy:**
-  - nowy projekt (7N) = wszystkie 37 wierszy;
+  - nowy projekt (7N) = wszystkie 62 wiersze (37 obszarow + 25 warstw stack);
+  - wybor/zmiana narzedzia, dostawcy, platnosci, hostingu = wiersze grupy `stack` (`--groups stack`);
+  - repo z macierza sprzed 2026-10-10 (37 wierszy) przy wlaczaniu `pg.sd_matrix: required`: najpierw dopisz 25 wierszy `stack-*` (`node ~/.claude/bin/sd-matrix-lint.js --template --groups stack | grep "(stack-" >> docs/architecture/obszary.md` albo eksport z artefaktu), inaczej lint = 25x brak-wiersza;
   - duza zmiana (7D), nowa tabela, endpoint, zaleznosc lub integracja = wiersze grup, ktorych dotyka diff (`--groups g1,g2`);
   - wiersze `one_way: true` (model danych, ID, pliki/bucket, tozsamosc, kontrakt API, podzial na uslugi, DNS/domena, region, DR) = ZAWSZE, niezaleznie od tieru.
 - **Plik w repo projektu:** `docs/architecture/obszary.md`, jedna tabela:
@@ -83,5 +87,5 @@ Dlaczego: bez macierzy nie da sie odroznic „swiadomie nie dotyczy" od „przeo
   - `NIE TERAZ` -> **Sygnal powrotu**: mierzalny prog z liczba („> 50 req/s na /api/chat", „10 tys. wierszy w orders", „p95 > 800 ms");
   - `NIE DOTYCZY` -> uzasadnienie, czemu produkt tego nie ma („brak wyszukiwania w produkcie").
 - **Jak wypelniac:** narada obszarow w skill `architecture-advisor` (sekcja „Narada obszarow (mikro-agenci)") — po 1 agencie na grupe, kazdy dostaje TYLKO swoje obszary i karty, sesja skleja tabele. Proste repo / jedna grupa = sesja glowna sama, ta sama tabela.
-- **Bramka 0-tokenowa:** `node ~/.claude/bin/sd-matrix-lint.js --repo . [--groups …]` (exit 0 komplet, 1 braki z lista, 2 brak pliku/blad uzycia). Stop-gate: linia `pg.sd_matrix: required` w CLAUDE.md repo => przy T2+ blok `[obszary]` do kompletu (pelna macierz); bez linii = podpowiedz przy T3, gdy pliku brak.
+- **Bramka 0-tokenowa:** `node ~/.claude/bin/sd-matrix-lint.js --repo . [--groups …]` (exit 0 komplet, 1 braki z lista, 2 brak pliku/blad uzycia). Stop-gate: linia `pg.sd_matrix: required` w CLAUDE.md repo => przy T2+ blok `[obszary]` do kompletu (pelna macierz); bez linii (domyslnie, decyzja uzytkownika 2026-10-10: bezpiecznie, ale lekkie ryzyko dozwolone) = przy T2+ podpowiedz BEZ blokady, tylko o brakujacym pliku albo otwartych drzwiach jednokierunkowych; reszta moze czekac jako NIE TERAZ, cisza gdy drzwi rozstrzygniete.
 - Macierz nie zastepuje ADR (E): wiersz `DECYZJA` dla drzwi jednokierunkowych wskazuje ADR w kolumnie Dowod.

@@ -3,6 +3,61 @@
 All notable changes to the public PG export. Dates are the export dates; the private system moves faster and is squashed
 into these releases.
 
+## [1.6.0] — 2026-10-10
+
+PG v4.5: the guard now covers code that runs inside Claude Code itself, the architect walks every layer of the stack as part
+of the same matrix as system design, and the shell guard got a threat model it can actually keep. Three things drove it:
+Claude Code mods (extensions that run inside the CLI and bypass settings hooks), a security checklist turned into reviewer
+rules, and a security review that kept finding ways around a patch-based rule until the rule was rebuilt.
+
+- **Mods are part of the control plane.** A mod runs inside Claude Code and does not pass through settings hooks, so its
+  source is guarded like hooks are: the mod source, the plugin cache and skills that ship a plugin manifest. Installing,
+  enabling or updating a plugin, or adding a marketplace, needs the owner's phrase. Disabling and uninstalling are free:
+  removing an extension never needs permission.
+- **Destructive SQL on a remote database is blocked.** `psql`, `supabase`, `prisma`, `dropdb` and `pg_restore` are parsed
+  for their target (flags, connection URLs, `PGHOST`, variables set earlier in the command, wrappers such as `docker exec`
+  or `ssh`). `DROP`, `TRUNCATE`, `DELETE` without a filter and similar statements against anything that is not provably
+  local are blocked; SQL the guard cannot see (a file, a heredoc) counts as destructive. Local databases stay free.
+- **Writes relative to the working directory.** `patch`, archive extraction (`tar x`, `unzip`, `7z`, `cpio`) and scripted
+  editors (`ed`, `ex`, `vim -es`) are blocked when they run in or above the control directory. The rule is fail-closed:
+  when the guard cannot tell where a command runs (a `cd` into a variable, `CDPATH`, a symlink made earlier in the chain)
+  it blocks. In any repository, `patch` with a patch it cannot read, or one that touches `.git/` or `.claude/`, is blocked:
+  GNU patch writes `.git/config` (a local `core.hooksPath` switches off every git hook) and `.claude/settings.json`
+  (project hooks run in the next session). Use `git apply`, which refuses paths inside `.git`.
+  - Threat model, now written down in `pg/known-limits.md`: the shell guard catches mistakes and injected instructions, not
+    an agent set on getting around it (`bash some-script.sh` can do anything). The seal, git history and managed settings
+    are the net for the rest.
+- **The stack is a step in the architecture process.** 25 tool layers (frontend to shipping) became `stack-*` rows in the
+  area matrix, which now has 62 rows. Every layer gets DECISION, NOT NOW with a measurable return signal, or NOT APPLICABLE,
+  checked by the same `sd-matrix-lint`.
+  - `skills/architecture-advisor/assets/stack-picker.html` is the source of an interactive page: nothing is pre-selected,
+    you pick a target market (global, Poland, EU, Iceland) and export the rows straight into the matrix. 199 tools, including
+    all 131 from Arjay McCandless's public Stack Picker under their original names, plus market options such as Polish
+    payment gateways, e-invoicing, parcel lockers and e-ID.
+  - `scripts/stack-catalog-from-artifact.js` generates `references/stack-data.json` and `stack-catalog.md` from it; a test
+    fails when the page, the catalog and the matrix drift apart.
+  - `mas-quality-init.sh` creates an empty `docs/architecture/obszary.md` on bootstrap, and `prompt-guard` points at the step
+    when it sees a new project or a stack question.
+  - Without the opt-in, `stop-gate` no longer stays silent on T2+ work: it gives a non-blocking hint, and only about open
+    one-way doors (data model, IDs, files, identity, region and DR). The rest can wait as NOT NOW.
+- **Security reviewer, from a security checklist.** New checks for IDOR (queries scoped by a user-supplied ID), mass
+  assignment, secrets in git history and in `NEXT_PUBLIC_` variables, and missing rate limits. The rubric's search
+  commands pass file lists NUL-separated, so a crafted file name can no longer inject an option into the command.
+- **Secret scanning in the CI template.** Gitleaks scans every new commit (a PR's range, a push's range, the whole history on
+  the first push) and the working tree, so a secret pasted while resolving a merge conflict is caught too. The image is
+  pinned by digest, and the step fails when git sees no commits instead of reporting zero leaks. The runbook explains what
+  to do: a real secret is rotated first and then recorded by file and rule in `.gitleaksignore`; a fake test key gets
+  `gitleaks:allow` on its line. Merging a PR that adds `gitleaks:allow` needs the owner's phrase, because that marker
+  silences the scanner both locally and in CI.
+- **Model routing by difficulty.** The main session orchestrates; subagents get the model the task needs: the smallest for
+  lookups, the middle one for writing and rubric review, the strongest for hard reasoning and security on high-risk work
+  (`pg/models.md`).
+- **Session context fits the hook limit.** Claude Code shows only a 2,000-character preview of hook output above 10,000
+  characters, so the start-of-session memory now has per-file caps, keeps the PG status lines whole and leaves an index of
+  the sections it cut.
+- **Fixes.** `merge-integrity` runs in pre-push; system-design cards gained cache, hot-row, product and web analytics,
+  mobile and capacity material, and the trade-off catalog a merchant-of-record entry.
+
 ## [1.5.0] — 2026-10-06
 
 PG v4.4: the architect can no longer skip a system-design area, and reviewers get a smaller, sharper input. Two audits drove

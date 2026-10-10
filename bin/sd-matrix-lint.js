@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 // sd-matrix-lint: bramka 0-tokenowa dla macierzy obszarow system design (pg/design.md › G, 2026-10-06).
-// Czyta docs/architecture/obszary.md z repo projektu i porownuje z pg/sd-areas.json (37 obszarow kursu).
-// Powod: audyt sd-course-coverage 2026-10-06 — rate limiting i real-time pominiete BEZ decyzji (lekcja SAGITUM #5);
+// Czyta docs/architecture/obszary.md z repo projektu i porownuje z pg/sd-areas.json (37 obszarow kursu + 25 warstw stack-* z architecture-advisor/references/stack-data.json).
+// Powod: audyt sd-course-coverage 2026-10-06 — rate limiting i real-time pominiete BEZ decyzji (lekcja tender-app #5);
 // bez artefaktu nie da sie odroznic „swiadomie nie dotyczy" od „przeoczone".
 //
 // Uzycie: node sd-matrix-lint.js --repo <dir> [--areas <json>] [--groups g1,g2] [--json]
@@ -31,9 +31,31 @@ const isEmpty = (s) => { const t = stripMd(s); return EMPTY_RX.test(t) || PLACEH
 const EVIDENCE_RX = /\d|[/\\]|`|\.[a-z]{1,5}\b|›/i;
 // Wyciecie blokow kodu (``` i ~~~) i komentarzy HTML z zachowaniem liczby linii (numery w komunikatach = linie pliku).
 const blankKeepLines = (m) => m.replace(/[^\n]/g, '');
-const stripNonContent = (text) => String(text)
-  .replace(/^[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?^[ \t]*\1[ \t]*$/gm, blankKeepLines)
-  .replace(/<!--[\s\S]*?-->/g, blankKeepLines);
+// Liniowo (pg-review 2026-10-06: regex z `\\1` i `*?` byl O(n^2) na niedomknietym bloku -> timeout bramki).
+function stripNonContent(text) {
+  const lines = String(text).split('\n');
+  let fence = null;
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^[ \t]*(`{3,}|~{3,})/.exec(lines[i]);
+    if (fence) {
+      if (m && m[1][0] === fence[0] && m[1].length >= fence.length && /^[ \t]*[`~]+[ \t]*$/.test(lines[i])) fence = null;
+      lines[i] = '';
+    } else if (m) { fence = m[1]; lines[i] = ''; }
+  }
+  // Niedomkniety `<!--` ukrywa reszte pliku — tak jak w renderowanym Markdown (wiersze za nim nie sa widoczne).
+  const text2 = lines.join('\n');
+  const parts = [];
+  let pos = 0;
+  for (let start = text2.indexOf('<!--'); start !== -1; start = text2.indexOf('<!--', pos)) {
+    const end = text2.indexOf('-->', start + 4);
+    const stop = end === -1 ? text2.length : end + 3;
+    parts.push(text2.slice(pos, start), blankKeepLines(text2.slice(start, stop)));
+    pos = stop;
+    if (end === -1) break;
+  }
+  parts.push(text2.slice(pos));
+  return parts.join('');
+}
 
 function loadAreas(file) {
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -162,4 +184,8 @@ function main(argv) {
 
 module.exports = { loadAreas, parseMatrix, stripNonContent, lintMatrix, requiredAreas, template, idFromCell, MATRIX_REL, STATUSES, EXIT };
 
-if (require.main === module) process.exit(main(process.argv.slice(2)));
+if (require.main === module) {
+  let code;
+  try { code = main(process.argv.slice(2)); } catch (e) { process.stderr.write(`sd-matrix-lint: blad: ${e.message}\n`); code = EXIT.USAGE; }
+  process.exit(code);
+}

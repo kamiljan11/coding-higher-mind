@@ -605,7 +605,7 @@ function nudges(root, changed) {
   }
 }
 
-// Macierz obszarow system design (pg/design.md › G, 2026-10-06; lekcja SAGITUM #5: rate limiting i real-time pominiete
+// Macierz obszarow system design (pg/design.md › G, 2026-10-06; lekcja tender-app #5: rate limiting i real-time pominiete
 // bez decyzji). Opt-in jak pg.qa_url: osobna linia `pg.sd_matrix: required` w CLAUDE.md (poza blokami kodu) => przy T2+
 // bin/sd-matrix-lint.js musi przejsc (blok [obszary]). Bez linii: tylko podpowiedz przy T3, gdy pliku brak.
 // Bramka niespelnialna bez opt-in uczylaby obchodzenia (GATE-FALSE-POSITIVE-TEACHES-BYPASS) — stad opt-in.
@@ -632,6 +632,32 @@ function sdMatrixIssues(root) {
   if (r.status === 1 || r.status === 2) return out.split('\n').slice(0, 40).join('\n');
   log({ hook: HOOK, event: 'skipped', reason: `obszary: sd-matrix-lint ${r.error ? r.error.code : 'exit ' + r.status}`, target: root });
   return null;
+}
+
+// Bez opt-in (uzytkownik 2026-10-10: „podpowiedz ma sugerowac proces PG, wybierac bezpiecznie, ale zbalansowane lekkie ryzyko
+// jest dozwolone — nie zatrzymujemy pracy za mocno"): przy T2+ BEZ blokady. Mowi tylko o drzwiach jednokierunkowych
+// (one_way w pg/sd-areas.json: model danych, ID, pliki, tozsamosc, region, DR...) — reszta moze czekac jako NIE TERAZ.
+// Cisza, gdy drzwi sa rozstrzygniete (zero nekania). Wlasne bledy = null (fail-open).
+function sdMatrixHint(root) {
+  const head = '[stop-gate] Podpowiedz PG (bez blokady):';
+  const tail = 'reszta moze poczekac jako NIE TERAZ z sygnalem powrotu — lekkie ryzyko dozwolone. pg/design.md › G.';
+  if (!fs.existsSync(path.join(root, SD_MATRIX_DOC))) {
+    return `${head} brak macierzy obszarow (${SD_MATRIX_DOC}; \`node ~/.claude/bin/sd-matrix-lint.js --template\`, warstwy stack: artefakt Stack Picker). Przed kodem rozstrzygnij drzwi jednokierunkowe (baza i model danych, ID, pliki, tozsamosc, region/DR); ${tail}`;
+  }
+  if (!fs.existsSync(SD_MATRIX_LINT) || budgetLeft() < SD_MATRIX_TIMEOUT_MS + 5000) return null;
+  try {
+    const r = spawnSync(process.execPath, [SD_MATRIX_LINT, '--repo', root, '--json'], { cwd: root, encoding: 'utf8', timeout: SD_MATRIX_TIMEOUT_MS, env: CHILD_ENV });
+    if (r.status === 0) return null;
+    const res = JSON.parse(String(r.stdout || '{}'));
+    const areas = require(SD_MATRIX_LINT).loadAreas(path.join(__dirname, '..', 'pg', 'sd-areas.json')).areas;
+    const open = new Set((res.issues || []).map((i) => i.id).filter(Boolean));
+    const doors = areas.filter((a) => a.one_way && open.has(a.id)).map((a) => a.id);
+    if (!doors.length) return null;
+    return `${head} ${open.size} otwartych wierszy w ${SD_MATRIX_DOC}. Przed kodem rozstrzygnij drzwi jednokierunkowe: ${doors.join(', ')}; ${tail}`;
+  } catch (e) {
+    log({ hook: HOOK, event: 'skipped', reason: `obszary-hint: ${String(e && e.message).slice(0, 120)}`, target: root });
+    return null;
+  }
 }
 
 // Tier T0..T3 z lib/risk-tier.js (sciezki + rozmiar diffu). T0/T1 nie wymagaja recenzji przy Stop
@@ -846,8 +872,9 @@ async function main() {
         `Zmiana ${sdNeed.tier}, repo ma \`pg.sd_matrix: required\`, a macierz obszarow ${SD_MATRIX_DOC} jest niekompletna:\n${sdIssues}\n` +
         'Uzupelnij wiersze (DECYZJA + dowod / NIE DOTYCZY + uzasadnienie / NIE TERAZ + sygnal z liczba) — narada obszarow w skill architecture-advisor; ' +
         'sprawdz: `node ~/.claude/bin/sd-matrix-lint.js --repo .`. Procedura: ~/.claude/pg/design.md › G.');
-    } else if (!sdRequired && archNeed && archNeed.tier === 'T3' && !fs.existsSync(path.join(root, SD_MATRIX_DOC))) {
-      nudgesOut.push(`[stop-gate] T3 bez macierzy obszarow system design (${SD_MATRIX_DOC}) — pg/design.md › G; szablon: \`node ~/.claude/bin/sd-matrix-lint.js --template\`. Twarda bramka po linii \`pg.sd_matrix: required\` w CLAUDE.md.`);
+    } else if (!sdRequired && archNeed && (archNeed.tier === 'T2' || archNeed.tier === 'T3')) {
+      const hint = sdMatrixHint(root);
+      if (hint) nudgesOut.push(hint);
     }
     nudges(root, changed);
   }

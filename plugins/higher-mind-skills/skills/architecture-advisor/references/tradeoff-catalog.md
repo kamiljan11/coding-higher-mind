@@ -218,6 +218,13 @@ low-maintenance defaults.
 - **Earn it when:** the capability is the client's core value and no off-the-shelf option fits.
 - **Breaks/bites when:** time is spent rebuilding a commodity (a booking calendar, a payment flow) that a mature service already solved.
 
+### 3.6 Payment processor vs Merchant of Record (added 2026-10-10, stack catalog gap)
+- **Buys (processor — payment-gateway/local-acquirer/Stripe):** lower fee, full control of checkout and invoicing, local currency (ISK). **(MoR — Paddle/Lemon Squeezy/Polar):** the MoR is the legal seller: it collects and remits VAT/sales tax in every country, handles invoices and refunds.
+- **Costs (processor):** you own tax registration and VAT reporting per country you sell to. **(MoR):** higher fee `[NIEPEWNE: check current pricing]`, less control over checkout, payouts are the MoR's, not the customer's direct sale.
+- **Cheaper default:** **processor** for local B2B/B2C in Iceland/Poland (fleet default). MoR only for selling digital products/SaaS internationally to consumers.
+- **Earn it when:** digital product sold to consumers in many countries and nobody wants to run VAT registrations (EU OSS etc.).
+- **Breaks/bites when:** physical goods or local invoices required (MoR invoices in its own name); a provider switch later = re-subscribing every customer — one-way door, ADR required (`pg/design.md` E).
+
 ---
 
 ## Using the catalog in a recommendation

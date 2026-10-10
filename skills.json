@@ -76,7 +76,7 @@
       "description": "Master architecture-decision skill: choose the right architecture for a new project, audit an existing one, and propose changes — through trade-offs and real context, not hype. It forces the trade-off conversation instead of giving confident answers that ignore your context, and will say 'you don't need that yet'. Use whenever a system's structure is decided, reviewed, or changed: stack for a new site or app, monolith vs microservices, wiring an n8n / AI-agent pipeline, whether to add a queue / cache / event bus / RAG, whether a system is over- or under-engineered, or how it should evolve. Trigger on: 'what architecture', 'how should I build/structure this', 'monolith vs microservices', 'do I need a queue/cache/RAG', 'is this over-engineered', 'review/audit my architecture', 'tech stack for', 'how to scale', 'jaka architektura', 'jak zaprojektować', 'jaki stack', 'audyt architektury', 'jak to rozwijać'. Not for: drawing a diagram with no decision (diagrams) or a quick frontend fix (jack-vibe-coding).",
       "plugin": true,
       "path": "skills/architecture-advisor",
-      "files": 17,
+      "files": 21,
       "summary_pl": "Decyzje architektoniczne przez kompromisy i realny kontekst, a nie modę: wybór architektury nowego projektu, audyt istniejącej i propozycje zmian.",
       "summary_en": "Architecture decisions through trade-offs and real context, not hype: choosing an architecture for a new project, auditing an existing one and proposing changes."
     },

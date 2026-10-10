@@ -21,8 +21,108 @@ const MUTATING_GIT = new Set(['stash', 'checkout', 'switch', 'reset', 'restore',
 const WRITE_PROGS = new Set(['rm', 'del', 'erase', 'remove-item', 'ri', 'rmdir', 'rd', 'mv', 'move', 'move-item', 'mi', 'cp', 'copy', 'copy-item', 'cpi', 'tee', 'touch', 'set-content', 'sc', 'add-content', 'ac', 'out-file', 'new-item', 'ni', 'truncate', 'ln', 'install', 'rename-item', 'rni', 'unlink', 'shred', 'dd']);
 // Zapis przez interpreter (python -c / node -e / heredoc): slowa API zapisu. Goly `>` liczy parser (redirects), nie ten regex.
 // + chronione pliki pg/ (security-review 2026-10-02: `python -c os.remove(...self-approval.off)` przechodzilo).
-const CONTROL_TRACE_RX = /\/\.claude\/(hooks|git-hooks|bin|agents|scheduled-tasks|logs\/(gates|overrides|stop-gate-wm|pg-seen))\b|\/\.claude\/pg\/(trusted-roots\.txt|private-repos\.txt|deny-baseline\.json|settings-hooks\.json|self-approval\.off)|\/\.claude\/settings(\.local)?\.json|\.gitconfig\b|\/\.git\/(config|hooks)\b|profile\.ps1|\/\.(bashrc|bash_profile|zshrc|profile)\b|\.claude['"]?\s*[/,)+]\s*['"]?(hooks|git-hooks|bin|agents|scheduled-tasks|settings)|['"]pg['"]\s*[,)+/]\s*['"](trusted-roots|private-repos|deny-baseline|settings-hooks|self-approval)/;
+// + mody (2026-10-09): ~/.claude/plugins, ~/.claude/dev-mods, ~/mods (zakotwiczone w katalogu domowym — `/mods/` w repo projektu to nie PG).
+// security-review r2: idiomy domu sa nieskonczone (zmienna h=expanduser('~'), joinpath('mods'), `${HOME}`) — szukamy
+// idiomu domu i literalu `mods` w odleglosci do 80 znakow w tej samej instrukcji.
+const MOD_TRACE_RX = /(home\(\)|homedir\(\)|env\.home|['"]home['"]\]|getenv\(['"]home['"]\)|expanduser\(['"]~['"]\)|\$\{?home\}?)[^\n]{0,120}?['"/]mods(['"/]|$)|\.claude['"]?\s*[/,)+]\s*['"]?(plugins|dev-mods)\b/;
+const CONTROL_TRACE_RX = /(\/home\/[^/'"\s]+|(^|[^\w])([a-z]:)?\/users\/[^/'"\s]+|~|\$home|\$\{home\}|\$env:userprofile|%userprofile%)\/mods\/|\/\.claude\/(hooks|git-hooks|bin|agents|scheduled-tasks|plugins|dev-mods|logs\/(gates|overrides|stop-gate-wm|pg-seen))\b|\/\.claude\/pg\/(trusted-roots\.txt|private-repos\.txt|deny-baseline\.json|settings-hooks\.json|self-approval\.off)|\/\.claude\/settings(\.local)?\.json|\.gitconfig\b|\/\.git\/(config|hooks)\b|profile\.ps1|\/\.(bashrc|bash_profile|zshrc|profile)\b|\.claude['"]?\s*[/,)+]\s*['"]?(hooks|git-hooks|bin|agents|scheduled-tasks|settings|plugins|dev-mods)|(homedir\(\)|home\(\)|['"]home['"]\]|getenv\(['"]home['"]\)|expanduser\(['"]~['"]\))\)?\s*[+/,]\s*['"]\/?mods\b|['"]pg['"]\s*[,)+/]\s*['"](trusted-roots|private-repos|deny-baseline|settings-hooks|self-approval)/;
 const API_WRITE_RX = /open\([^)]*['"][wax]\+?b?['"]|\.write_(text|bytes)\(|writeFileSync|appendFileSync|unlinkSync|rmSync|renameSync|copyFileSync|os\.(remove|unlink|rename|replace)\(|shutil\.|\.unlink\(|\.rename\(|Set-Content|Out-File|Add-Content|Remove-Item|Move-Item|Copy-Item/;
+
+// Regula remote-sql-destructive (2026-10-10, 3 rundy recenzji security/code/data). Zwraca true = blok.
+// Cel ZDALNY, dopoki nie udowodniono lokalnego; SQL niewidoczny na zdalnym = blok. Rekurencja przez wrappery
+// (menedzer sekretow (np. Infisical CLI) `-- psql`, `sh -c '...'`, `docker run img psql`, `npx prisma`): przez wrapper srodowisko (PGHOST,
+// DATABASE_URL) jest niewidoczne => cel nieznany, wyjatek `docker exec <kontener>` = baza w kontenerze (lokalna).
+const SQL_DESTRUCTIVE = /\bdrop\b|\btruncate\b|\bdelete\s+from\b|\balter\s+table\b[^;]*\b(drop|alter\s+(column\s+)?[\w"]+\s+(set\s+data\s+)?type)\b|\bupdate\s+[\w."]+\s+set\b(?![^;]*\bwhere\b)/i;
+const SQL_TOOLS = /^(psql|pg_restore|pgcli|usql|dropdb|supabase|prisma)$/;
+const SQL_WRAPPERS = /^(python3?|docker|npx|bunx|pnpx|pnpm|yarn|env|timeout|nohup|sudo|nice|ssh|kubectl|sh|bash|zsh|dash)$/;
+const SQL_LOCAL = /^(localhost|127\.0\.0\.1|::1|\[::1\]|host\.docker\.internal|\/var\/run\/postgresql|\/tmp)$/i;
+function sqlRisk(cmd, ctx, wrapper, depth) {
+  if (depth > 3) return false;
+  // parser rozpakowuje `npx -y pkg@wersja` do prog = `pkg@wersja`
+  if (/@/.test(cmd.prog)) cmd = Object.assign({}, cmd, { prog: cmd.prog.replace(/@[^/]*$/, '') });
+  const args = cmd.argv.slice(1);
+  if (!SQL_TOOLS.test(cmd.prog)) {
+    // Tylko znane wrappery (code-review: `git commit -m "...psql drop..."` byl brany za wykonanie).
+    if (!SQL_WRAPPERS.test(cmd.prog)) return false;
+    if (/^(sh|bash|zsh|dash)$/.test(cmd.prog)) {
+      const ci = args.indexOf('-c');
+      const code = ci >= 0 ? args[ci + 1] : '';
+      // `docker exec ctr sh -c 'psql ...'` — wyjatek „baza w kontenerze" przechodzi przez powloke (code-review final)
+      const w2 = wrapper === 'docker-exec' ? 'docker-exec' : cmd.prog;
+      try { return !!code && parse(code).commands.some((sub) => sqlRisk(sub, ctx, w2, depth + 1)); } catch (e) { return false; }
+    }
+    // `npx -y supabase@latest`, `pnpm dlx supabase` — nazwa pakietu z wersja (ops-review r2)
+    const tool = (a) => progName(a).replace(/@[^/]*$/, '');
+    const k = args.findIndex((a) => SQL_TOOLS.test(tool(a)) || /^(sh|bash|zsh|dash)$/.test(tool(a)));
+    if (k < 0) return false;
+    const w = cmd.prog === 'docker' && args[0] === 'exec' ? 'docker-exec' : cmd.prog;
+    return sqlRisk(Object.assign({}, cmd, { argv: args.slice(k), prog: tool(args[k]) }), ctx, w, depth + 1);
+  }
+  if (cmd.prog === 'prisma') {
+    return (args[0] === 'migrate' && args[1] === 'reset') || (args[0] === 'db' && args[1] === 'push' && args.includes('--accept-data-loss'));
+  }
+  if (cmd.prog === 'supabase') {
+    const di = args.indexOf('db');
+    if (di < 0 || !args.some((a) => /^--(linked|db-url)(=|$)/.test(a))) return false;
+    const sub = args[di + 1];
+    if (sub === 'reset') return true;
+    if (sub === 'query') return args.some((a) => a === '-f' || /^--file(=|$)/.test(a)) || SQL_DESTRUCTIVE.test(args.join(' '));
+    return false;
+  }
+  if (args.some((a) => /^(--version|-V|--help|-\?)$/.test(a))) return false;
+  const env = Object.assign({}, ctx.env || {}, cmd.values || {});
+  // -c z flagami laczonymi (psql -tAc, -Atc, -qc) i -e (pgcli); wartosci tych flag to SQL, nie adres polaczenia
+  const isSqlFlag = (a) => /^(--command|-e|--execute)$/.test(a) || /^-[a-zA-Z]*c$/.test(a) && cmd.prog !== 'pg_restore';
+  const sqlIdx = new Set();
+  args.forEach((a, k) => { if (isSqlFlag(a)) sqlIdx.add(k + 1); });
+  // Wartosci flag NIE-polaczeniowych (plik, zmienne psql, wyjscie, user, port) — `$` w nich nie czyni celu nieznanym
+  // (code-review final: `-f tests/$f.sql`, `-v s="$S"` na lokalnym Supabase blokowane).
+  const NON_CONN = /^(-f|--file|-v|--set|--variable|-o|--output|-L|--log-file|-P|--pset|-U|--username|-p|--port|-F|--field-separator|-R|--record-separator|-T|--table-attr)$/;
+  const skipIdx = new Set();
+  // Semantyka psql/usql/pgcli: w dropdb `-f` = --force, w pg_restore `-v` = verbose (bez argumentu) — tam nic nie pomijamy
+  // (ops-review e9060fb: `dropdb -f -h <zdalny>` przechodzil). Token adresu (-h, --host, URL) nigdy nie jest pomijany.
+  const isConnTok = (a) => /^(-h|--host)/.test(a) || /postgres(ql)?:\/\//i.test(a);
+  if (/^(psql|usql)$/.test(cmd.prog)) {
+    args.forEach((a, k) => {
+      if (NON_CONN.test(a)) { if (!isConnTok(args[k + 1] || '')) skipIdx.add(k + 1); }
+      else if (/^-[vfoLPUpFRT]./.test(a) || /^--(set|variable|file|output|username|port)=/.test(a)) skipIdx.add(k);
+    });
+  }
+  const hosts = [];
+  let unknown = !!wrapper && wrapper !== 'docker-exec';
+  const addFrom = (s) => {
+    const url = /postgres(ql)?:\/\/(?:[^@/\s]*@)?(\[[^\]]*\]|[^:/?\s"']*)/i.exec(s);
+    if (url) hosts.push(url[2]);
+    const q = /[?&](host|hostaddr)=([^&\s"']+)/i.exec(s);
+    if (q) hosts.push(decodeURIComponent(q[2]));
+    for (const m of s.matchAll(/(?:^|\s)(host|hostaddr)\s*=\s*['"]?([^\s"']+)/gi)) hosts.push(m[2]);
+    if (/(?:^|\s)service\s*=/i.test(s)) unknown = true;
+  };
+  args.forEach((a, k) => {
+    if (sqlIdx.has(k) || skipIdx.has(k) || (/^(psql|usql)$/.test(cmd.prog) && NON_CONN.test(a))) return;
+    if (/^(-h|--host)$/.test(a)) hosts.push(args[k + 1] || '');
+    else if (/^-h./.test(a)) hosts.push(a.slice(2));
+    else if (/^--host=/.test(a)) hosts.push(a.slice(7));
+    // Zmienne rozwijamy z tej samej linii i srodowiska (code-review r2: 53/58 trafien = lokalny Supabase przez `$U`)
+    const v = /\$/.test(a) ? expandVars(a, env) : a;
+    if (/\$/.test(v)) unknown = true;
+    addFrom(v.replace(/^--dbname=/, ''));
+  });
+  for (const k of ['PGHOST', 'PGHOSTADDR']) if (env[k]) hosts.push(String(env[k]));
+  if (env.PGSERVICE) unknown = true;
+  if (env.PGDATABASE && /postgres(ql)?:\/\//i.test(env.PGDATABASE)) addFrom(String(env.PGDATABASE));
+  if (!unknown && hosts.every((h) => SQL_LOCAL.test(h))) return false;
+  if (cmd.prog === 'dropdb') return true;
+  // -Fc = format custom, nie --clean (code-review r2)
+  if (cmd.prog === 'pg_restore') return args.some((a) => a === '--clean' || /^-(?!F)[a-zA-Z]*c[a-zA-Z]*$/.test(a));
+  // SQL widoczny tylko w -c/--command (psql, usql), -e/--execute (pgcli); reszta (stdin, -f, heredoc, interaktywnie) = niewidoczny
+  const sql = [];
+  args.forEach((a, k) => { if (isSqlFlag(a)) sql.push(args[k + 1] || ''); else if (/^--(command|execute)=/.test(a)) sql.push(a.split('=').slice(1).join('=')); });
+  // + `-f`/`--file` obok `-c` (ops-review r2: `-c "select 1" -f drop.sql` ukrywal plik)
+  const fileArg = args.some((a) => a === '-f' || /^--file(=|$)/.test(a) || /^-[a-zA-Z]*f$/.test(a));
+  if (!sql.length || fileArg || (cmd.heredocs || []).length || (cmd.redirects || []).some((r) => /^</.test(String(r.op || r)))) return true;
+  return sql.some((s) => SQL_DESTRUCTIVE.test(s));
+}
 
 // Cele zapisu w kodzie interpretera (python/node w -c/-e albo heredocu). Zwraca { targets, unresolved }:
 // unresolved = jest wywolanie zapisu, ktorego argumentu nie da sie ustalic z literalow (os.path.join, f-string...).
@@ -208,13 +308,149 @@ function writeTargets(cmd, env) {
   if (cmd.prog === 'dd') { const o = cmd.argv.find((a) => /^of=/.test(a)); if (o) out.push(o.slice(3)); }
   if (cmd.prog === 'patch') {
     const d = valueOf(/^(-d|--directory(=.*)?|-o|--output(=.*)?)$/); if (d) out.push(d);
+    // -oPLIK sklejone i skroty `--out=` (security-review r2 2026-10-10)
+    out.push(...optValues(cmd.argv, 'o', { name: 'output', min: 2 }, 'BDdFgiopVYrzx'));
     // `patch PLIK < p.diff` — pierwszy operand to plik patchowany in place (code-review 2026-09-26: galaz bez testu, nie lapala).
     const operand = cmd.argv.slice(1).find((a, i, arr) => !/^-/.test(a) && !/^(-d|-o|-i|-p\d*|--directory|--output|--input)$/.test(arr[i - 1] || ''));
     if (operand) out.push(operand);
   }
+  // ed/ex: operand edytowany in place (security-review 2026-10-10: `cd ~/.claude/hooks && ed x.js < s` przechodzil).
+  if (/^(ed|red|ex)$/.test(cmd.prog)) out.push(...targetsOf(cmd.argv));
   if (/^(expand-archive)$/.test(cmd.prog)) { const d = valueOf(/^-destinationpath$/i); if (d) out.push(d); }
   if (cmd.prog === 'ln') out.push(...targetsOf(cmd.argv));
   return out.filter(Boolean).map((t) => expandVars(t, env));
+}
+
+// Zapis WZGLEDEM CWD bez sciezki w argumentach (security-review 2026-10-10 r1+r2, code-review r2). Regula KLASOWA — czytanie
+// naglowkow latki bylo kruche (opcje z argumentem, rename gita, C-quoting, >200 KB, pipe z katalogu nad ~/.claude):
+// - patch / rozpakowanie archiwum (tar x, unzip, 7z x/e, cpio -i): katalog roboczy (cwd, -d/-C/-o/-D, takze w klastrach
+//   `-Nd ..` i skrotach `--dir=`) W ~/.claude albo NAD nim (~, /home, /) = blokada bez wzgledu na tresc. GNU patch >= 2.7
+//   odrzuca sciezki absolutne i `..`; GNU tar zdejmuje wiodacy `/` i odrzuca `..` (bez -P) — spoza drzewa nie dosiegna PG.
+//   `patch --dry-run`, `tar t`, `unzip -l/-t/-p/-v/-Z` (bez zapisu) przepuszczone.
+// - ed/red/ex i vi/vim/nvim w trybie skryptu: `w /abs/sciezka` dziala z dowolnego cwd — skrypt (heredoc, here-string, `< plik`,
+//   -c/--cmd/+cmd, -S/-u/-l plik) musi byc przegladalny i bez sladu PG; nieprzegladalny (pipe) albo w/nad ~/.claude = blokada.
+const cwdInClaude = (cwd) => { const p = normalizePath(cwd), c = normalizePath(CLAUDE_DIR); return p === c || p.startsWith(c + '/'); };
+const aboveClaude = (cwd) => { const p = normalizePath(cwd).replace(/\/+$/, ''), c = normalizePath(CLAUDE_DIR); return p === '' || c.startsWith(p + '/'); };
+// Prawdziwa sciezka (symlink katalogu, /proc/self/root/...): realpath najdluzszego istniejacego prefiksu + reszta.
+function realish(p) {
+  let head = normalizePath(p), tail = '';
+  for (let guard = 0; head && guard < 64; guard++) {
+    try { return (fs.realpathSync(head) + tail).replace(/\/+/g, '/'); } catch (e) { /* nie istnieje — krok w gore */ }
+    const k = head.lastIndexOf('/');
+    if (k <= 0) break;
+    tail = head.slice(k) + tail; head = head.slice(0, k);
+  }
+  return normalizePath(p);
+}
+const nearClaude = (cwd) => { const r = realish(cwd); return cwdInClaude(cwd) || aboveClaude(cwd) || cwdInClaude(r) || aboveClaude(r); };
+// Dluga opcja `a` = `--<prefiks nazwy name>` (getopt_long przyjmuje jednoznaczne skroty), min = najkrotszy jednoznaczny prefiks.
+const isLongOpt = (a, name, min) => { if (!/^--[^-]/.test(a)) return false; const n = a.slice(2).split('=')[0]; return n.length >= min && name.startsWith(n); };
+// Wartosc opcji jak w getopt: krotka w klastrze (`-Nd ..`, `-dX`) albo dluga (`--dir=X`, `--directory X`); ostatnia wygrywa.
+// argShorts = litery krotkich opcji biorace argument (potrzebne do poprawnego ciecia klastra).
+function optValue(argv, short, long, argShorts) { const all = optValues(argv, short, long, argShorts); return all.length ? all[all.length - 1] : null; }
+function optValues(argv, short, long, argShorts) {
+  const vals = [];
+  for (let i = 1; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--') break;
+    if (long && isLongOpt(a, long.name, long.min)) { vals.push(a.includes('=') ? a.slice(a.indexOf('=') + 1) : (argv[++i] || '')); continue; }
+    if (/^-[^-]/.test(a)) {
+      for (let k = 1; k < a.length; k++) {
+        if (!argShorts.includes(a[k])) continue;
+        const v = k + 1 < a.length ? a.slice(k + 1) : (argv[++i] || '');
+        if (a[k] === short) vals.push(v);
+        break;
+      }
+    }
+  }
+  return vals;
+}
+const EDITOR_SCRIPT_PROGS = /^(ed|red|ex|vi|vim|nvim|view|rvim|rview|vimdiff|evim|editor|sensible-editor)(\.\w+)?$/;
+function cwdRelativeWriteHits(cmd, ctx) {
+  const argv = cmd.argv;
+  const baseOf = (dir) => (dir !== null ? normalizePath(expandVars(dir, ctx.env), ctx.cwd) : ctx.cwd);
+  // Cwd niepewny (cel cd nieznany) => kazdy zapis wzgledem cwd z tej klasy = blokada (fail-closed).
+  const unsure = ctx.cwdKnown === false;
+  // Aplety busybox maja inna semantyke niz GNU (patch przyjmuje sciezki absolutne i `..`) — blok zawsze (security r3);
+  // PRZED galezia edytorow, inaczej `busybox vi/ed` konczyly sie w niej (code-review fa3cacb).
+  if ((cmd.via || []).includes('busybox') && /^(patch|tar|cpio|unzip|vi|ed|sed)$/.test(cmd.prog)) return true;
+  if (EDITOR_SCRIPT_PROGS.test(cmd.prog)) {
+    const scripted = /^(ed|red|ex)(\.\w+)?$/.test(cmd.prog) || argv.slice(1).some((a, i, arr) => a === '-c' || a === '-S' || a === '-l' || isLongOpt(a, 'cmd', 3)
+      || (a === '-u' && !/^(NONE|NORC|DEFAULTS)$/.test(arr[i + 1] || ''))
+      || /^\+./.test(a) || (/^-[eEsnNRXZ]+$/.test(a) && /[eEs]/.test(a)));
+    const stdinFed = ctx.piped || (cmd.redirects || []).some((r) => r.op === '<' || r.op === '<<<') || (cmd.heredocs || []).length > 0;
+    if (unsure || nearClaude(ctx.cwd)) return true; // w/nad ~/.claude kazdy edytor (security r3: vim bez tty wykonuje klawisze ze stdin)
+    if (!scripted && !stdinFed) return false; // interaktywny vi/vim — plik PG w operandzie lapie writeTargets
+    if (ctx.piped) return true; // klawisze z potoku nieprzegladalne
+    const texts = (cmd.heredocs || []).map((h) => h.body || '');
+    // `<<< ',p'` parser zapisuje jako `<` z tekstem w miejscu pliku: nieistniejacy plik = analizujemy sam tekst (gdy to
+    // naprawde brakujacy plik, powloka i tak nie uruchomi edytora). Pipe nie jest przekierowaniem -> tekst pusty -> blok.
+    for (const r of cmd.redirects || []) { if (r.op === '<' || r.op === '<<<') texts.push(readSmall(r.target, ctx) || String(r.target || '')); }
+    argv.forEach((a, i) => {
+      const next = argv[i + 1] || '';
+      if (a === '-c' || isLongOpt(a, 'cmd', 3)) texts.push(a.includes('=') ? a.slice(a.indexOf('=') + 1) : next);
+      else if (/^\+./.test(a)) texts.push(a.slice(1));
+      else if (a === '-S' || a === '-l' || (a === '-u' && !/^(NONE|NORC|DEFAULTS)$/.test(next))) texts.push(next, readSmall(next, ctx) || '\u0000');
+    });
+    const text = texts.join('\n');
+    if (!text.trim() || text.includes('\u0000')) return true; // skrypt nieprzegladalny (pipe, nieczytelny plik -S/-u/-l)
+    return CONTROL_TRACE_RX.test(text.replace(/\\+/g, '/').toLowerCase()) || /(^|[\s'"=])(\/home\/[^/\s]+\/\.claude|~\/\.claude|\$HOME\/\.claude)(\/|\s|$)/i.test(text);
+  }
+  if (cmd.prog === 'patch') {
+    // Bez wyjatku dla --dry-run (security r2: `-r --dry-run` = wartosc opcji, patch i tak zapisuje). Kazde -d to chdir
+    // WZGLEDEM poprzedniego (`-d ~ -d .claude`) — skladamy po kolei.
+    if (unsure) return true;
+    let base = ctx.cwd;
+    for (const d of optValues(argv, 'd', { name: 'directory', min: 2 }, 'BDdFgiopVYrzx')) base = normalizePath(expandVars(d, ctx.env), base);
+    if (nearClaude(base)) return true;
+    if (/\/\.(git|claude)(\/|$)/.test(normalizePath(base))) return true; // `-d .git` / `cd .git && patch` (code-review)
+    // W KAZDYM repo GNU patch zapisze `.git/config` (lokalny core.hooksPath = wylaczone bramki PG) i `.claude/settings.json`
+    // (hooki projektu = kod w nastepnej sesji) — sandbox 2026-10-10; `git apply` odmawia („invalid path"). Latka musi byc
+    // przegladalna (heredoc, `<`, -i) i bez `.git/`/`.claude/` ani escape'ow nazw; inaczej blok (0 uzyc `patch` w transkryptach).
+    const inFile = optValue(argv, 'i', { name: 'input', min: 2 }, 'BDdFgiopVYrzx');
+    const texts = (cmd.heredocs || []).map((h) => h.body || '');
+    if (inFile !== null) texts.push(readSmall(inFile, ctx));
+    for (const r of cmd.redirects || []) if (r.op === '<' || r.op === '<<<') texts.push(readSmall(r.target, ctx));
+    const txt = texts.join('\n');
+    if (!txt.trim()) return true;
+    return /(^|[\s/"'])\.(git|claude)\//m.test(txt) || /\\[0-7]{3}|\\x[0-9a-f]{2}/i.test(txt);
+  }
+  // Archiwa z czlonkami absolutnymi / `../` pisza poza katalog docelowy (security r3): blok niezaleznie od cwd.
+  if ((cmd.prog === 'tar' || cmd.prog === 'bsdtar') && argv.some((a) => isLongOpt(a, 'absolute-names', 3) || (/^-[^-]/.test(a) && /P/.test(a.split(/[fCbTXKNLVgHI]/)[0])) || (a === argv[1] && !/^-/.test(a) && /P/.test(a)))) return true;
+  if (cmd.prog === 'cpio' && !argv.some((a) => isLongOpt(a, 'no-absolute-filenames', 4))) {
+    if (argv.some((a) => (/^-[^-]/.test(a) && /i/.test(a.split(/[DFHIMORE]/)[0])) || isLongOpt(a, 'extract', 3))) return true; // GNU cpio -i zachowuje sciezki absolutne
+  }
+  if (cmd.prog === 'unzip' && argv.some((a) => /^-[a-zA-Z]*:/.test(a))) return true;
+  if (/^(7z|7za|7zz|7zr)$/.test(cmd.prog) && argv.some((a) => /^-spf/.test(a))) return true;
+  if (cmd.prog === 'tar' || cmd.prog === 'bsdtar') {
+    const oldStyle = argv[1] && !/^-/.test(argv[1]) ? argv[1] : '';
+    // Stary styl `tar xfC a.tar DIR`: litery z argumentem biora kolejne pozycyjne w kolejnosci (security r3).
+    if (oldStyle) {
+      let pos = 2;
+      for (const ch of oldStyle) {
+        if (!'fCbTXKNLVgHI'.includes(ch)) continue;
+        const v = argv[pos++];
+        if (ch === 'C' && v && /x/.test(oldStyle) && (ctx.cwdKnown === false || nearClaude(normalizePath(expandVars(v, ctx.env), ctx.cwd)))) return true;
+      }
+    }
+    const extract = /x/.test(oldStyle) || argv.some((a) => (/^-[^-]/.test(a) && /x/.test(a.split(/[fCbTXKNLVgHI]/)[0])) || isLongOpt(a, 'extract', 3) || isLongOpt(a, 'get', 3));
+    const tbase = baseOf(optValue(argv, 'C', { name: 'directory', min: 3 }, 'fCbTXKNLVgHI'));
+    return extract && (unsure || nearClaude(tbase) || /\/\.(git|claude)(\/|$)/.test(normalizePath(tbase))); // + `tar -C .git`
+  }
+  if (cmd.prog === 'unzip') {
+    if (argv.some((a) => /^-[a-zA-Z]*[ltpvZ]/.test(a))) return false;
+    return unsure || nearClaude(baseOf(optValue(argv, 'd', null, 'dx')));
+  }
+  if (/^(7z|7za|7zz|7zr)$/.test(cmd.prog)) {
+    if (!/^[xe]$/.test(argv[1] || '')) return false;
+    const o = argv.find((a) => /^-o./.test(a));
+    return unsure || nearClaude(baseOf(o ? o.slice(2) : null));
+  }
+  if (cmd.prog === 'cpio') {
+    if (!argv.some((a) => (/^-[^-]/.test(a) && /i/.test(a.split(/[DFHIMORE]/)[0])) || isLongOpt(a, 'extract', 3))) return false;
+    return unsure || nearClaude(baseOf(optValue(argv, 'D', { name: 'directory', min: 3 }, 'DFHIMORE')));
+  }
+  return false;
 }
 
 // ---------- reguly ----------
@@ -276,6 +512,16 @@ const RULES = [
       if (value === undefined) return false; // odczyt
       return normalizePath(value) !== OWN_GIT_HOOKS;
     } },
+  // 2026-10-10 (PDF security-checklist P7, sprawdzone: exit 0 dla `psql "$PROD_DB_URL" -c "drop table users"` i
+  // `supabase db reset --linked`): destrukcyjny SQL na bazie zdalnej = nieodwracalne. Lokalnie (localhost, socket,
+  // brak hosta/URL) wolne.
+  // r2 (security+code review 2026-10-10): regula na PARSOWANEJ komendzie (program faktycznie uruchamiany), nie na tekscie —
+  // heredoc z findings/RESUME zawierajacy „drop table" to nie wykonanie. Cel ZDALNY, dopoki nie udowodniono lokalnego
+  // (host dokladnie z listy, albo brak hosta/URL/PGHOST/zmiennej/service). Klient SQL na zdalnym celu bez widocznego
+  // SQL (stdin, -f, heredoc, sesja interaktywna) = blok — tresci nie widac.
+  { id: 'remote-sql-destructive', esc: 'ALLOW_DELETE', mode: 'enforce',
+    why: 'Destrukcyjny SQL (DROP/TRUNCATE/DELETE/UPDATE bez WHERE/ALTER COLUMN TYPE, pg_restore --clean, dropdb, supabase db reset|query --linked, prisma migrate reset, prisma db push --accept-data-loss) albo SQL niewidoczny (plik, stdin, heredoc) na bazie ZDALNEJ = ryzyko nieodwracalnej utraty danych. Dozwolone bez frazy: odczyt `psql "$URL" -c "select ..."`, migracje `supabase db push` (oslona = recenzja migracji T3), baza lokalna (localhost / docker exec), backup-drill.py. Destrukcja na zdalnej: najpierw backup (bin/backup-drill.py), dzialaj na kopii/branchu; potem decyzja uzytkownika.',
+    parsed: (cmd, ctx) => sqlRisk(cmd, ctx, '', 0) },
   { id: 'rm-rf', esc: 'ALLOW_RM', mode: 'enforce',
     why: 'rm -r poza katalogami build/cache (node_modules, dist, .output, /tmp...) = nieodwracalne. Przenies do _to_delete/ albo trash.',
     legacy: (raw) => {
@@ -390,24 +636,31 @@ const RULES = [
     parsed: () => false,
     exemptSearch: true },
   { id: 'control-plane', esc: CONTROL_PLANE, mode: 'enforce',
-    why: 'Zapis/przeniesienie/usuniecie warstwy kontrolnej PG (~/.claude hooks, git-hooks, bin, agents, scheduled-tasks, settings, logi bramek, ~/.gitconfig, .git/config, profile powloki). Zmiany PG tylko za zgoda uzytkownika.',
+    why: 'Zapis/przeniesienie/usuniecie warstwy kontrolnej PG (~/.claude hooks, git-hooks, bin, agents, scheduled-tasks, settings, mody: ~/mods, ~/.claude/plugins, ~/.claude/dev-mods, skille z manifestem pluginu, logi bramek, ~/.gitconfig, .git/config, profile powloki). Zmiany PG tylko za zgoda uzytkownika. Latka w zwyklym repo: uzyj `git apply` (odmawia sciezek .git), nie `patch` z potoku.',
     // Zapis przez interpreter (python heredoc, node -e): sciezki bywaja ze spacja, wzgledne po `cd ~/.claude`
     // albo skladane (`Path.home() / '.claude' / 'hooks'`) — wiec szukamy SLADU sciezki w tekscie, nie pelnej sciezki.
     // Najpierw rozwiazujemy CEL zapisu z literalow (`p = "bin/x.py"; open(p, "w")`): wszystkie cele znane i poza
     // warstwa kontrolna = przepuszczamy (recenzent zapisujacy findings do %TEMP% pythonem). Cel nieznany -> slad sciezki.
     legacy: (raw, nq, ctx) => {
-      if (!API_WRITE_RX.test(raw)) return false;
-      const w = interpreterWrites(raw);
+      // Kod inline w cudzyslowie powloki ma escapowane cudzyslowy (`-c "open(\"hooks/x.js\",\"w\")"`): bez odescapowania
+      // ani API_WRITE_RX, ani wzorce open()/writeFileSync nie trafialy i zapis przechodzil (2026-10-10, sonda po security-review).
+      const code = raw.replace(/\\x22/gi, '"').replace(/\\x27/gi, "'").replace(/\\+(["'])/g, '$1'); // + $'\\x22' i wielokrotne \\
+      if (!API_WRITE_RX.test(code)) return false;
+      const w = interpreterWrites(code);
       if (w.targets.some((t) => isControlPlane(t, ctx.cwd))) return true;
+      // Sciezki modow skladane z katalogu domowego (Path.home()/'mods', join(expanduser('~'),'.claude','plugins')) bywaja
+      // „rozwiazane" przez interpreterWrites do celu bez domu — sprawdzamy slad niezaleznie od tego (security-review faza 0 modow).
+      if (MOD_TRACE_RX.test(raw.replace(/\\+/g, '/').toLowerCase())) return true;
       if (!w.unresolved) return false;
       const t = raw.replace(/\\+/g, '/').toLowerCase();
       if (CONTROL_TRACE_RX.test(t)) return true;
       // Sciezki wzgledne (`bin/x.py`) licza sie tylko, gdy komenda dziala w ~/.claude — `hooks/useAuth.ts` w repo React to nie PG.
-      const inClaude = normalizePath(ctx.cwd).startsWith(normalizePath(CLAUDE_DIR));
+      const inClaude = cwdInClaude(ctx.cwd);
       return inClaude && /(^|['"\s(=])(hooks|git-hooks|bin|agents|scheduled-tasks)\/[\w.-]+|settings(\.local)?\.json/.test(t);
     },
     parsed: (cmd, ctx) => {
       if (writeTargets(cmd, ctx.env).some((t) => isControlPlane(t, ctx.cwd))) return true;
+      if (cwdRelativeWriteHits(cmd, ctx)) return true;
       // Ponowne zapieczetowanie = zatwierdzenie zmian warstwy kontrolnej (security-review 2026-09-26).
       // `nodejs` (Debian) i nazwa skryptu bez `.js` (Node dopisuje rozszerzenie) — security-review 2026-09-27.
       const isNode = /^(node|nodejs|bun|deno)$/.test(cmd.prog);
@@ -423,7 +676,9 @@ const RULES = [
         (g.sub === 'reset' && !g.args.some((a) => /^--(hard|merge|keep)$/.test(a))) ||
         (g.sub === 'restore' && g.args.includes('--staged') && !g.args.includes('--worktree')));
       if (g && !readOnlyVariant && /^(checkout|restore|reset|stash|clean|rm|mv|apply|am|revert|cherry-pick|merge|pull|rebase|switch)$/.test(g.sub)) {
-        const inClaude = (d) => d === normalizePath(CLAUDE_DIR) || d.startsWith(normalizePath(CLAUDE_DIR) + '/');
+        // + ~/mods (security-review faza 0 modow: `git -C ~/mods apply p.patch` nadpisywal przejrzany kod moda).
+        const MODS = normalizePath(require('path').join(os.homedir(), 'mods'));
+        const inClaude = (d) => d === normalizePath(CLAUDE_DIR) || d.startsWith(normalizePath(CLAUDE_DIR) + '/') || d === MODS || d.startsWith(MODS + '/');
         const envDirs = ['GIT_DIR', 'GIT_WORK_TREE'].map((k) => (cmd.values || {})[k] || (ctx.env || {})[k]).filter(Boolean);
         const dirs = [g.cwdOpt ? normalizePath(g.cwdOpt, ctx.cwd) : normalizePath(ctx.cwd),
           ...[...g.extraDirs, ...envDirs].map((d) => normalizePath(expandVars(d, ctx.env), ctx.cwd))];
@@ -493,6 +748,33 @@ const RULES = [
       const end = cmd.argv.indexOf('--');  // po `--` to argumenty, nie flagi (ops-review r7)
       const args = cmd.argv.slice(1, end > 0 ? end : undefined);
       return args.some((a) => CLAUDE_ONLY_FLAG_RX.test(a)) || (looksLikeClaude(cmd) && args.some((a) => CLAUDE_OVERRIDE_FLAG_RX.test(a)));
+    } },
+  // 2026-10-09: mod = kod wykonywany w Claude Code poza hookami settings. Instalacja, wlaczenie, aktualizacja, dodanie
+  // marketplace'u zmieniaja to, co sie laduje. Odczyt (list, validate, test, details) zostaje wolny. `/plugin` w czacie
+  // to akcja uzytkownika — hook jej nie widzi i nie musi.
+  // 2026-10-10 (masterplan D6, decyzja uzytkownika): ODEJMOWANIE jest wolne — disable|uninstall|remove|prune|autoremove,
+  // marketplace remove. Awaryjny wylacznik zepsutego moda nie moze stac za fraza; zaden mod nie jest bramka PG
+  // (bramkami sa hooki settings), wiec wylaczenie moda niczego w PG nie zdejmuje.
+  { id: 'claude-plugin-change', esc: CONTROL_PLANE, mode: 'enforce',
+    why: 'Dodanie/zmiana kodu modow Claude Code (claude plugin install|enable|update|configure|eval|init|new, marketplace add|update) = zmiana warstwy kontrolnej. Mody omijaja hooki settings. Przeglad kodu moda + fraza uzytkownika. Wylaczanie/odinstalowanie jest wolne.',
+    parsed: (cmd) => {
+      if (!looksLikeClaude(cmd)) return false;
+      // Sama pomoc niczego nie zmienia (code-review faza 0: `claude plugin install --help` w realnej sesji = FP poziomu C).
+      // Tylko PRZED `--` (code-review r2: `install x -- --help` instalowal — po `--` to operand, nie flaga).
+      // security-review r2: `-h` jako WARTOSC opcji (`--accept-command -h`, `--config -h`) instalowal — pomoc tylko, gdy
+      // poprzedni argument nie jest opcja (moze byc wartoscia opcji). `install x --force --help` = blok (bezpieczny FP).
+      // + tylko PO slowie `plugin` (weryfikator r3: `claude -h plugin install x` — niepewne, czy to pomoc roota).
+      const dd = cmd.argv.indexOf('--');
+      const head = cmd.argv.slice(0, dd < 0 ? undefined : dd);
+      const pIdx = head.findIndex((x) => /^plugins?$/i.test(x));
+      if (head.some((x, k) => k > pIdx && pIdx >= 0 && (x === '--help' || x === '-h') && !String(head[k - 1] || '').startsWith('-'))) return false;
+      const a = cmd.argv.slice(1).filter((x) => !x.startsWith('-')).map((x) => x.toLowerCase());
+      const i = a.findIndex((x) => x === 'plugin' || x === 'plugins');
+      if (i < 0) return false;
+      if (a[i + 1] === 'marketplace' || a[i + 1] === 'marketplaces') return /^(add|update)$/.test(a[i + 2] || '');
+      // `eval` uruchamia kod pluginu na tej maszynie (pomoc CLI) — tak samo jak instalacja.
+      // init|new tworza mod w ~/.claude/skills (auto-ladowanie, security-review faza 0).
+      return /^(install|i|enable|update|upgrade|configure|eval|init|new)$/.test(a[i + 1] || '');
     } },
   { id: 'readonly-agent', esc: null, mode: 'enforce',
     why: 'Recenzent/weryfikator jest READ-ONLY (blizna 2026-09-15: stash+checkout wykonany przez recenzenta). Zapis dozwolony tylko do findings/verdicts w katalogu przebiegu lub %TEMP%.',
@@ -564,8 +846,9 @@ const SCRIPT_NET_RX = /urlopen|urllib|requests\.|httpx|aiohttp|LWP|require\(\s*[
 const toSlash = (p) => String(p).replace(/\\/g, '/').toLowerCase();
 // Zaufane = konkretne pliki warstwy kontrolnej (chroni je edit-guard + fraza ALLOW_CONTROL_PLANE), nie cale katalogi:
 // bin/mas_merge_prs.py scala bez wlasnych warunkow, wiec NIE jest zaufany (code-review 2026-10-01).
-const TRUSTED_SCRIPTS = new Set(['bin/pg-merge-bezpieczny.py', 'bin/test_hooks_v3.js', 'bin/test_pg_merge.py', 'bin/pg-eval.js',
-  'bin/pg-replay.js', 'bin/pg-mutate.js'].map((f) => toSlash(require('path').join(os.homedir(), '.claude', f))));
+// test_hooks_v2.js: fikstura 'gh pr merge 5' w tresci dawala FP pr-merge na samym uruchomieniu testow (2026-10-10).
+const TRUSTED_SCRIPTS = new Set(['bin/pg-merge-bezpieczny.py', 'bin/test_hooks_v3.js', 'bin/test_hooks_v2.js', 'bin/test_pg_merge.py',
+  'bin/pg-eval.js', 'bin/pg-replay.js', 'bin/pg-mutate.js'].map((f) => toSlash(require('path').join(os.homedir(), '.claude', f))));
 const TRUSTED_HOOKS_DIR = toSlash(require('path').join(os.homedir(), '.claude', 'hooks')) + '/';
 const INTERPRETER_RX = /^(python[\d.]*|pythonw|py|node|deno|bun|ts-node|tsx|bash|sh|zsh|dash|ksh|pwsh|powershell|perl|ruby|php)(\.exe)?$/i;
 // Kod podany na stdin przez potok/here-string (`echo KOD | python`, `python <<< KOD`) — parser nie wiaze tresci
@@ -721,12 +1004,46 @@ function evaluate(raw, ctx) {
   // Virtualny cwd: `cd X && git checkout ...` — reguly sciezkowe licza wzgledem ostatniego `cd` w lancuchu.
   // Tak samo zmienne: przypisania wczesniej w lancuchu (`D=/tmp/x; rm -rf "$D"`) rozwijamy w celach regul.
   let vcwd = c.cwd;
+  let oldcwd = c.cwd;
+  // vcwdKnown: czy wirtualny cwd jest PEWNY. Cel cd nieznany (podstawienie, nieznana zmienna, ~user, CDPATH, popd/pushd,
+  // `source`) => false do konca lancucha; reguly zapisu wzgledem cwd (patch/edytory/archiwa) wtedy blokuja (fail-closed,
+  // security-review r2 2026-10-10). Inne reguly dalej licza na najlepszym przyblizeniu vcwd.
+  let vcwdKnown = true;
+  let oldKnown = true;
+  const pipeSeen = new Set();
+  let linkTaint = false; // symlink utworzony w lancuchu: realpath go nie widzi — cwd juz nigdy pewny
   const env = {};
   const withCwd = parsed.commands.map((cmd) => {
-    const snapshot = { cwd: vcwd, env: Object.assign({}, env) };
+    const chdirRaw = cmd.chdir != null ? expandVars(cmd.chdir, env) : null;
+    const chdirOk = chdirRaw == null || !/[$`]|^~[^/]/.test(chdirRaw);
+    const snapshot = { cwd: chdirRaw != null ? normalizePath(chdirRaw, vcwd) : vcwd, known: vcwdKnown && chdirOk, env: Object.assign({}, env) };
     Object.assign(env, cmd.values || {}, exportedValues(cmd));
-    if ((cmd.prog === 'cd' || cmd.prog === 'set-location' || cmd.prog === 'pushd') && cmd.argv[1]) vcwd = normalizePath(expandVars(cmd.argv[1], env), vcwd);
-    return { cmd, cwd: snapshot.cwd, env: Object.assign(snapshot.env, cmd.values || {}, exportedValues(cmd)) };
+    // `cd -P X`, `cd -- X`, `cd` (= HOME) — security-review 2026-10-10: argv[1] brany doslownie dawal vcwd=<cwd>/-P.
+    if (cmd.prog === 'cd' || cmd.prog === 'set-location' || cmd.prog === 'pushd' || cmd.prog === 'popd') {
+      const dest = cmd.argv.slice(1).filter((x) => x !== '--' && !/^-[LPe@]+$/.test(x))[0];
+      const exp = dest != null ? expandVars(dest, env) : null;
+      const prev = vcwd, prevKnown = vcwdKnown;
+      if (cmd.prog === 'popd' || (cmd.prog === 'pushd' && !dest) || /^[+-]\d+$/.test(dest || '')) vcwdKnown = false;
+      else if (dest === '-') { vcwd = oldcwd; vcwdKnown = vcwdKnown && oldKnown; } // `cd -` = OLDPWD (code-review r2)
+      else if (exp) {
+        if (/[$`]|^~[^/]/.test(exp)) vcwdKnown = false;
+        else if (/^\//.test(exp)) vcwdKnown = !linkTaint; // absolutny literal = znowu pewny (security r3 FP), chyba ze wczesniej `ln -s`
+        else if ((env.CDPATH || process.env.CDPATH) && !/^(\.\.?(\/|$)|\/|~(\/|$))/.test(exp)) vcwdKnown = false; // `.claude` tez szuka w CDPATH
+        // Nieudany cd (cel nie istnieje) zostawia STARY cwd: gdy stary byl w/nad ~/.claude albo niepewny, dalej niepewny
+        // (`cd "$X"; cd /nie-ma; ed …` i `cd ~/.claude; cd /nie-ma; patch` — code-review 2026-10-10).
+        const target = normalizePath(exp, vcwd);
+        if (!fs.existsSync(target) && (!prevKnown || nearClaude(prev) || /\/\.(git|claude)(\/|$)/.test(prev))) vcwdKnown = false; // + stary cwd w .git/.claude repo
+        vcwd = target;
+      } else if (cmd.prog === 'cd') vcwd = normalizePath(os.homedir());
+      oldcwd = prev; oldKnown = prevKnown;
+    }
+    if (cmd.prog === 'source' || cmd.prog === '.') vcwdKnown = false;
+    // Symlink tworzony w tym samym lancuchu nie istnieje w chwili oceny (realpath go nie zobaczy): `ln -s ~ X && cd X`.
+    if (cmd.prog === 'ln' && cmd.argv.some((x) => /^-[a-zA-Z]*s/.test(x) || x === '--symbolic')) { vcwdKnown = false; linkTaint = true; }
+    // nie pierwszy w potoku = stdin z potoku; klucz z glebokoscia — `$(...)` w srodku potoku nie przesuwa licznika (code-review)
+    const pkey = cmd.pipeline + '|' + (cmd.depth || 0);
+    const piped = pipeSeen.has(pkey); pipeSeen.add(pkey);
+    return { cmd, cwd: snapshot.cwd, known: snapshot.known, piped, env: Object.assign(snapshot.env, cmd.values || {}, exportedValues(cmd)) };
   });
   const byPipeline = new Map();
   for (const { cmd } of withCwd) { if (!byPipeline.has(cmd.pipeline)) byPipeline.set(cmd.pipeline, []); byPipeline.get(cmd.pipeline).push(cmd); }
@@ -736,7 +1053,7 @@ function evaluate(raw, ctx) {
     const legacyHit = !!(rule.legacy && rule.legacy(rule.fullText ? text : code, nq, { cwd: vcwd }));
     let parsedHit = false;
     if (!parsed.overflow) {
-      if (rule.parsed) parsedHit = withCwd.some(({ cmd, cwd, env: vars }) => rule.parsed(cmd, Object.assign({}, c, { cwd, env: vars })));
+      if (rule.parsed) parsedHit = withCwd.some(({ cmd, cwd, known, piped, env: vars }) => rule.parsed(cmd, Object.assign({}, c, { cwd, cwdKnown: known, piped, env: vars })));
       if (!parsedHit && rule.pipeline) parsedHit = [...byPipeline.values()].some((cmds) => cmds.length > 1 && rule.pipeline(cmds, Object.assign({}, c, { cwd: vcwd, env })));
     }
     if (legacyHit) blocks.push({ id: rule.id, esc: rule.esc, why: rule.why, layer: 'legacy' });

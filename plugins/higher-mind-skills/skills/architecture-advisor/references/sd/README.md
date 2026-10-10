@@ -52,6 +52,7 @@ Zasada przewodnia (z `SKILL.md`): burden of proof leży po stronie złożoności
 | Nadsprzedaż, podwójna rezerwacja, cron odpalony 2× | `05 › Współbieżność i wyścigi` |
 | Zewnętrzne API się zawiesza; retry; wyłącznik | `05 › Zależności zewnętrzne` |
 | „Nie wiedzieliśmy, że padło" | `05 › Obserwowalność i alerty` |
+| Metryka sukcesu z PRD bez narzędzia; GA vs Plausible vs PostHog; cookies i RODO analityki | `05 › Analityka produktu i WWW` |
 | Kopie, restore, RPO/RTO, pliki bez kopii | `05 › Kopie zapasowe i odtwarzanie` |
 | Dane osobowe, kennitala, retencja, dane do LLM | `05 › Dane osobowe, retencja i prywatność` |
 | Wyszukiwarka (części, klienci, tekst, semantyka) | `06 › Wyszukiwanie` |
