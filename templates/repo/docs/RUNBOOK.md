@@ -46,6 +46,7 @@ git revert <sha-zlego-commita> && git push   # -> redeploy automatyczny
 | Strona nie wstaje po deploy | rollback (wyzej), potem debug na branchu |
 | Blad 500 na akcji X | Sentry -> stack trace -> `systematic-debugging` |
 | Wygasly sekret/API key | Infisical -> zrotuj -> redeploy |
+| CI „Gitleaks" czerwone | Skan obejmuje commity PR / pusha. 1) Prawdziwy sekret -> NAJPIERW zrotuj w Infisical + redeploy; potem do `.gitleaksignore` linia `plik:RuleID:linia` (z logu CI, BEZ SHA commita — squash-merge zmienia SHA) z komentarzem `# zrotowany RRRR-MM-DD`; NIGDY wartosci sekretu w komentarzu. Historii nie przepisujemy (force-push zablokowany). 2) Sztuczny klucz w fiksturze -> `gitleaks:allow` na koncu TEJ linii. 3) Timeout 10 min -> repo z ogromnym PR; podziel PR. Zmiana `.gitleaksignore` = merge tylko za fraza uzytkownika (pg-merge-bezpieczny). |
 | Domena/DNS | panel rejestratora (tabela "Dostepy" ponizej) — UWAGA: rekordy NS/MX moga trzymac poczte (blizna LOVABLE-DNS-TRACE-IS-LIVE-MAIL) |
 | "U mnie widac stare dane" | cache: CDN/Vercel (`purge`), React Query (`invalidateQueries`), DNS resolver (sprawdz z innego resolvera / incognito) |
 

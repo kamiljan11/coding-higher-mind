@@ -342,9 +342,17 @@ def tier_efektywny(tier: dict, nazwy: list[str]) -> str:
     return 'T1' if t == 'T0' and not all(TEKST_T0.search(n) for n in nazwy) else t
 
 
+# `gitleaks:allow` w dodanej linii wycisza skaner sekretow i w pre-commit, i w CI — prawdziwy sekret przechodzi wszystkie
+# bramki. We flocie 0 uzyc (~/src, 2026-10-10), w fiksturach PG lokalnie dalej wolno; merge PR z nowym znacznikiem = fraza uzytkownika.
+ZNACZNIK_SKANERA = re.compile(r'gitleaks:allow', re.IGNORECASE)
+
+
 def tresc_lokalna(dodane: str) -> str | None:
     m = TRESC_T3_LOKALNA.search(dodane)
-    return m.group(0) if m else None
+    if m:
+        return m.group(0)
+    z = ZNACZNIK_SKANERA.search(dodane)
+    return f'{z.group(0)} (wyjatek skanera sekretow — sprawdz, czy to fikstura, nie prawdziwy sekret)' if z else None
 
 
 def ocen(pr: dict, repo: str, checki: list[dict], pliki: list[dict], tier: dict, tresc_t3: str | None,

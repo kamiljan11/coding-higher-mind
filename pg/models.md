@@ -39,6 +39,15 @@ modeli. Quirki modelu zyja TYLKO w bloku delty ponizej.** Zmiana modelu = zmiana
 | security-reviewer | — | — | **opus** |
 | verifier | — | sonnet | **opus** |
 | product-reviewer (handover/PRD) | — | na zadanie | sonnet |
+### Subagenci ad-hoc (Agent/Explore/general-purpose/Workflow) — wg TRUDNOSCI LOGIKI (uzytkownik 2026-10-10)
+Orkiestrator = Opus (sesja glowna, `"model": "opus"` w settings.json). Subagent bez `model:` w frontmatter dziedziczy Opus — dlatego przy KAZDYM wywolaniu podaj `model` jawnie:
+| Zadanie subagenta | model |
+|---|---|
+| lookup: znajdz plik/symbol, odczyt, status, liczenie, jednolinijkowa edycja, scaffolding | haiku |
+| generacja kodu/tekstu, recenzja wg rubryki, research z zrodlami, testy | sonnet |
+| trudne rozumowanie: architektura, debugging bez repro, security/T3, adversarial, synteza sprzecznych zrodel | opus |
+Watpliwosc -> poziom WYZEJ (tani blad = za drogi model; drogi blad = glupi model na trudnym zadaniu). NIE uzywaj `CLAUDE_CODE_SUBAGENT_MODEL` (wymusza jeden model na wszystkich). Zmiana `model:` agenta-recenzenta nadal = zdarzenie bramkowane (sekcja Dryf).
+
 Budzet tokenow: T0 0x, T1 ~1x, T2 ~4x, T3 ~8-10x „jednej recenzji diffu" (Anthropic: multi-agent research ~15x — my zostajemy nizej, bo agregacja jest kodem, nie modelem).
 
 ## Reguly niezalezne od modelu (co czyni prompt odpornym na zmiane checkpointu)

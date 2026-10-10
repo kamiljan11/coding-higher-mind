@@ -230,6 +230,9 @@ Thundering herd (wiele równoległych missów na tym samym kluczu): `stale-while
 - *thundering herd po wygaśnięciu/awarii* — brak coalescingu: `rg -n -i "stale-while-revalidate|coalesc|singleflight" src`
 - *stale po publikacji* — `curl -sI <url> | rg -i "age|x-vercel-cache|cache-control"` po zmianie treści
 - *widok zmaterializowany bez odświeżania* — `select matviewname from pg_matviews;` i `rg -n -i "refresh materialized" supabase/migrations`
+- *cache w pamięci bez limitu* — własna `new Map()` jako cache bez TTL i limitu rozmiaru w funkcji/serwerze = wyciek pamięci przy dłużej żyjącej instancji: `rg -n "new Map\(" src supabase/functions` → każdy hit-cache ma limit (LRU: usuwa najdawniej używane — domyślnie; LFU tylko gdy popularność kluczy jest stała) albo TTL (2026-10-10, narzędzia Arjaya)
+- *cache bez zmierzonej skuteczności* — cache, którego hit rate nikt nie zmierzył, to koszt bez dowodu zysku: `curl -sI <url> | rg -i x-vercel-cache` (HIT/MISS/STALE na kilku żądaniach), dla bazy `pg_stat_statements` przed i po
+- *awaria cache → lawina na bazę* — gdy cache/CDN padnie albo wszystko wygaśnie naraz (mass expiry), cały ruch idzie do Postgresa: TTL z losowym rozrzutem (jitter) i limit równoległych odczytów tego samego klucza; dane C (pieniądze, uprawnienia) NIGDY nie są serwowane z cache
 
 **Audyt „czy się trzymamy".**
 1. Czy każda mutacja ma inwalidację odpowiedniego cache? → pierwsza komenda.
@@ -238,6 +241,7 @@ Thundering herd (wiele równoległych missów na tym samym kluczu): `stale-while
 4. Czy zachowanie przy pustym cache (miss, zimny start) jest przetestowane? → `rg -n -i "cold|miss|empty cache" tests`.
 5. Czy przed dodaniem cache zmierzono zapytanie? → `EXPLAIN` w PR.
 6. Czy strategia jest nazwana (cache-aside/write-around/…) i nie ma write-back na danych C? → opis w PR/ADR + `rg -n -i "write.?(back|behind)|flush" src supabase/functions`.
+7. Czy hit rate jest zmierzony i zapisane jest zachowanie „cache pada → baza" (limit, jitter TTL)? → pomiar w PR + komendy z „Awarie i detekcja". Refresh-ahead (odświeżanie przed wygaśnięciem) u nas = ISR + cron z `revalidateTag` dla kilku drogich stron — tylko z pomiarem.
 
 **Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
 - Redis/Memcached → zmierzone zapytanie po indeksie i widoku zmaterializowanym nadal ~>50 ms p95 przy ~>100 odczytach/s tego samego klucza, albo potrzebny współdzielony stan między instancjami (limiter, sesje) i Postgres go nie znosi.

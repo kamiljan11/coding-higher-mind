@@ -3,10 +3,15 @@
 // merge-integrity: kontrola po scaleniu rownoleglych galezi (lekcja 2026-10-06: rozwiazanie konfliktu „ours+theirs"
 // w plikach z nawiasami ucielo `}`; lint/tsc/build/qa-matrix tego nie zlapaly, bo CSS jest poblazliwy).
 // Dla plikow zmienionych w scaleniu sprawdza:
-//  (a) bilans nawiasow {} () [] w .css/.scss/.ts/.tsx/.js/.jsx/.json (wersja z --head),
+//  (a) bilans nawiasow {} w .css/.scss (wersja z --head) — JS/TS/JSON sprawdza kompilator i lint; heurystyka
+//      nawiasow dla JS dawala falszywe alarmy (apostrof w JSX, `i++ / 2`) — pg-review 2026-10-06,
 //  (b) ze kazda niepusta linia dodana w kazdej galezi wzgledem base (diff base...galaz) istnieje w --head
 //      (multizbior per plik, porownanie po trim) — lista zgubionych linii.
 // Uzycie: node merge-integrity.js --repo <dir> --base <ref> --branches a,b[,c] [--head HEAD] [--json]
+//         node merge-integrity.js --repo <dir> --merges-of <rev> [--json]   (kazdy merge-commit z <rev> spoza
+//         remote'ow: base = merge-base rodzicow, galezie = rodzice; uzywa git-hooks/pre-push). Exit 1 tylko gdy CSS
+//         rozbity w scaleniu jest NADAL niezbilansowany w <rev> (pozniejsza poprawka zdejmuje blokade); zgubione linie
+//         = ostrzezenie (mogly zostac swiadomie usuniete pozniej).
 // Exit: 0 czysto, 1 problemy (niezbilansowane pliki / zgubione linie), 2 blad uzycia / gita.
 const { execFileSync } = require('child_process');
 const path = require('path');
@@ -14,6 +19,8 @@ const { checkFile, kindOf } = require(path.join(__dirname, '..', 'hooks', 'lib',
 
 const EXIT = { OK: 0, PROBLEMS: 1, USAGE: 2 };
 const MAX_LOST_SHOWN = 50;
+const BALANCE_KINDS = new Set(['css', 'scss']);
+const MAX_MERGES = 50; // pre-push: ograniczona praca na jeden push (security 2026-10-06)
 // Repo moze byc obce: zero wykonania kodu przez jego .git/config (fsmonitor, hooki) — jak CHILD_ENV w lint-file.js.
 const GIT_ENV = Object.assign({}, process.env, {
   GIT_CONFIG_PARAMETERS: "'core.fsmonitor=false' 'core.untrackedCache=false' 'core.hooksPath=/dev/null'",
@@ -21,7 +28,7 @@ const GIT_ENV = Object.assign({}, process.env, {
 });
 
 function parseArgs(argv) {
-  const o = { repo: '.', base: null, branches: [], head: 'HEAD', json: false };
+  const o = { repo: '.', base: null, branches: [], head: 'HEAD', json: false, mergesOf: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => { const v = argv[++i]; if (v === undefined) throw new Error(`${a}: brak wartosci`); return v; };
@@ -30,7 +37,13 @@ function parseArgs(argv) {
     else if (a === '--branches') o.branches = next().split(',').map((s) => s.trim()).filter(Boolean);
     else if (a === '--head') o.head = next();
     else if (a === '--json') o.json = true;
+    else if (a === '--merges-of') o.mergesOf = next();
     else throw new Error(`nieznany argument: ${a}`);
+  }
+  if (o.mergesOf) {
+    if (/^-/.test(o.mergesOf)) throw new Error(`niedozwolony ref: ${o.mergesOf}`);
+    o.repo = path.resolve(o.repo);
+    return o;
   }
   if (!o.base) throw new Error('wymagane --base <ref>');
   if (!o.branches.length) throw new Error('wymagane --branches a,b,...');
@@ -40,8 +53,13 @@ function parseArgs(argv) {
 }
 
 const git = (repo, args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', env: GIT_ENV, maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+// Brak pliku w ref = null (plik usuniety w scaleniu); kazdy inny blad gita (zly ref, maxBuffer) leci dalej -> exit 2.
+const MISSING_PATH_RX = /does not exist in|exists on disk, but not in|path '.*' does not exist/;
 function showFile(repo, ref, file) {
-  try { return git(repo, ['show', `${ref}:${file}`]); } catch (e) { return null; }
+  try { return git(repo, ['show', `${ref}:${file}`]); } catch (e) {
+    if (MISSING_PATH_RX.test(String(e.stderr || ''))) return null;
+    throw e;
+  }
 }
 
 /** Unified diff (-U0) -> Map(plik -> [dodane linie]). Czysta funkcja. Naglowek pliku konczy sie na pierwszym `@@`:
@@ -86,14 +104,15 @@ function check(opts) {
   for (const br of opts.branches) {
     for (const file of changedFiles(opts.repo, [`${opts.base}...${br}`])) {
       files.add(file);
-      const diff = git(opts.repo, ['diff', '--no-color', '--no-ext-diff', '--no-renames', '-U0', `${opts.base}...${br}`, '--', file]);
+      // --no-textconv: driver textconv z .gitattributes obcej galezi + .git/config = wykonanie komendy (security 2026-10-06).
+      const diff = git(opts.repo, ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-renames', '-U0', `${opts.base}...${br}`, '--', file]);
       const added = [].concat(...addedLinesByFile(diff).values());
       for (const l of lostLines(added, showFile(opts.repo, opts.head, file))) lost.push(Object.assign({ branch: br, file }, l));
     }
   }
   const unbalanced = [];
   for (const file of [...files].sort()) {
-    if (!kindOf(file)) continue;
+    if (!BALANCE_KINDS.has(kindOf(file))) continue;
     const text = showFile(opts.repo, opts.head, file);
     if (text === null) continue;
     const err = checkFile(file, text);
@@ -117,14 +136,51 @@ function render(r) {
   return lines.join('\n') + '\n';
 }
 
+/** Merge-commity z <rev> spoza remote'ow -> raport per commit (base = merge-base rodzicow 1 i 2). */
+function checkMerges(repo, rev) {
+  const all = git(repo, ['rev-list', '--merges', rev, '--not', '--remotes']).split('\n').filter(Boolean);
+  if (all.length > MAX_MERGES) process.stderr.write(`merge-integrity: ${all.length} scalen spoza remote'ow — sprawdzam ${MAX_MERGES} najnowszych\n`);
+  const shas = all.slice(0, MAX_MERGES);
+  // Blad gita przy jednym scaleniu (np. brak merge-base) nie przerywa sprawdzania pozostalych (ops 2026-10-06).
+  return shas.map((sha) => {
+    try {
+      const parents = git(repo, ['rev-list', '--parents', '-n', '1', sha]).trim().split(/\s+/).slice(1);
+      const base = git(repo, ['merge-base', '--octopus', ...parents]).trim();
+      const r = check({ repo, base, branches: parents, head: sha });
+      r.stillBroken = r.unbalanced.filter((u) => { const t = showFile(repo, rev, u.file); return t !== null && checkFile(u.file, t); });
+      return r;
+    } catch (e) {
+      process.stderr.write(`merge-integrity: scalenie ${sha.slice(0, 8)} pominiete (blad gita: ${String(e.stderr || e.message).trim().split('\n')[0]})\n`);
+      return { repo, base: null, head: sha, branches: [], filesChecked: 0, unbalanced: [], lost: [], stillBroken: [], error: true };
+    }
+  });
+}
+
+/** Exit dla --merges-of: blokuje tylko CSS nadal rozbity na wierzcholku. Czysta funkcja (test). */
+// 1 = CSS nadal rozbity (blokada), 2 = choc jedno scalenie pominiete przez blad gita (pre-push: ostrzezenie + wpis
+// `skipped` w logu bramek), 0 = wszystko sprawdzone i czyste.
+const mergesExit = (reports) => {
+  if (reports.some((r) => r.stillBroken.length)) return EXIT.PROBLEMS;
+  return reports.some((r) => r.error) ? EXIT.USAGE : EXIT.OK;
+};
+
 function main(argv) {
   let opts;
   try { opts = parseArgs(argv); } catch (e) { process.stderr.write(`merge-integrity: ${e.message}\n`); return EXIT.USAGE; }
+  if (opts.mergesOf) {
+    let reports;
+    try { reports = checkMerges(opts.repo, opts.mergesOf); } catch (e) { process.stderr.write(`merge-integrity: blad gita: ${String(e.stderr || e.message).trim().split('\n')[0]}\n`); return EXIT.USAGE; }
+    process.stdout.write(opts.json ? JSON.stringify(reports, null, 2) + '\n' : reports.filter((r) => !r.error).map(render).join('') || (reports.length ? 'merge-integrity: zadne scalenie nie zostalo sprawdzone (bledy gita wyzej)\n' : 'merge-integrity: brak merge-commitow do sprawdzenia\n'));
+    const broken = reports.flatMap((r) => r.stillBroken.map((u) => `${u.file}:${u.line} (scalenie ${r.head.slice(0, 8)})`));
+    if (broken.length) process.stderr.write(`merge-integrity: CSS rozbity w scaleniu i nadal niezbilansowany w ${opts.mergesOf}: ${broken.join(', ')}\n`);
+    else if (reports.some((r) => r.unbalanced.length || r.lost.length)) process.stderr.write('merge-integrity: uwagi wyzej dotycza scalen poprawionych pozniej albo zgubionych linii — ostrzezenie, nie blokada\n');
+    return mergesExit(reports);
+  }
   let report;
   try { report = check(opts); } catch (e) { process.stderr.write(`merge-integrity: blad gita: ${String(e.stderr || e.message).trim().split('\n')[0]}\n`); return EXIT.USAGE; }
   process.stdout.write(opts.json ? JSON.stringify(report, null, 2) + '\n' : render(report));
   return report.unbalanced.length || report.lost.length ? EXIT.PROBLEMS : EXIT.OK;
 }
 
-module.exports = { parseArgs, addedLinesByFile, lostLines, check, render, EXIT };
+module.exports = { parseArgs, addedLinesByFile, lostLines, check, checkMerges, mergesExit, render, EXIT };
 if (require.main === module) process.exit(main(process.argv.slice(2)));

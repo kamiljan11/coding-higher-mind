@@ -58,7 +58,11 @@ function normalizePath(raw, cwd) {
 const H = normalizePath(HOME);
 const C = H + '/.claude';
 // Prefiksy (katalogi) i pliki warstwy kontrolnej. Porownanie na znormalizowanych sciezkach.
-const CONTROL_DIRS = [C + '/hooks/', C + '/git-hooks/', C + '/bin/', C + '/agents/', C + '/scheduled-tasks/', C + '/logs/overrides/', C + '/logs/stop-gate-wm/', C + '/logs/pg-seen/'];
+// + mody Claude Code (2026-10-09): mod to kod wykonywany WEWNATRZ Claude Code (tool.call, $.process, $.fs) — omija hooki
+// settings. ~/mods = zrodlo lokalnego marketplace local-mods (przejrzane kopie), ~/.claude/plugins = cache, z ktorego
+// mody faktycznie sie laduja (podmiana po przegladzie = obejscie przegladu), ~/.claude/dev-mods = mody pisane przez plugin-authoring.
+const CONTROL_DIRS = [C + '/hooks/', C + '/git-hooks/', C + '/bin/', C + '/agents/', C + '/scheduled-tasks/', C + '/logs/overrides/', C + '/logs/stop-gate-wm/', C + '/logs/pg-seen/',
+  H + '/mods/', C + '/plugins/', C + '/dev-mods/'];
 const CONTROL_FILES_RX = [
   new RegExp('^' + escapeRx(C) + '/settings(\\.local)?\\.json$'),
   // Granice zaufania i baseline odmow (security-review 2026-09-26: agent mogl sam dopisac zaufany katalog w pg/).
@@ -74,6 +78,12 @@ const CONTROL_FILES_RX = [
   // na czas recenzji i kasowany przed ocena dowodu). Kazdy .claude/agents/*.md poza ~/.claude = fraza uzytkownika.
   // r7: takze caly katalog (ln -s / mv / rm -r / cp -r na .claude/agents albo .claude) i podkatalogi agents/.
   /\/\.claude\/agents(\/.*)?$/,
+  // Mod jako „skill-plugin" (security-review faza 0 modow): `claude plugin init|new` tworzy ~/.claude/skills/<n>/ z manifestem,
+  // ktory laduje sie sam w nastepnej sesji (@skills-dir). Manifest i hooki skilla = kod w Claude Code; zwykle SKILL.md/references wolne.
+  /\/\.claude\/skills\/[^/]+\/(\.claude-plugin|hooks|\.mcp\.json)(\/.*)?$/,
+  // security-review r2: CLI adoptuje skills/<n> jako plugin, gdy katalog ZAWIERA .claude-plugin — gotowy katalog wkopiowany
+  // (cp -r, mv, ln -s, git clone, tar -C) ma cel = sam katalog skilla albo skills/. Nowy skill przez Write (pliki) przechodzi.
+  /\/\.claude\/skills(\/[^/]+)?$/,
   /\/\.claude$/,
 ];
 

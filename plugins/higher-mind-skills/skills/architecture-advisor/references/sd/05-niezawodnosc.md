@@ -62,6 +62,7 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 - *zakleszczenia i oczekiwanie na locki* — `select pid, wait_event_type, wait_event, left(query,60) from pg_stat_activity where wait_event_type='Lock';` oraz logi: `rg -n "deadlock detected" <logi>`
 - *cron odpalony dwa razy* — `select jobname, schedule from cron.job;` i sprawdź ochronę w treści zadania (advisory lock/lease)
 - *sieć w środku transakcji* — `rg -n -B6 "await fetch\(|\.invoke\(" src supabase/functions | rg -i "begin|transaction|for update"`
+- *gorący wiersz (hot row)* — wielu piszących aktualizuje TEN SAM wiersz (licznik, saldo firmy, „ostatni numer") → zapisy ustawiają się w kolejce na locku i rośnie p95. Obejścia zależą od niezmiennika: **licznik przemienny bez niezmiennika** (odsłony, polubienia) → INSERT-only (dziennik) + agregat albo liczniki shardowane (N wierszy, suma przy odczycie); **saldo z warunkiem ≥ 0 i numeracja bez luk** (faktury PL/IS) → NIE shardować, zostaje serializacja jednego wiersza: `UPDATE … SET n = n + 1 … RETURNING n` / `UPDATE … WHERE balance >= x`, krótka transakcja. Limit czekania: `SET LOCAL lock_timeout = '3s'` w transakcji, `set_config('lock_timeout','3s', true)` w RPC albo `SET lock_timeout = '3s'` w definicji funkcji — goły `SET` sesyjny nie działa przez PostgREST/supabase-js i przecieka przez pooler transakcyjny. Detekcja: `select relname, n_tup_upd from pg_stat_user_tables order by n_tup_upd desc limit 5;` + oczekiwania na `Lock` (komenda wyżej) (2026-10-10, symulacje baz Arjaya)
 
 **Audyt „czy się trzymamy".**
 1. Czy zmiana stanu zależna od odczytu jest jednym atomowym UPDATE-em/RPC albo ma `for update`? → pierwsza komenda.
@@ -237,6 +238,7 @@ Tu bolą pieniądze i dane: duplikaty płatności, nadsprzedaż, wyciek między 
 |---|---|---|---|
 | checkout / płatność | 5xx na trasach płatności + płatności `pending` > 15 min | ≥99,5 % | ≥3 błędy w 10 min albo 1 płatność zawieszona > 15 min |
 | logowanie | nieudane logowania z powodu 5xx (nie złego hasła) | ≥99,5 % | ≥5 w 10 min |
+| logowanie — atak (2026-10-10, security checklist P5) | nieudane logowania z powodu złego hasła + odmowy 401/403/429 per IP/konto (logi) | — (to nie SLO, to wykrycie) | skok ≥N w 5 min z jednego IP albo na jedno konto → mail do właściciela; N z `03 › Rate limiting i budżety kosztu` (login_failures) |
 | czat AI | p95 czasu do pierwszego tokenu + odsetek błędów | p95 ≤5 s, błędy ≤2 % | p95 >10 s przez 15 min albo ≥10 błędów w 10 min |
 | zapis zlecenia/formularza | 5xx na trasach zapisu | ≥99,5 % | ≥3 w 10 min |
 
@@ -272,6 +274,37 @@ Przy małym ruchu (setki żądań/dobę) próg liczbowy („≥N błędów w M m
 - Datadog/Honeycomb → budżet na obserwowalność i ≥1 osoba, która codziennie patrzy w dashboardy.
 - SLO z wielookienkowym burn-rate → ruch ~>10 tys. żądań/dobę na ścieżce krytycznej; wcześniej progi liczbowe z sekcji SLO „lite" wyżej.
 - metryki z wysoką kardynalnością (tag = `user_id`) → nigdy; użytkownik idzie do logów, nie do etykiet metryk.
+
+---
+
+### Analityka produktu i WWW
+
+**Problem.** PRD-lite (`pg/design.md` A.4) każe nazwać metrykę sukcesu i event, ale bez narzędzia event nie powstaje i nikt nie wie, czy funkcja działa dla ludzi (lejek, retencja, odsłony). Odwrotny błąd: Google Analytics wrzucone „z rozpędu" = baner cookie i dane użytkowników u trzeciej strony bez decyzji. Sygnały w diffie: `gtag(`, `posthog`, `plausible`, `@vercel/analytics`, `track(`. (2026-10-10, luka z katalogu stacków)
+
+**Domyślnie u nas.** Nic, dopóki PRD-lite nie nazwie metryki. Gdy nazwie: strona klienta → analityka WWW bez cookies (Plausible albo Vercel Analytics) — prostsze RODO; aplikacja z lejkiem/retencją → jedno narzędzie produktu (PostHog: analityka + nagrania sesji + feature flagi, hosting w EU) z eventem nazwanym w PRD. Dane osobowe do analityki tylko po wpisie procesora w `docs/PRIVACY.md` (rubryka security pkt 7).
+**Kiedy NIE:** prototyp bez użytkowników; panel wewnętrzny dla 2-3 osób (zapytaj ich).
+
+| Wariant | Koszt operacyjny | Finansowy | Poznawczy |
+|---|---|---|---|
+| brak + metryka z bazy (SQL na tabelach) | zero | zero | niski |
+| Plausible / Vercel Analytics (WWW, bez cookies) | skrypt w layoucie | niski `[NIEPEWNE: cennik]` | niski |
+| PostHog (produkt, EU) | eventy w kodzie, plan nazw eventów | darmowy próg `[NIEPEWNE: limity]` | średni |
+| Google Analytics | baner zgody, RODO, transfer poza EU | zero w gotówce | średni (prawny) |
+
+**Awarie i detekcja.**
+- *metryka bez eventu* — PRD/ADR nazywa metrykę, a w kodzie brak: `rg -n "track\(|capture\(|posthog|plausible|gtag\(" src`
+- *analityka bez zgody* — GA/piksele marketingowe bez banera: `rg -n "gtag\(|googletagmanager|fbq\(" src` + brak komponentu zgody
+- *PII w eventach* — `rg -n "capture\(|track\(" src -A3 | rg -i "email|phone|kennitala|name"`
+
+**Audyt „czy się trzymamy".**
+1. Czy każda metryka z PRD-lite ma event albo zapytanie SQL? → pierwsza komenda.
+2. Czy narzędzie z cookies ma zgodę, a procesor jest w `docs/PRIVACY.md`? → druga komenda + `rg -n -i "posthog|plausible|google" docs/PRIVACY.md`.
+3. Czy eventy nie niosą danych osobowych? → trzecia komenda.
+
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- Amplitude/Mixpanel → zespół analityków i ~>10 tys. aktywnych użytkowników miesięcznie.
+- osobna platforma eksperymentów (Statsig) → ~>3 równoległe testy A/B naraz.
+- hurtownia danych (BigQuery/ClickHouse) → zapytania analityczne zaczynają spowalniać produkcyjnego Postgresa.
 
 ---
 

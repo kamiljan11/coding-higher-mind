@@ -10,7 +10,7 @@
 # Refy pushowane czytamy ze stdin RAZ do zmiennej, zeby reszta hooka mogla z nich korzystac.
 PUSH_REFS="$(cat)"
 # Audyt obejsc (landscape #5): kazde ustawione ALLOW_* = wpis `bypass` w ~/.claude/logs/gates.jsonl.
-for pg_var in ALLOW_MAIN ALLOW_LARGE_DIFF ALLOW_BOUNDARIES ALLOW_FOREIGN_BRANCH; do
+for pg_var in ALLOW_MAIN ALLOW_LARGE_DIFF ALLOW_BOUNDARIES ALLOW_FOREIGN_BRANCH ALLOW_MERGE_INTEGRITY; do
   eval "pg_val=\${$pg_var:-}"
   if [ -n "$pg_val" ] && [ "$pg_val" != "0" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/hooks/lib/gate-log.js" ]; then
     node "$HOME/.claude/hooks/lib/gate-log.js" pre-push bypass "$pg_var=$pg_val" "$(pwd)" 2>/dev/null || true
@@ -30,6 +30,26 @@ if [ "${ALLOW_FOREIGN_BRANCH:-0}" != "1" ] && [ -n "$PUSH_REFS" ]; then
   done <<PG_REFS
 $PUSH_REFS
 PG_REFS
+fi
+
+# Scalenie bez zgubionych linii (2026-10-06: scalenie ours+theirs ucielo `}` w CSS, przeszlo lint/tsc/build): kazdy
+# merge-commit spoza remote'ow — linie dodane w kazdym rodzicu musza byc w wyniku, CSS zbilansowany.
+# Swiadome odrzucenie strony konfliktu: ALLOW_MERGE_INTEGRITY=1 (poziom A).
+if [ "${ALLOW_MERGE_INTEGRITY:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/merge-integrity.js" ]; then
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -z "$local_sha" ] && continue
+    case "$local_sha" in 0000000000000000000000000000000000000000) continue;; esac
+    node "$HOME/.claude/bin/merge-integrity.js" --repo . --merges-of "$local_sha" >&2
+    pg_mi_rc=$?
+    # 1 = CSS rozbity w scaleniu nadal w pushu -> blokada; 2 = blad narzedzia/gita -> tylko ostrzezenie (nie zatrzymuje pracy).
+    if [ "$pg_mi_rc" = "1" ]; then echo "[pre-push] merge-integrity: scalenie rozbilo CSS i nadal jest rozbity (wyzej). | BLOCKED: a merge left unbalanced CSS. Swiadomie: ALLOW_MERGE_INTEGRITY=1." >&2; exit 1; fi
+    if [ "$pg_mi_rc" = "2" ]; then
+      echo "[pre-push] merge-integrity: nie udalo sie sprawdzic scalen (blad narzedzia) — push idzie dalej." >&2
+      [ -f "$HOME/.claude/hooks/lib/gate-log.js" ] && node "$HOME/.claude/hooks/lib/gate-log.js" pre-push skipped "merge-integrity: blad narzedzia (exit 2)" "$(pwd)" 2>/dev/null
+    fi
+  done <<PG_MI_REFS
+$PUSH_REFS
+PG_MI_REFS
 fi
 
 [ "$ALLOW_MAIN" = "1" ] && exit 0

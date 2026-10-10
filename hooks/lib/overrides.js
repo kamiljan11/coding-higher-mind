@@ -37,7 +37,7 @@ const policyFor = (name) => POLICY[name] || POLICY.default;
 //    nieodwracalne albo wylaczaja inne bramki (wtedy A i B przestaja cokolwiek gwarantowac).
 // Wylacznik: plik ~/.claude/pg/self-approval.off => A i B nieaktywne, wszystko wraca do frazy uzytkownika.
 const SELF_SERVICE = new Set(['ALLOW_LARGE_DIFF', 'ALLOW_PHASE', 'ALLOW_TODO', 'ALLOW_COMMENTED_CODE', 'ALLOW_DUP_LITERALS',
-  'ALLOW_BOUNDARIES', 'ALLOW_STALE_BASE', 'ALLOW_MSG', 'ALLOW_FOREIGN_BRANCH', 'ALLOW_REWRITE']);
+  'ALLOW_BOUNDARIES', 'ALLOW_STALE_BASE', 'ALLOW_MSG', 'ALLOW_FOREIGN_BRANCH', 'ALLOW_REWRITE', 'ALLOW_MERGE_INTEGRITY']);
 // MERGE poza B (code-review 2026-10-02): recenzja diffu roboczego != diff PR, a CLAUDE.md wymaga frazy dla T3/kodu wrazliwego.
 // Rutynowe scalenia ida przez bin/pg-merge-bezpieczny.py (wlasne dowody: CI, tier, recenzja diffu PR).
 const SELF_APPROVABLE = new Set(['ALLOW_RM', 'ALLOW_RESET', 'ALLOW_CLEAN', 'ALLOW_UNKNOWN_DEP', 'ALLOW_PII']);

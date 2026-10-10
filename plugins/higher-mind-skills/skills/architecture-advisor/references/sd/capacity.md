@@ -16,6 +16,22 @@ Cel: w ~10 minut, przed budową, odpowiedzieć „czy to w ogóle będzie boleć
 
 Wniosek stały: w naszych aplikacjach liczy się liczba SEKWENCYJNYCH round tripów, nie moc obliczeniowa. Dla użytkownika w Islandii i bazy w regionie kontynentalnym każdy skok przeglądarka→baza kosztuje dziesiątki ms — przykład w §3.
 
+## 1b. Stałe do rachunku (punkt startowy `[~]`, nie benchmark — 2026-10-10, napkin math Arjaya)
+
+Po to, żeby w krokach 4-5 nie zgadywać rozmiarów. Każdą liczbę zastąp pomiarem, gdy tylko są realne dane.
+
+| Rzecz | ~Wartość `[~]` | Uwaga |
+|---|---|---|
+| doba / zaokrąglenie w głowie | 86 400 s ≈ 10⁵ | dzielenie przez 100 tys. = skreślenie 5 zer |
+| UUID | 16 B (w tekście 36 znaków) | |
+| typowy wiersz biznesowy | ~1 KB z indeksami | zmierz `pg_total_relation_size` po pierwszych danych |
+| dokument JSON | ~1–10 KB | |
+| zdjęcie z telefonu po kompresji | ~200 KB–2 MB | to idzie do Storage, nie do wierszy |
+| prosta instancja aplikacji | ~setki–1 tys. req/s | limity planu Vercel/Supabase zwykle bolą wcześniej `[NIEPEWNE: sprawdź plan]` |
+| Postgres, proste zapytania | odczyty ~kilka tys./s, zapisy ~1–2 tys./s | na planie zarządzanym liczy się limit połączeń i IOPS planu |
+
+Dwie liczby zawsze podaj parą: na dobę i na sekundę w szczycie. Przy każdej decyzji odroczonej zapisz „co pęknie następne przy ×10".
+
 ## 2. Procedura (6 kroków)
 
 1. **Zakres i założenia.** Użytkownicy rejestrowani → DAU (aktywni dziennie) → akcje na DAU na dzień → które to zapisy, które odczyty. Kto płaci rachunek za wzrost? Każde założenie nazwane „ZAŁOŻENIE" z prośbą o korektę klienta.

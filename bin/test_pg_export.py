@@ -155,8 +155,8 @@ with tempfile.TemporaryDirectory() as d:
     wiki = clone("wiki", "https://github.com/<github-owner>/coding-higher-mind.wiki.git")
     check("is_public_clone: tylko korzen klonu z dokladnym URL", exp.is_public_clone(ok) and not exp.is_public_clone(os.path.join(ok, "docs"))
           and not exp.is_public_clone(priv) and not exp.is_public_clone(wiki))
-check("DIR_EXCLUDES: rutyny klienckie sagitum-* poza eksportem",
-      any(fnmatch.fnmatch("scheduled-tasks/sagitum-x/SKILL.md", g) for g in exp.DIR_EXCLUDES))
+check("DIR_EXCLUDES: rutyny klienckie tender-app-* poza eksportem",
+      any(fnmatch.fnmatch("scheduled-tasks/tender-app-x/SKILL.md", g) for g in exp.DIR_EXCLUDES))
 
 # pg-publish-public.sh: naglowek (set -e, trap ERR, MSG) musi sie wykonac — `bash -n` nie zlapal sklejonej linii trap (2026-10-04)
 PUB = os.path.join(HERE, "pg-publish-public.sh")
@@ -166,6 +166,14 @@ upto = next(i for i, ln in enumerate(lines) if ln.startswith("MSG="))
 head = "\n".join(lines[: upto + 1]) + "\necho DOSZLO"
 r = subprocess.run(["bash", "-c", head, "x", "feat: x"], capture_output=True, text=True, check=False)
 check("pg-publish-public: naglowek wykonuje sie do MSG=", r.returncode == 0 and "DOSZLO" in r.stdout, (r.stderr or r.stdout)[-160:])
+
+# 1.6.0 (code-review): klient i prywatny marketplace wycinane; katalog stacku BEZ wyjatku dla dostawcow (decyzja 2026-10-04).
+t_c, _ = exp.substitute("tender-app, tender-app, marketplace local-mods")
+check("klient tender-app i local-mods wycinane", not exp.scan(t_c, "f") and "tender-app" in t_c and "local-mods" in t_c, t_c)
+check("denylista lapie tender-app, gdyby substytucja zawiodla", bool(exp.scan("projekt tender-app", "f")))
+t_s, _ = exp.substitute('| payment-gateway | Islandia | Hostowany checkout | ["payment-provider","Europejska bramka"] |')
+check("katalog stacku: dostawcy wycieci jak wszedzie", not exp.scan(t_s, "skills/architecture-advisor/references/stack-catalog.md")
+      and "payment-gateway" not in t_s and "payment-provider" not in t_s, t_s)
 
 print("TESTY: " + ("wszystkie OK" if not FAILS else f"{len(FAILS)} FAIL"))
 sys.exit(1 if FAILS else 0)

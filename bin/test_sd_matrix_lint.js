@@ -33,7 +33,25 @@ const lint = (text, opts) => L.lintMatrix(L.parseMatrix(text), areas, opts);
 const kinds = (res) => res.issues.map((i) => i.kind);
 
 // ---------- sd-areas.json ----------
-ok('sd-areas: 37 obszarow, 12 grup, unikalne id', areas.length === 37 && new Set(areas.map((a) => a.group)).size === 12 && new Set(areas.map((a) => a.id)).size === 37);
+ok('sd-areas: 62 obszary (37 kursu + 25 stack), 13 grup, unikalne id', areas.length === 62 && new Set(areas.map((a) => a.group)).size === 13 && new Set(areas.map((a) => a.id)).size === 62);
+// Grupa stack = kategorie artefaktu Stack Picker 1:1 (zrodlo: architecture-advisor/references/stack-data.json) — dryf = czerwone.
+const STACK_DATA = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'skills', 'architecture-advisor', 'references', 'stack-data.json'), 'utf8'));
+const stackCats = STACK_DATA.groups.flatMap((g) => g.cats);
+const stackAreas = areas.filter((a) => a.group === 'stack');
+ok('sd-areas: grupa stack = kategorie stack-data.json (id i warianty 1:1)', stackAreas.length === stackCats.length &&
+  stackCats.every((c) => { const a = stackAreas.find((x) => x.id === 'stack-' + c.id); return a && a.name === c.name && JSON.stringify(a.variants) === JSON.stringify(c.options.map((o) => o.name)); }));
+// Swiadomie one_way:false — twarde drzwi jednokierunkowe (baza, tozsamosc, pliki, region) pilnuja obszary SD; inaczej kazda
+// mala zmiana z --groups wymagalaby 6 dodatkowych wierszy stack (code-review 2026-10-10).
+ok('sd-areas: wiersze stack nie sa one_way (drzwi pilnuja obszary SD)', stackAreas.every((a) => a.one_way === false));
+{
+  // Ogniwo HTML -> stack-data.json: generator na zrodle artefaktu daje dokladnie zacommitowane pliki.
+  const SKILL = path.join(__dirname, '..', 'skills', 'architecture-advisor');
+  const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'stack-gen-'));
+  const g = spawnSync(process.execPath, [path.join(SKILL, 'scripts', 'stack-catalog-from-artifact.js'), path.join(SKILL, 'assets', 'stack-picker.html'), tmp], { encoding: 'utf8' });
+  const same = (f) => fs.readFileSync(path.join(tmp, f), 'utf8') === fs.readFileSync(path.join(SKILL, 'references', f), 'utf8');
+  ok('stack: artefakt -> stack-data.json + stack-catalog.md bez dryfu (uruchom generator po edycji artefaktu)', g.status === 0 && same('stack-data.json') && same('stack-catalog.md'), g.stderr);
+  fs.rmSync(tmp, { recursive: true, force: true });
+}
 ok('sd-areas: kazdy obszar ma karte i >= 3 warianty', areas.every((a) => a.card && Array.isArray(a.variants) && a.variants.length >= 3));
 ok('sd-areas: drzwi jednokierunkowe obejmuja ID, pliki, tozsamosc, region, DR, model danych',
   ['id-generation', 'object-storage', 'auth', 'cloud-building-blocks', 'multi-region-dr', 'databases'].every((id) => areas.find((a) => a.id === id).one_way));
@@ -45,7 +63,9 @@ ok('sd-areas: drzwi jednokierunkowe obejmuja ID, pliki, tozsamosc, region, DR, m
     for (const part of a.card.split(';')) {
       const m = part.trim().match(/^([\w.-]+\.md) › (.+)$/);
       let text = '';
-      try { text = m ? fs.readFileSync(path.join(SD, m[1]), 'utf8') : ''; } catch (e) { /* brak pliku = dangling */ }
+      // karty sd/NN w references/sd; grupa stack -> references/stack-catalog.md (katalog obok)
+      const dir = m && fs.existsSync(path.join(SD, m[1])) ? SD : path.dirname(SD);
+      try { text = m ? fs.readFileSync(path.join(dir, m[1]), 'utf8') : ''; } catch (e) { /* brak pliku = dangling */ }
       if (!m || !text.includes(m[2])) dangling.push(`${a.id}: ${part.trim()}`);
     }
   }
@@ -54,7 +74,7 @@ ok('sd-areas: drzwi jednokierunkowe obejmuja ID, pliki, tozsamosc, region, DR, m
 
 // ---------- lintMatrix ----------
 const good = lint(full());
-ok('komplet => ok, 0 problemow', good.ok && good.issues.length === 0 && good.present === 37, JSON.stringify(good.issues.slice(0, 3)));
+ok('komplet => ok, 0 problemow', good.ok && good.issues.length === 0 && good.present === areas.length, JSON.stringify(good.issues.slice(0, 3)));
 
 const noRate = lint(full(areas.filter((a) => a.id !== 'rate-limiting')));
 ok('brak wiersza rate-limiting => brak-wiersza', !noRate.ok && noRate.missing.includes('rate-limiting') && kinds(noRate).includes('brak-wiersza'));
@@ -80,7 +100,7 @@ const ndEmpty = lint(full().replace('| Caching (caching) | NIE DOTYCZY | brak ta
 ok('NIE DOTYCZY bez uzasadnienia (TODO) => puste-pole', ndEmpty.issues.some((i) => i.id === 'caching' && i.kind === 'puste-pole'));
 
 const fenced = lint('```\n' + full() + '```\n');
-ok('tabela w bloku kodu nie liczy sie (37 brakow)', fenced.missing.length === 37);
+ok('tabela w bloku kodu nie liczy sie (wszystkie braki)', fenced.missing.length === areas.length);
 
 const lower = lint(full().replace('| Caching (caching) | NIE DOTYCZY |', '| `caching` | **nie dotyczy** |'));
 ok('id w backtickach i status malymi literami/pogrubiony => akceptowane', lower.ok, JSON.stringify(lower.issues));
@@ -111,7 +131,7 @@ ok('CLI: nieznany argument => exit 2', c3.status === 2);
 const c4 = cli(['--repo', repoOk, '--groups', 'nie-ma-grupy']);
 ok('CLI: nieznana grupa => exit 2', c4.status === 2);
 const tpl = cli(['--template']);
-ok('CLI: --template daje 37 wierszy + naglowek', tpl.status === 0 && tpl.stdout.trim().split('\n').length === 39);
+ok('CLI: --template daje wszystkie wiersze + naglowek', tpl.status === 0 && tpl.stdout.trim().split('\n').length === areas.length + 2);
 const repoTpl = path.join(FIX, 'cli-tpl');
 write(path.join(repoTpl, L.MATRIX_REL), tpl.stdout);
 ok('CLI: pusty szablon => exit 1 (statusy puste)', cli(['--repo', repoTpl]).status === 1);
@@ -172,6 +192,11 @@ const g4 = t3Scenario('sg-no-optin', '# repo\n');
 ok('stop-gate: bez opt-in + T3 + brak pliku => 0 + podpowiedz', g4.status === 0 && /macierzy obszarow/.test(g4.stdout || ''), 'exit=' + g4.status + ' ' + (g4.stdout || '').slice(0, 300));
 const g5 = t3Scenario('sg-optin-in-fence', '# repo\n```\npg.sd_matrix: required\n```\n');
 ok('stop-gate: linia opt-in w bloku kodu nie wlacza bramki => 0', g5.status === 0, 'exit=' + g5.status + ' ' + (g5.stderr || '').slice(0, 300));
+// Bez opt-in (uzytkownik 2026-10-10: bezpiecznie, ale lekkie ryzyko dozwolone): podpowiedz tylko o otwartych drzwiach jednokierunkowych.
+const g6 = t3Scenario('sg-hint-door-open', '# repo\n', full(areas.filter((a) => a.id !== 'auth' && a.id !== 'rate-limiting')));
+ok('stop-gate: bez opt-in + otwarte drzwi (auth) => 0 + podpowiedz z lista drzwi', g6.status === 0 && /Podpowiedz PG \(bez blokady\)/.test(g6.stdout || '') && /drzwi jednokierunkowe: auth/.test(g6.stdout || ''), 'exit=' + g6.status + ' ' + (g6.stdout || '').slice(0, 300));
+const g7 = t3Scenario('sg-hint-doors-closed', '# repo\n', full(areas.filter((a) => a.id !== 'rate-limiting')));
+ok('stop-gate: bez opt-in + otwarte tylko zwykle wiersze => 0 i cisza (lekkie ryzyko dozwolone)', g7.status === 0 && !/Podpowiedz PG/.test(g7.stdout || ''), 'exit=' + g7.status + ' ' + (g7.stdout || '').slice(0, 300));
 
 // Stop #3 w cyklu: review i arch juz zablokowaly (need=null) — bramka obszarow nie moze zniknac.
 {
@@ -200,7 +225,7 @@ ok('dowod: komenda/plik/liczba/link => akceptowany', evKinds.every((ev) => {
 const commented = lint(full(areas.filter((a) => a.id !== 'search')) + '<!--\n' + row(areas.find((a) => a.id === 'search')) + '\n-->\n');
 ok('wiersz w komentarzu HTML nie liczy sie', commented.missing.includes('search'));
 const tilde = lint('~~~\n' + full() + '~~~\n');
-ok('tabela w bloku ~~~ nie liczy sie', tilde.missing.length === 37);
+ok('tabela w bloku ~~~ nie liczy sie', tilde.missing.length === areas.length);
 const lineNo = L.parseMatrix('intro\n```\nx\n```\n\n' + HEAD + '| Kolejki (queues) | MOZE | a | b | c |\n');
 ok('numery linii po bloku kodu = linie pliku', lineNo.rows[0] && lineNo.rows[0].line === 8, JSON.stringify(lineNo.rows));
 {
@@ -227,5 +252,14 @@ ok('numery linii po bloku kodu = linie pliku', lineNo.rows[0] && lineNo.rows[0].
 }
 
 try { fs.rmSync(FIX, { recursive: true, force: true }); } catch (e) { /* sprzatanie best-effort */ }
+// pg-review 2026-10-06: wyciecie blokow liniowo (regex z \\1 byl O(n^2) -> timeout bramki = fail-open), linie zachowane.
+{
+  const stripped = L.stripNonContent('a\n```js\nb\n```\nc\n<!-- d\ne -->\nf\n<!-- otwarty');
+  ok('stripNonContent: bloki i komentarze wyciete, liczba linii zachowana', stripped === 'a\n\n\n\nc\n\n\nf\n', JSON.stringify(stripped));
+  const big = '```\n' + 'x\n'.repeat(200000) + '<!--'.repeat(50000);
+  const t0 = Date.now();
+  L.stripNonContent(big);
+  ok('stripNonContent: 200 tys. linii niedomknietego bloku + 50 tys. otwarc komentarza < 1 s', Date.now() - t0 < 1000, `${Date.now() - t0} ms`);
+}
 console.log(failures ? `\n${failures} FAIL` : '\nwszystkie PASS');
 process.exit(failures ? 1 : 0);

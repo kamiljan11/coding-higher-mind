@@ -127,12 +127,14 @@ rc, out = sh(["node", str(CLAUDE / "hooks" / "session-context.js")], stdin='{"se
 check("session-context.js emituje [SESSION-CONTEXT]", rc == 0 and "[SESSION-CONTEXT" in out, out[:120])
 check("session-context.js widzi Notes for Claude", "Notes for Claude.md: BRAK" not in out, "plik pamieci nieczytelny (dysk D:?)")
 
-# 2c'. Budzet tokenow PG (2026-10-05, uzytkownik: „zeby realnie nie jadl wiecej tokenow niz musi"). Pomiar w bajtach
+# 2c'. Budzet tokenow PG (2026-10-05, uzytkownik: „zeby realnie nie jadl wiecej tokenow niz musi"). Pomiar w bajtach (SessionStart: w znakach)
 # tego, co trafia do kontekstu modelu; przekroczenie = RED, zeby wstrzykiwany tekst nie odrastal po cichu.
 # Progi = stan po odchudzeniu + ~10 % zapasu. Podniesienie progu to swiadoma decyzja (commit z uzasadnieniem).
-TOKEN_BUDGET = {"session_context": 27500, "prompt_guard_first": 5500, "prompt_guard_repeat": 1500, "claude_md": 23000}
-check(f"budzet: SessionStart <= {TOKEN_BUDGET['session_context']} B", len(out.encode()) <= TOKEN_BUDGET["session_context"],
-      f"{len(out.encode())} B — przytnij limity w session-context.js FILES")
+# 2026-10-10: SessionStart liczony w ZNAKACH wzgledem limitu Claude Code (10 000 znakow na wyjscie hooka; powyzej model
+# dostaje 2 000 znakow podgladu). Stary prog 27 500 B przepuszczal wyjscie, ktore w praktyce nie trafialo do modelu.
+TOKEN_BUDGET = {"session_context": 9800, "prompt_guard_first": 5500, "prompt_guard_repeat": 1500, "claude_md": 23000}
+check(f"budzet: SessionStart <= {TOKEN_BUDGET['session_context']} znakow (limit hooka CC 10 000)", len(out) <= TOKEN_BUDGET["session_context"],
+      f"{len(out)} znakow — przytnij limity w session-context.js FILES/OUT_MAX")
 _sid = "guardhealth-budget"
 _seen = CLAUDE / "logs" / "pg-seen" / _sid
 try:

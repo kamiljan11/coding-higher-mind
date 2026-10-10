@@ -1,0 +1,614 @@
+<meta charset="utf-8">
+<title>PG Stack Picker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: lewa kolumna = kroki (kategorie po kolei, kazda do rozstrzygniecia), prawa = postep + wynik przyklejony; na telefonie wynik pod spodem */
+:root{
+  --bg:#eef0ec; --panel:#fbfcf9; --ink:#15181c; --muted:#5d6560; --line:#d5d9d2;
+  --accent:#2340c8; --accent-ink:#fff; --hint:#b86e00; --hint-bg:#fdf1dc; --warn:#a3361d; --ok:#2c6e3f; --later:#6b5bb5;
+  --chip:#f4f6f1; --chip-on:#e3e8fb;
+  --f-display:"Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-body:"IBM Plex Sans", system-ui, sans-serif;
+  --f-mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#121417; --panel:#1a1d21; --ink:#e9ece6; --muted:#9aa29c; --line:#2c3137;
+  --accent:#7b93ff; --accent-ink:#0d1020; --hint:#f0a63a; --hint-bg:#33260f; --warn:#ff8a6b; --ok:#7fd497; --later:#b3a6ff;
+  --chip:#20242a; --chip-on:#26304f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121417; --panel:#1a1d21; --ink:#e9ece6; --muted:#9aa29c; --line:#2c3137;
+  --accent:#7b93ff; --accent-ink:#0d1020; --hint:#f0a63a; --hint-bg:#33260f; --warn:#ff8a6b; --ok:#7fd497; --later:#b3a6ff;
+  --chip:#20242a; --chip-on:#26304f; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body);padding-inline:16px;padding-block:24px 48px}
+.wrap{max-width:1280px;margin:0 auto;display:grid;gap:24px}
+header{display:grid;gap:10px;max-width:780px}
+.eyebrow{font:500 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font:800 clamp(30px,4.4vw,48px)/1.05 var(--f-display);margin:0;text-wrap:balance;letter-spacing:-.01em}
+h1 em{font-style:normal;color:var(--accent)}
+.lede{margin:0;color:var(--muted);max-width:68ch}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font:12px/1.4 var(--f-mono);color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:10px;height:10px;border-radius:2px;display:inline-block}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.bar label{font:500 13px var(--f-body);color:var(--muted)}
+select{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+button{font:inherit;color:inherit;cursor:pointer}
+.btn{border:1px solid var(--line);background:var(--panel);padding:7px 12px;border-radius:6px;font:500 13px/1.2 var(--f-body)}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:24px;align-items:start}
+@media (max-width:960px){.main{grid-template-columns:minmax(0,1fr)}}
+.groups{display:grid;gap:28px;min-width:0}
+.group h2{font:700 13px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;display:flex;gap:10px;align-items:center}
+.group h2::after{content:"";flex:1;height:1px;background:var(--line)}
+.cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.cat{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--warn);border-radius:8px;padding:14px;display:grid;gap:10px;align-content:start;min-width:0}
+.cat[data-s="DECYZJA"]{border-left-color:var(--ok)}
+.cat[data-s="NIE TERAZ"]{border-left-color:var(--later)}
+.cat[data-s="NIE DOTYCZY"]{border-left-color:var(--line)}
+.cat-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.cat-h h3{font:700 16px/1.2 var(--f-display);margin:0}
+.cat-h h3 small{font:500 11px var(--f-mono);color:var(--muted);margin-right:6px}
+.code{font:500 11px/1 var(--f-mono);color:var(--muted);text-align:right}
+.status{font:500 11px/1 var(--f-mono);padding:3px 6px;border-radius:4px;white-space:nowrap;color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
+.cat[data-s="DECYZJA"] .status{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}
+.cat[data-s="NIE TERAZ"] .status{color:var(--later);background:color-mix(in srgb,var(--later) 14%,transparent)}
+.cat[data-s="NIE DOTYCZY"] .status{color:var(--muted);background:var(--chip)}
+.ask{font:13px/1.4 var(--f-body);margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:var(--chip);border-radius:5px;padding:5px 9px;font:13px/1.2 var(--f-body);display:inline-flex;align-items:center;gap:6px}
+.chip .mk{font:500 10px/1 var(--f-mono);color:var(--muted);border:1px solid var(--line);border-radius:3px;padding:2px 3px}
+.chip.local{border-color:color-mix(in srgb,var(--hint) 60%,var(--line))}
+.chip.local .mk{color:var(--hint);border-color:var(--hint)}
+.chip[aria-pressed="true"]{background:var(--chip-on);border-color:var(--accent);color:var(--ink);font-weight:600}
+.chip[aria-pressed="true"]::after{content:"✓";color:var(--accent);font-size:12px}
+.skip{display:flex;flex-wrap:wrap;gap:6px}
+.skip .btn{padding:4px 8px;font-size:12px}
+.skip .btn[aria-pressed="true"]{border-color:var(--accent);background:var(--chip-on)}
+.note{width:100%;font:12.5px var(--f-body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.pg{font:12px/1.45 var(--f-body);color:var(--muted);border-top:1px dashed var(--line);padding-top:8px;margin:0}
+.pg b{font-family:var(--f-mono);font-weight:500;color:var(--ink)}
+.pg .usual{color:var(--hint)}
+.info{font:12.5px/1.45 var(--f-body);margin:0;min-height:3.9em;padding:8px 10px;border-radius:6px;background:var(--bg);border:1px solid var(--line)}
+.info b{font-family:var(--f-display);font-weight:700}
+.info .when{display:block;color:var(--muted);margin-top:2px}
+.info .when::before{content:"Kiedy: ";font:500 11px var(--f-mono);color:var(--accent)}
+details.scen{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+details.scen summary{cursor:pointer;font:700 16px/1.3 var(--f-display)}
+details.scen p{margin:6px 0 10px;color:var(--muted);font-size:13px;max-width:70ch}
+.scen-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.sc{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:grid;gap:6px;align-content:start;text-align:left}
+.sc:hover{border-color:var(--accent)}
+.sc .t{font:700 15px/1.25 var(--f-display)}
+.sc .w{font-size:12.5px;color:var(--muted);line-height:1.4}
+.sc .k{font:11.5px/1.5 var(--f-mono);color:var(--accent)}
+aside{position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px);display:grid;gap:14px;min-width:0}
+@media (max-width:960px){aside{position:static}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;display:grid;gap:12px;min-width:0}
+.card h2{font:700 18px/1.2 var(--f-display);margin:0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.stat{border:1px solid var(--line);border-radius:6px;padding:7px}
+.stat b{display:block;font:700 20px/1 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{font:10.5px/1.3 var(--f-mono);color:var(--muted)}
+.stat.open b{color:var(--warn)}
+.progress{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.progress i{display:block;height:100%;background:var(--ok);width:0}
+.bom{width:100%;border-collapse:collapse;font-size:13px}
+.bom td{padding:5px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.bom td:first-child{font:11px/1.6 var(--f-mono);color:var(--muted);width:42%;padding-right:8px}
+.bom .open{color:var(--warn);font-style:italic}
+.bom .later{color:var(--later)}
+.bom .na{color:var(--muted)}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.toast{font:12px var(--f-mono);color:var(--ok);min-height:1em}
+.diagram{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+.diagram svg{display:block;min-width:340px;width:100%;height:auto}
+textarea{width:100%;min-height:140px;font:12px/1.5 var(--f-mono);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;resize:vertical}
+.steps{margin:0;padding-left:20px;display:grid;gap:4px;font-size:13px}
+.steps code{font:12px var(--f-mono)}
+footer{font:12px/1.5 var(--f-mono);color:var(--muted);max-width:80ch}
+@media (prefers-reduced-motion:no-preference){.chip{transition:background .12s,border-color .12s}.progress i{transition:width .2s}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">the company · proces architektury · krok „stack”</div>
+    <h1>Przejdź każdą warstwę. <em>Nic nie jest wybrane z góry.</em></h1>
+    <p class="lede">Każda kategoria czeka na jedno z trzech: wybrane narzędzie (DECYZJA), NIE TERAZ z sygnałem powrotu albo NIE DOTYCZY z powodem. Tak samo działa macierz obszarów <code>docs/architecture/obszary.md</code>, a wynik wkleja się do niej wprost. „Zwykle u nas” to tylko podpowiedź z floty. Wybór spoza niej opisz krótkim ADR.</p>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--warn)"></i>do rozstrzygnięcia</span>
+      <span><i class="dot" style="background:var(--ok)"></i>decyzja</span>
+      <span><i class="dot" style="background:var(--later)"></i>nie teraz</span>
+      <span><i class="dot" style="background:var(--line)"></i>nie dotyczy</span>
+      <span><i class="dot" style="background:var(--hint)"></i>narzędzie z rynku docelowego</span>
+    </div>
+    <div class="bar">
+      <label for="market">Rynek docelowy</label>
+      <select id="market">
+        <option value="GL">Globalny</option>
+        <option value="PL">Polska</option>
+        <option value="EU">Unia Europejska</option>
+        <option value="IS">Islandia</option>
+      </select>
+      <button class="btn" id="reset">Wyczyść wszystko</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <div class="groups" id="groups"></div>
+    <aside>
+      <div class="card">
+        <h2 id="bom-title">Postęp</h2>
+        <div class="progress" aria-hidden="true"><i id="bar"></i></div>
+        <div class="stats">
+          <div class="stat open"><b id="s-open">0</b><span>otwarte</span></div>
+          <div class="stat"><b id="s-dec">0</b><span>decyzje</span></div>
+          <div class="stat"><b id="s-later">0</b><span>nie teraz</span></div>
+          <div class="stat"><b id="s-na">0</b><span>nie dotyczy</span></div>
+        </div>
+        <div class="diagram" id="diagram" aria-label="Diagram warstw stacku"></div>
+        <table class="bom"><tbody id="bom"></tbody></table>
+        <div class="actions">
+          <button class="btn primary" id="copy-matrix">Kopiuj wiersze do obszary.md</button>
+          <button class="btn" id="copy-prompt">Kopiuj prompt dla Claude</button>
+          <button class="btn" id="copy-mermaid">Kopiuj diagram (Mermaid)</button>
+        </div>
+        <div class="toast" id="toast" aria-live="polite"></div>
+        <textarea id="out" readonly aria-label="Wygenerowany tekst" hidden></textarea>
+      </div>
+      <div class="card">
+        <h2>Gdzie to jest w procesie (PG)</h2>
+        <ol class="steps">
+          <li>PRD-lite: problem, kryterium, non-goals, metryka (design.md A)</li>
+          <li>Ten ekran: każda warstwa rozstrzygnięta, wiersze <code>stack-*</code> do <code>obszary.md</code></li>
+          <li>Reszta macierzy obszarów (37 obszarów system design, design.md G)</li>
+          <li><code>node ~/.claude/bin/sd-matrix-lint.js --repo .</code>: DECYZJA wymaga dowodu (plik, ADR, komenda)</li>
+          <li>Model danych, RLS od dnia 0; <code>mas-quality-init</code>; pipeline przed funkcjami</li>
+        </ol>
+      </div>
+    </aside>
+  </div>
+
+  <details class="scen">
+    <summary>Przykłady: kiedy zwykły fundament (Supabase + Vercel + Resend) nie wystarcza</summary>
+    <p>Kliknięcie wczytuje przykładowe decyzje do kroków powyżej. Każdą i tak przechodzisz po kolei, a to, czego scenariusz nie dotyka, zostaje otwarte.</p>
+    <div class="scen-grid" id="scen"></div>
+  </details>
+
+  <footer>Lista warstw i 131 narzędzi pochodzi z publicznego „Stack Picker” Arjaya (arjaythedev.com/stack-picker), z zachowanymi nazwami. Dodatki PG: aplikacja mobilna, realtime, joby, sekrety, e-ID i podpis, SMS, faktury, wysyłka oraz narzędzia lokalne dla PL, UE i Islandii. Opisy „kiedy” to skrót orientacyjny, nie cennik ani benchmark; przed wyborem sprawdź aktualną dokumentację.</footer>
+</div>
+
+<script>
+(function(){
+  // opts: [nazwa, co to jest, kiedy, rynek] — rynek: "" globalny, "PL", "EU", "IS". f = „zwykle u nas" (podpowiedz, NIE wybor).
+  // ow = trudno cofnac (informacyjnie; twarde drzwi jednokierunkowe = obszary SD databases/auth/object-storage/region w macierzy). id kategorii = wiersz `stack-<id>` w pg/sd-areas.json.
+  var GROUPS = [
+    {name:"Klient", cats:[
+      {id:"fe", name:"Frontend", hint:"framework UI", ask:"Czym rysujemy interfejs i czy liczy się SEO?", f:["Next.js","React","TanStack Start"], pg:"<b>F.1</b> boring stack; Lovable tylko przy lovable-tagger.", opts:[
+        ["Next.js","React z renderowaniem na serwerze, routingiem i API w jednym.","SEO + dynamiczne strony, sklep, Payload."],
+        ["React","Biblioteka UI; u nas zwykle jako SPA na Vite.","Panel/aplikacja za logowaniem, gdzie SEO nie gra roli."],
+        ["TanStack Start","Full-stack React na typowanym TanStack Router.","SSR i typowany routing bez Next.js (tak działa kamiljan.com)."],
+        ["Vue","Framework UI o łagodnej krzywej nauki, alternatywa dla React.","Klient albo jego zespół już pracuje w Vue."],
+        ["Svelte","Kompilowany framework, mało JS w paczce.","Lekkie, bardzo szybkie widgety; słabe telefony użytkowników."],
+        ["Astro","Strony treściowe, domyślnie zero JS, interaktywne „wyspy”.","Blog, landing, dokumentacja: najszybsza strona z treścią."],
+        ["SolidJS","Reaktywność bez wirtualnego DOM, składnia jak JSX.","Rzadko; gdy liczy się ekstremalna wydajność UI."],
+        ["Angular","Pełny framework Google z TypeScript i DI.","Klient korporacyjny ze standardem Angular."],
+        ["Remix","React oparty na formularzach i loaderach; dziś rozwijany jako React Router 7.","Aplikacje mocno formularzowe, progressive enhancement."],
+        ["Nuxt","Odpowiednik Next.js dla Vue.","Vue + SSR/SEO."],
+        ["Blazor","UI pisane w C# (.NET), bez JavaScriptu.","Klient z zespołem .NET, który przejmie kod."]]},
+      {id:"ui", name:"Styling / UI", hint:"wygląd", ask:"Skąd komponenty i tokeny designu?", f:["Tailwind CSS"], pg:"Design system = tokeny; skill <b>design-styles</b>.", opts:[
+        ["Tailwind CSS","Klasy użytkowe CSS pisane w markupie.","Domyślnie we flocie (Tailwind 4)."],
+        ["shadcn/ui","Komponenty kopiowane do repo (Radix + Tailwind), nie zależność.","Szybki własny design system; częste w kodzie z Lovable."],
+        ["Radix UI","Dostępne prymitywy bez stylu (dialog, menu, tabs).","Własne komponenty z porządnym a11y."],
+        ["Chakra UI","Gotowe komponenty stylowane propsami.","Szybki panel bez Tailwinda."],
+        ["Mantine","Duża biblioteka komponentów + hooki (daty, formularze, tabele).","Panel admina z dużą ilością formularzy i tabel."],
+        ["MUI","Komponenty Material Design (Google), DataGrid.","Klient chce wygląd Material albo gotową zaawansowaną tabelę."],
+        ["Bootstrap","Klasyczny framework CSS z komponentami.","Stare projekty i gotowe szablony."]]},
+      {id:"mobile", name:"Aplikacja mobilna", hint:"telefon", ask:"Czy użytkownik potrzebuje aplikacji ze sklepu, czy wystarczy strona?", f:["PWA"], pg:"Karta <b>sd/04</b>: offline, push, wersjonowanie API pod stare aplikacje.", opts:[
+        ["PWA","Strona instalowana na ekranie, push i offline w przeglądarce.","Najpierw to: zero sklepów, jeden kod z webem."],
+        ["React Native (Expo)","Natywna aplikacja w React/TS, wspólna logika z webem.","Potrzebny sklep, aparat, tło, płynny natywny UI."],
+        ["Flutter","Aplikacja w Dart z własnym silnikiem rysowania.","Zespół klienta zna Flutter; identyczny UI na iOS i Android."],
+        ["Capacitor","Opakowanie aplikacji web w natywną skorupę.","Istniejąca aplikacja web ma trafić do sklepu małym kosztem."],
+        ["Swift / Kotlin","Osobne natywne aplikacje.","Wymagające funkcje sprzętowe albo zespół natywny klienta."]]}
+    ]},
+    {name:"Serwer", cats:[
+      {id:"rt", name:"Runtime", hint:"co wykonuje kod", ask:"W czym działa logika serwera?", f:["Node.js","Deno"], pg:"Edge Functions nie deployują się z gita (<b>prr.md</b>).", opts:[
+        ["Node.js","Standardowy runtime JavaScript/TypeScript na serwerze.","Domyślnie (Next, Payload, skrypty)."],
+        ["Bun","Szybki runtime + bundler + test runner, zgodny z Node.","Szybsze skrypty i testy; nowe narzędzia CLI."],
+        ["Deno","Runtime TS z uprawnieniami; na nim działają Supabase Edge Functions.","Webhooki, płatności, integracje w Supabase."],
+        ["Python (FastAPI)","API w Pythonie z typami przez Pydantic.","ML/AI, OCR, pandas: biblioteki, które są tylko w Pythonie."],
+        ["Go","Kompilowany, mało pamięci, prosta współbieżność.","Wydajny worker/serwis, CLI, tysiące połączeń."],
+        ["Ruby on Rails","Full-stack Ruby z mocnymi konwencjami.","Przejmujesz kod klienta w Rails."],
+        ["Elixir / Phoenix","Maszyna BEAM: ogromna liczba równoległych połączeń, LiveView.","Realtime na dużą skalę (czaty, powiadomienia na żywo)."],
+        ["NestJS","Backend Node z modułami i DI (styl Angulara).","Duży backend Node z kilkoma programistami."],
+        ["Hono","Mały framework HTTP na edge (Workers, Deno, Bun).","API na Cloudflare Workers albo w Edge Functions."],
+        ["ASP.NET Core (.NET)","Backend w C#/.NET.","Ekosystem Microsoft u klienta."],
+        ["Spring Boot","Backend w Javie (JVM).","Bank/korporacja ze standardem Java."]]},
+      {id:"host", name:"Compute / Hosting", hint:"gdzie to żyje", ow:true, ask:"Gdzie działa kod i w jakim regionie leżą dane?", f:["Vercel"], pg:"Region i DR = drzwi jednokierunkowe (<b>sd-areas: koszt-region</b>).", opts:[
+        ["Vercel","Hosting frontu i funkcji, preview per PR.","Domyślnie."],
+        ["AWS EC2","Własna maszyna wirtualna w AWS.","Długie procesy, specyficzny soft, pełna kontrola."],
+        ["AWS Lambda","Funkcje uruchamiane zdarzeniem, płatne za wywołanie.","Klient na AWS; zdarzenia z S3/SQS."],
+        ["Google Cloud Run","Kontener skalowany do zera.","Python/Go w kontenerze, dłuższe requesty niż serverless."],
+        ["Azure App Service","Hosting aplikacji web w Azure.","Klient z umową Microsoft/Azure."],
+        ["Azure Functions","Serverless w Azure.","Zdarzenia i integracje w ekosystemie Microsoft 365."],
+        ["Cloudflare Workers","Kod na brzegu sieci blisko użytkownika.","Globalny ruch, proxy/API, tani przy dużej liczbie requestów."],
+        ["Fly.io","Kontenery/maszyny w wybranych regionach blisko użytkownika.","WebSockety, stan w pamięci, region w Europie."],
+        ["Railway","PaaS: repo → serwis + baza w kilka kliknięć.","Worker, cron albo kontener, którego Vercel nie uciągnie."],
+        ["Render","PaaS w stylu Heroku: web, workery, cron, Postgres.","Proste background workery i usługi długo działające."],
+        ["Netlify","Hosting Jamstack, alternatywa dla Vercel.","Statyczne strony, wbudowane formularze."],
+        ["DigitalOcean","Tanie VPS + App Platform.","Przewidywalny miesięczny koszt, własny serwer."],
+        ["Hetzner","Europejskie serwery i VPS, dane w UE, niski koszt.","Własny serwer w UE: workery, self-host (n8n, Infisical), RODO.","EU"],
+        ["OVHcloud","Europejska chmura i serwery, w tym regiony w Polsce.","Klient wymaga danych w Polsce/UE albo chmury europejskiej.","PL"]]},
+      {id:"auth", name:"Auth", hint:"kto się loguje", ow:true, ask:"Kto się loguje, czym i czy są organizacje/role?", f:["Supabase Auth","Payload auth"], pg:"T3 zawsze; <b>security-reviewer</b> + RLS od dnia 0.", opts:[
+        ["Clerk","Gotowe ekrany logowania, organizacje, MFA.","B2B SaaS z organizacjami i gotowym UI, gdy nie ma Supabase."],
+        ["Auth0","Platforma tożsamości enterprise (Okta).","Klient wymaga SSO/SAML i compliance."],
+        ["Supabase Auth","Logowanie zintegrowane z RLS w Postgres.","Domyślnie."],
+        ["NextAuth / Auth.js","Biblioteka OAuth dla Next; dane zostają u ciebie.","Logowanie Google/GitHub bez dostawcy auth."],
+        ["WorkOS","SSO SAML i SCIM dla klientów enterprise.","Sprzedajesz SaaS firmom, które żądają SSO."],
+        ["Firebase Auth","Auth z ekosystemu Firebase.","Aplikacja mobilna na Firebase."],
+        ["Better Auth","Open-source biblioteka auth w TS z pluginami (2FA, organizacje).","Własne auth w swojej bazie bez uzależnienia od dostawcy."],
+        ["AWS Cognito","Tożsamość w AWS.","Klient w pełni na AWS."],
+        ["Microsoft Entra ID","Konta firmowe Microsoft (dawne Azure AD).","Pracownicy klienta logują się kontem Microsoft 365."],
+        ["Payload auth","Konta i role wbudowane w Payload CMS.","Sklep/panel na Payload."]]},
+      {id:"ai", name:"AI / LLM", hint:"inteligentne części", ask:"Czy produkt ma część AI, i jaki ma limit kosztu?", f:["Anthropic Claude","Vercel AI SDK"], pg:"Model per krok: skill <b>model-router</b>; cap kosztu per organizacja.", opts:[
+        ["Anthropic Claude","Modele Claude (Haiku/Sonnet/Opus).","Domyślnie."],
+        ["OpenAI","Modele GPT, embeddingi, mowa (Whisper, TTS).","Transkrypcja/głos albo konkretny model."],
+        ["Vercel AI Gateway","Jeden endpoint do wielu dostawców z fallbackiem i limitami.","Przełączanie modeli bez zmiany kodu, jeden rachunek."],
+        ["Google Gemini","Modele Google z długim kontekstem i multimodalnością.","Dużo wideo/PDF w jednym zapytaniu, niski koszt."],
+        ["Replicate","Modele open-source (obraz, audio, wideo) przez API.","Konkretny model OSS bez własnego GPU."],
+        ["Together AI","Hosting otwartych modeli (Llama, Qwen) + fine-tuning.","Otwarty model albo dostrojenie na własnych danych."],
+        ["Groq","Bardzo szybka inferencja na własnych układach.","Niski czas odpowiedzi, np. agent głosowy."],
+        ["Vercel AI SDK","Biblioteka TS do LLM: streaming, narzędzia, wielu dostawców.","Domyślnie w produktach z AI."],
+        ["Mistral","Europejski dostawca modeli (Francja), także modele otwarte.","Klient wymaga dostawcy z UE albo modelu do self-hostu.","EU"]]},
+      {id:"rtm", name:"Realtime", hint:"na żywo", ask:"Czy ktoś musi widzieć zmiany bez odświeżania?", f:["Supabase Realtime"], pg:"Karta <b>sd/01</b> stateful vs stateless; WebSocket = osobny koszt i limity.", opts:[
+        ["Supabase Realtime","Zmiany z Postgres i kanały broadcast przez WebSocket.","Domyślnie: powiadomienia, statusy, prosty czat."],
+        ["Ably","Zarządzane kanały realtime z gwarancjami dostarczenia.","Duża liczba połączeń, historia wiadomości, SLA."],
+        ["Pusher","Proste kanały realtime jako usługa.","Szybkie powiadomienia na żywo bez własnego serwera."],
+        ["Liveblocks","Współdzielona edycja i obecność użytkowników.","Wspólna edycja dokumentu/tablicy, kursory innych."],
+        ["Polling","Okresowe odpytywanie API.","Zmiany co minuty, nie sekundy: najtańsze i najprostsze."]]},
+      {id:"jobs", name:"Joby / automatyzacja", hint:"praca w tle", ask:"Co dzieje się poza requestem: cron, kolejka, długie zadania?", f:["Edge Function + cron","n8n"], pg:"n8n tylko wewnętrznie; produkcja klienta = kod w repo z testami.", opts:[
+        ["Edge Function + cron","Kod w Supabase wywoływany harmonogramem (pg_cron).","Domyślnie dla produkcji klienta."],
+        ["Inngest","Funkcje sterowane zdarzeniami z ponawianiem i krokami.","Wieloetapowe procesy w tle z retry, bez własnej kolejki."],
+        ["Trigger.dev","Długie zadania w tle w TS (open source).","Importy, generowanie raportów dłuższe niż limit funkcji."],
+        ["QStash (Upstash)","Kolejka HTTP z opóźnieniem i ponawianiem.","Proste opóźnione wywołania i webhooki z retry."],
+        ["GitHub Actions cron","Zadanie cykliczne w CI.","Raporty i joby bez bazy."],
+        ["n8n","Automatyzacje wizualne, self-host.","Domyślnie dla pracy wewnętrznej."],
+        ["Zapier","Automatyzacje SaaS dla nietechnicznych.","Klient sam ma utrzymywać automatyzację."],
+        ["Make","Wizualne scenariusze automatyzacji.","Jak Zapier, tańszy przy wielu krokach."]]}
+    ]},
+    {name:"Dane", cats:[
+      {id:"db", name:"Database", hint:"gdzie śpią dane", ow:true, ask:"Gdzie leżą dane i jaki mają kształt?", f:["Supabase"], pg:"Nowa tabela = ADR; migracje dwuetapowe (<b>design.md B.4</b>).", opts:[
+        ["PostgreSQL","Sama baza (self-host albo zarządzana, np. RDS).","Gdy potrzebujesz tylko bazy, bez platformy."],
+        ["Neon","Serverless Postgres z gałęzią bazy na każdy PR.","Skalowanie do zera albo gdy Supabase Branching (płatny) nie pasuje — najpierw sprawdź Branching."],
+        ["Supabase","Postgres + Auth + Storage + Edge Functions + Realtime.","Domyślnie."],
+        ["PlanetScale","Zarządzana baza na Vitess, zmiany schematu przez gałęzie.","Duża skala zapisu, zespół MySQL."],
+        ["MySQL","Klasyczna relacyjna baza.","WordPress albo system klienta na MySQL."],
+        ["MongoDB","Dokumentowa baza NoSQL.","Dane o bardzo zmiennym kształcie (zwykle wystarczy JSONB w Postgres)."],
+        ["Firebase","Backend Google: Firestore z realtime i trybem offline.","Aplikacja mobilna z synchronizacją offline."],
+        ["DynamoDB","Klucz-wartość AWS w dowolnej skali.","Znany z góry wzorzec dostępu, ogromna skala na AWS."],
+        ["Convex","Reaktywny backend: baza + funkcje TS + zapytania na żywo.","Współdzielony stan na żywo (tablica, czat) bez pisania synchronizacji."],
+        ["Turso","Rozproszony SQLite (libSQL), replika blisko użytkownika.","Osobna baza na klienta, edge, tanio."],
+        ["Redis","Szybka pamięć klucz-wartość.","Cache, rate limit, kolejki, sesje (np. Upstash serverless)."],
+        ["SQL Server","Relacyjna baza Microsoft.","System klienta na Microsoft."],
+        ["Azure SQL","SQL Server jako usługa w Azure.","Klient w Azure."],
+        ["Cosmos DB","Globalnie rozproszona NoSQL w Azure.","Dane w wielu regionach świata u klienta w Azure."]]},
+      {id:"orm", name:"ORM / Data Layer", hint:"jak pytasz bazę", ask:"Jak kod rozmawia z bazą i kto pilnuje uprawnień?", f:["supabase-js","Payload Local API"], pg:"Payload Local API domyślnie omija <b>access</b>.", opts:[
+        ["Prisma","ORM ze schematem, migracjami i generowanym klientem.","Zespół woli podejście schema-first, dużo relacji."],
+        ["Drizzle","Lekki ORM TS blisko SQL, działa na edge.","Typowane zapytania bez ciężkiego runtime."],
+        ["Kysely","Typowany query builder SQL.","SQL z typami, bez ORM."],
+        ["TypeORM","ORM z dekoratorami (styl Javy).","Przejmowany kod NestJS."],
+        ["Sequelize","Starszy ORM dla Node.","Przejmowany stary kod."],
+        ["Raw SQL","Ręcznie pisany SQL, funkcje i widoki Postgres.","Raporty, złożone zapytania, logika w bazie."],
+        ["Entity Framework Core","ORM dla .NET.","Backend w ASP.NET Core."],
+        ["supabase-js","Klient Supabase; z kluczem anon/JWT użytkownika zapytania przechodzą przez RLS, z service_role RLS jest OMIJANY (filtr org_id w kodzie).","Domyślnie."],
+        ["Payload Local API","Zapytania przez Payload na serwerze.","Sklep/panel na Payload."]]},
+      {id:"blob", name:"File / Blob Storage", hint:"duże binarki", ow:true, ask:"Czy są pliki użytkowników i kto może je pobrać?", f:["Supabase Storage"], pg:"Bucket i ścieżki = <b>one_way</b> w macierzy obszarów.", opts:[
+        ["AWS S3","Standard magazynu obiektowego.","Duża skala, ekosystem AWS."],
+        ["Vercel Blob","Pliki hostowane w Vercel.","Mała aplikacja bez Supabase."],
+        ["Cloudflare R2","Magazyn zgodny z S3 bez opłat za transfer wychodzący.","Dużo pobrań: wideo, galerie, pliki do ściągnięcia."],
+        ["Google Cloud Storage","Magazyn obiektowy GCP.","Klient w Google Cloud."],
+        ["Azure Blob","Magazyn obiektowy Azure.","Klient w Azure."],
+        ["UploadThing","Upload plików dla React/Next z gotowym UI.","Szybki upload bez konfigurowania S3."],
+        ["Supabase Storage","Pliki z politykami RLS obok bazy.","Domyślnie."]]},
+      {id:"search", name:"Search", hint:"szybkie szukanie", ask:"Czy użytkownik czegoś szuka, i ile tego jest?", f:["Postgres FTS","pgvector"], pg:"FTS → pgvector → dopiero osobny silnik (<b>owner-stack</b>).", opts:[
+        ["Algolia","Hostowane wyszukiwanie natychmiastowe z merchandisingiem.","Sklep z dużym katalogiem, klient płaci za jakość."],
+        ["Meilisearch","Open-source, tolerancja literówek, prosty self-host.","Katalog z literówkami i filtrami, tanio."],
+        ["Typesense","Open-source alternatywa dla Algolii.","Jak Meilisearch; wybór według potrzebnych funkcji."],
+        ["Elastic","Pełny silnik wyszukiwania i analityki logów.","Ogromne zbiory danych, analityka logów."],
+        ["Postgres FTS","Pełnotekstowe szukanie w Postgres (+ pg_trgm, unaccent; polski słownik wymaga konfiguracji).","Domyślnie."],
+        ["pgvector","Embeddingi i wyszukiwanie semantyczne w Postgres.","Domyślnie dla RAG."]]},
+      {id:"cms", name:"CMS / Content", hint:"marketing i blog", ask:"Kto i jak często zmienia treści?", f:["Payload","Tabela w Supabase"], pg:"To, co zmienia klient, ma być danymi, nie kodem.", opts:[
+        ["Sanity","Headless CMS, edycja na żywo, wielu redaktorów.","Zespół marketingu klienta edytuje dużo treści."],
+        ["Contentful","Headless CMS enterprise.","Korporacja ze standardem Contentful."],
+        ["Payload","CMS w kodzie (TS) na Postgres, panel admina.","Domyślnie dla sklepu/panelu treści."],
+        ["Strapi","Open-source headless CMS do self-hostingu.","Panel treści na własnym serwerze."],
+        ["Notion","Notion jako źródło treści przez API.","Klient już pisze wszystko w Notion."],
+        ["Markdown / MDX","Treść w plikach w repo.","Blog dewelopera, dokumentacja."],
+        ["Tabela w Supabase","Treści jako wiersze w bazie + prosty formularz.","Domyślnie dla prostych stron."]]}
+    ]},
+    {name:"Operacje", cats:[
+      {id:"mon", name:"Monitoring / APM", hint:"czy się pali?", ask:"Skąd dowiemy się o błędzie przed klientem?", f:["Sentry"], pg:"Sentry od dnia 0; brak = finding (<b>fleet-status</b>).", opts:[
+        ["Sentry","Błędy + wydajność + nagrania sesji.","Domyślnie od dnia 0."],
+        ["Datadog","Pełna obserwowalność enterprise: logi, metryki, APM.","Duża infrastruktura, klient płaci."],
+        ["New Relic","APM i obserwowalność enterprise.","Klient ma już New Relic."],
+        ["AWS CloudWatch","Logi i metryki AWS.","Aplikacja na AWS."],
+        ["Google Cloud Monitoring","Logi i metryki GCP.","Aplikacja na Cloud Run/GCP."],
+        ["Grafana","Dashboardy (+ Loki na logi, Tempo na trace'y).","Własne metryki, self-host."],
+        ["Prometheus","Zbieranie metryk, zwykle z Grafaną.","Własne serwery i kontenery."],
+        ["Honeycomb","Trace'y i zdarzenia o wysokiej kardynalności.","Debugowanie systemu z wieloma usługami."],
+        ["Axiom","Tanie przechowywanie logów i zdarzeń, integracja z Vercel.","Długie trzymanie logów z Vercel/edge."],
+        ["Better Stack","Uptime + logi + strona statusu + dyżury.","Monitoring dostępności i publiczna strona statusu dla klienta."]]},
+      {id:"pa", name:"Product Analytics", hint:"co robią użytkownicy", ask:"Jaką metrykę z PRD-lite mierzymy i jakim eventem?", f:[], pg:"PRD-lite <b>A.4</b> wymaga metryki i eventu; flota nie ma tu domyślnego narzędzia.", opts:[
+        ["PostHog","Analityka produktu + nagrania sesji + feature flagi + A/B; open source, hosting w EU.","Pierwszy kandydat: jedna paczka zamiast czterech narzędzi."],
+        ["Amplitude","Lejki, kohorty, retencja na poziomie enterprise.","Duży produkt z zespołem analityków."],
+        ["Mixpanel","Analityka zdarzeń i lejków.","Klasyczne lejki konwersji."],
+        ["Heap","Automatycznie zbiera kliknięcia bez ręcznego trackingu.","Nie wiesz jeszcze, co mierzyć."],
+        ["June","Analityka dla B2B SaaS (sprawdź aktualny status projektu).","Raporty per firma-klient."],
+        ["Statsig","Feature flagi i eksperymenty z analityką.","Dużo testów A/B."]]},
+      {id:"wa", name:"Web Analytics", hint:"odsłony i vitals", ask:"Czy liczymy ruch na stronie, i czy wymaga to zgody cookie?", f:[], pg:"GA wymaga zgody cookie (RODO); bez cookies = prostszy baner.", opts:[
+        ["Vercel Analytics","Odsłony i Web Vitals wbudowane w Vercel.","Strona na Vercel, minimum konfiguracji."],
+        ["Google Analytics","Darmowa, pełna analityka; cookies i zgoda RODO.","Klient prowadzi Google Ads."],
+        ["Plausible","Lekka analityka bez cookies, z EU, open source.","Strona klienta z prostszym RODO.","EU"],
+        ["Fathom","Prywatna, płatna analityka bez cookies.","Jak Plausible, inny dostawca."],
+        ["Simple Analytics","Prywatna analityka z EU.","Jak Plausible, inny dostawca.","EU"],
+        ["Umami","Open-source analityka bez cookies do self-hostu.","Dane analityczne na własnym serwerze."]]},
+      {id:"ci", name:"CI / CD", hint:"wypuść to", ask:"Jak kod trafia na produkcję i co go zatrzymuje?", f:["GitHub Actions","Vercel Deploys"], pg:"<b>quality.yml</b> + ochrona main; czerwone = brak merge.", opts:[
+        ["GitHub Actions","CI w GitHub.","Domyślnie."],
+        ["Vercel Deploys","Deploy i preview na każdy push.","Domyślnie."],
+        ["CircleCI","CI jako usługa z mocnym cache.","Długie buildy, klient już używa."],
+        ["GitLab CI","CI wbudowane w GitLab.","Kod klienta na GitLabie."],
+        ["Buildkite","CI z własnymi runnerami.","Duże monorepo, własna infrastruktura."]]},
+      {id:"sec", name:"Sekrety", hint:"klucze i tokeny", ask:"Gdzie żyją klucze i kto je rotuje?", f:["Infisical","Vercel env"], pg:"Nigdy w kodzie; most <b>infisical</b>.", opts:[
+        ["Infisical","Menedżer sekretów (self-host albo chmura).","Domyślnie."],
+        ["Vercel env","Zmienne środowiskowe projektu w Vercel.","Domyślnie dla produkcji."],
+        ["Doppler","Menedżer sekretów jako usługa.","Klient chce SaaS zamiast self-host."],
+        ["1Password","Sekrety w 1Password (CLI, Secrets Automation).","Zespół klienta już używa 1Password."],
+        ["AWS Secrets Manager","Sekrety z rotacją w AWS.","Aplikacja na AWS."]]}
+    ]},
+    {name:"Biznes i rynek", cats:[
+      {id:"mail", name:"Transactional Email", hint:"reset hasła, paragony", ask:"Jakie maile wysyła system i z jakiej domeny?", f:["Resend"], pg:"SPF/DKIM/DMARC na domenie; dostawca = ADR (<b>design.md E</b>).", opts:[
+        ["Resend","Proste API e-mail + szablony React Email.","Domyślnie."],
+        ["Postmark","Nastawiony na dostarczalność wiadomości transakcyjnych.","Krytyczne maile (reset hasła, faktury) muszą dojść."],
+        ["SendGrid","Duży wolumen + marketing (Twilio).","Masowe wysyłki."],
+        ["AWS SES","Bardzo tani przy dużej skali, więcej konfiguracji.","Setki tysięcy maili, klient na AWS."],
+        ["Mailgun","API + przetwarzanie maili przychodzących.","Aplikacja ma odbierać maile."],
+        ["Loops","E-mail marketing i sekwencje dla SaaS.","Onboarding, newslettery, kampanie."],
+        ["Brevo","Europejska platforma e-mail i SMS (transakcyjne + marketing).","Klient chce dostawcy z UE i jednego narzędzia do kampanii.","EU"]]},
+      {id:"pay", name:"Payments", hint:"pobierz pieniądze", ow:true, ask:"Kto płaci, w jakiej walucie i kto rozlicza VAT?", f:[], pg:"Hostowany checkout + webhook HMAC + idempotencja; T3. Dostawca zależy od rynku.", opts:[
+        ["Stripe","Standard płatności, subskrypcje, Connect; obsługuje też BLIK i Przelewy24.","Globalnie; subskrypcje, marketplace (Connect)."],
+        ["Lemon Squeezy","Merchant of Record: rozlicza VAT za ciebie.","Sprzedaż produktów cyfrowych na świat."],
+        ["Paddle","Merchant of Record dla SaaS.","Subskrypcje SaaS globalnie bez własnej rejestracji VAT."],
+        ["Polar","Merchant of Record dla deweloperów: subskrypcje, licencje.","Sprzedaż narzędzi/licencji dla programistów."],
+        ["PayPal","Płatności kontem PayPal.","Klienci przyzwyczajeni do PayPal."],
+        ["Przelewy24","Polska bramka: szybkie przelewy, BLIK, karty.","Sklep/usługa dla klientów w Polsce.","PL"],
+        ["PayU","Bramka płatności w Polsce i regionie (BLIK, raty, karty).","Sklep w PL, raty i płatności odroczone.","PL"],
+        ["Tpay","Polska bramka z BLIK i szybkimi przelewami.","Mały sklep w PL, prosta integracja.","PL"],
+        ["payment-provider","Europejska bramka z lokalnymi metodami płatności.","Sprzedaż w wielu krajach UE.","EU"],
+        ["Adyen","Globalna platforma płatności enterprise.","Duży wolumen, wiele krajów i kanałów."],
+        ["payment-gateway","Hostowany checkout, subskrypcje, wiele walut (w tym ISK).","Płatności na rynku islandzkim (ISK).","IS"],
+        ["local-acquirer","Islandzki procesor płatności krajowych.","Płatności w ISK na rynku islandzkim.","IS"]]},
+      {id:"inv", name:"Faktury / księgowość", hint:"dokumenty sprzedaży", ask:"Czy system wystawia faktury, i w jakim kraju?", f:[], pg:"W Polsce faktury idą przez KSeF; sprawdź aktualny harmonogram obowiązku.", opts:[
+        ["KSeF (API MF)","Krajowy System e-Faktur: polskie ustrukturyzowane e-faktury.","Wystawiasz faktury w Polsce bezpośrednio z systemu.","PL"],
+        ["Fakturownia","Polski SaaS do faktur z API (integracja z KSeF).","Faktury PL bez własnej integracji z KSeF.","PL"],
+        ["inFakt","Polski SaaS do faktur i księgowości z API.","Klient prowadzi księgowość w inFakt.","PL"],
+        ["wFirma","Polski SaaS księgowy z API.","Klient prowadzi księgowość w wFirma.","PL"],
+        ["Stripe Invoicing","Faktury i subskrypcje w Stripe.","Płatności i tak idą przez Stripe, rynek poza PL."],
+        ["Xero","Księgowość w chmurze z API (UK, AU, NZ i inne).","Klient poza Polską z księgowością w Xero."],
+        ["Merchant of Record","Faktury wystawia dostawca płatności (Paddle, Lemon Squeezy, Polar).","Sprzedaż cyfrowa na świat bez własnego VAT."]]},
+      {id:"eid", name:"e-ID / podpis", hint:"tożsamość prawna", ow:true, ask:"Czy prawo wymaga potwierdzonej tożsamości albo podpisu?", f:[], pg:"Kupuj, nie buduj weryfikacji tożsamości; dane osobowe = RODO + T3.", opts:[
+        ["Brak","Produkt nie potrzebuje e-ID ani podpisu.","Brak wymogu prawnego."],
+        ["Profil Zaufany / login.gov.pl","Logowanie obywatela przez Węzeł Krajowy.","Usługa dla obywateli PL wymaga potwierdzonej tożsamości.","PL"],
+        ["mObywatel","Cyfrowa tożsamość w aplikacji państwowej.","Weryfikacja tożsamości osoby w Polsce.","PL"],
+        ["Autenti","Polska platforma podpisu elektronicznego.","Umowy podpisywane online z klientami w PL.","PL"],
+        ["DocuSign","Globalna platforma podpisu elektronicznego.","Umowy międzynarodowe, klient zna DocuSign."],
+        ["esign-provider","Europejski agregator e-ID i podpisu dla wielu krajów.","Jedna integracja na kilka krajów UE i Nordyki.","EU"],
+        ["esign-provider-b","Podpis i e-ID w krajach bałtyckich i nordyckich.","Podpis prawnie wiążący w Islandii/Bałtyku.","IS"],
+        ["eid-provider","Islandzka narodowa tożsamość cyfrowa.","Islandia; zwykle przez esign-provider.","IS"]]},
+      {id:"sms", name:"SMS / głos", hint:"telefon klienta", ask:"Czy kontaktujemy się telefonicznie lub SMS-em?", f:["Twilio"], pg:"Koszt per wiadomość = cap i alert (<b>prr.md</b>).", opts:[
+        ["Twilio","SMS, głos, IVR na całym świecie.","Domyślnie poza PL; głos i IVR."],
+        ["SMSAPI","Polska bramka SMS z API.","Tanie i pewne SMS-y do odbiorców w Polsce.","PL"],
+        ["Vonage","Globalne API SMS i głosu.","Alternatywa dla Twilio, klient ma umowę."],
+        ["RetellAI","Platforma agentów głosowych AI.","Agent telefoniczny rozmawiający z klientami."],
+        ["Brak","Bez SMS i telefonii.","Produkt bez kanału telefonicznego."]]},
+      {id:"ship", name:"Wysyłka", hint:"paczki", ask:"Czy fizyczny towar trafia do klienta?", f:[], pg:"Tylko sklepy z towarem; status przesyłki = webhook + idempotencja.", opts:[
+        ["Brak","Produkt cyfrowy albo usługa.","Nic nie jest wysyłane."],
+        ["InPost (API)","Paczkomaty i kurier InPost.","Sklep wysyłający w Polsce.","PL"],
+        ["Furgonetka","Polski broker wielu kurierów z jednym API.","Kilku kurierów w PL bez osobnych umów.","PL"],
+        ["Shippo","Globalne API etykiet i stawek przewoźników.","Wysyłki za granicę, wielu przewoźników."],
+        ["EasyPost","Globalne API wysyłek i śledzenia.","Jak Shippo, inny dostawca."]]}
+    ]}
+  ];
+  var CATS = []; GROUPS.forEach(function(g){ g.cats.forEach(function(c){ c.group=g.name; c.names=c.opts.map(function(o){return o[0];}); c.n=CATS.length+1; CATS.push(c); }); });
+  var byId = {}; CATS.forEach(function(c){ byId[c.id]=c; });
+
+  var BASE = {fe:["Next.js"],ui:["Tailwind CSS"],rt:["Node.js"],host:["Vercel"],auth:["Supabase Auth"],db:["Supabase"],orm:["supabase-js"],blob:["Supabase Storage"],search:["Postgres FTS"],mon:["Sentry"],mail:["Resend"],ci:["GitHub Actions","Vercel Deploys"],sec:["Infisical","Vercel env"]};
+  function withBase(over){ var s=JSON.parse(JSON.stringify(BASE)); Object.keys(over).forEach(function(k){ if (over[k]===null) delete s[k]; else s[k]=over[k]; }); return s; }
+  var SCEN = [
+    {t:"Sklep z towarem w Polsce", w:"Klienci płacą BLIK-iem, paczki idą do paczkomatów, faktury przez KSeF.", s:withBase({pay:["Przelewy24"],ship:["InPost (API)"],inv:["Fakturownia"],sms:["SMSAPI"],wa:["Plausible"]})},
+    {t:"SaaS B2B na całą UE", w:"Firmy z kilku krajów, subskrypcje, dane w UE.", s:withBase({pay:["Paddle"],inv:["Merchant of Record"],pa:["PostHog"],host:["Vercel","Hetzner"]})},
+    {t:"Usługa dla obywateli w PL", w:"Tożsamość musi być potwierdzona (np. wniosek, umowa).", s:withBase({eid:["Profil Zaufany / login.gov.pl","Autenti"],host:["Vercel","OVHcloud"]})},
+    {t:"Współdzielony stan na żywo", w:"Tablica, wspólna edycja, czat: wielu użytkowników widzi zmiany natychmiast.", s:withBase({db:["Convex"],orm:null,auth:["Clerk"],blob:null,rtm:["Liveblocks"]})},
+    {t:"Dużo pobieranych plików", w:"Wideo, galerie, pliki do ściągnięcia: transfer wychodzący zjada budżet.", s:withBase({blob:["Cloudflare R2"]})},
+    {t:"SaaS dla firm z SSO", w:"Klient enterprise żąda logowania kontem firmowym (SAML/SCIM).", s:withBase({auth:["Supabase Auth","WorkOS"],pa:["PostHog"]})},
+    {t:"Klient na Microsoft 365", w:"Pracownicy logują się kontem firmowym, IT klienta pilnuje Azure.", s:withBase({auth:["Microsoft Entra ID"],host:["Azure App Service"],db:["Azure SQL"],orm:["Entity Framework Core"],rt:["ASP.NET Core (.NET)"],fe:["React"],blob:["Azure Blob"],mon:["Sentry"]})},
+    {t:"Sprzedaż software'u na świat", w:"Subskrypcje w wielu krajach bez własnej rejestracji VAT.", s:withBase({pay:["Paddle"],inv:["Merchant of Record"],mail:["Resend","Loops"],pa:["PostHog"]})},
+    {t:"Ciężki Python obok aplikacji", w:"OCR, pandas, modele ML: biblioteki są tylko w Pythonie.", s:withBase({rt:["Node.js","Python (FastAPI)"],host:["Vercel","Google Cloud Run"],mon:["Sentry","Google Cloud Monitoring"]})},
+    {t:"Strona z treścią pod SEO", w:"Blog, poradnik, landing: liczy się szybkość i łatwa edycja.", s:{fe:["Astro"],ui:["Tailwind CSS"],host:["Vercel"],cms:["Sanity"],wa:["Plausible"],mail:["Resend"],ci:["Vercel Deploys"]}},
+    {t:"Osobna baza na klienta", w:"Twarda izolacja danych per klient albo baza blisko użytkownika.", s:withBase({db:["Turso"],orm:["Drizzle"],auth:["Better Auth"],blob:["Cloudflare R2"]})},
+    {t:"Baza na każdy preview PR", w:"Testy migracji na kopii bazy dla każdej gałęzi (najpierw Supabase Branching — zostajesz na Supabase).", s:withBase({db:["Neon"],orm:["Drizzle"],auth:["Better Auth"]})},
+    {t:"Długie joby i kolejki", w:"Generowanie raportów, importy, przetwarzanie dłuższe niż limit funkcji.", s:withBase({jobs:["Trigger.dev"],db:["Supabase","Redis"]})},
+    {t:"Duży katalog do przeszukania", w:"Tysiące produktów, literówki, filtry fasetowe.", s:withBase({search:["Meilisearch"],cms:["Payload"],orm:["Payload Local API"]})},
+    {t:"Agent głosowy", w:"Rozmowa telefoniczna z AI: liczy się czas odpowiedzi.", s:withBase({ai:["Anthropic Claude","Groq"],sms:["Twilio","RetellAI"],rt:["Node.js","Deno"]})}
+  ];
+
+  // stan: {cats: {id: {s: status, t: [narzedzia], n: notatka}}, market}
+  var KEY = "mas-stack-picker-v2";
+  var state = {cats:{}, market:"GL"};
+  try { var saved = JSON.parse(localStorage.getItem(KEY) || "null"); if (saved && saved.cats) state = saved; } catch(e) {}
+  function save(){ try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e) {} }
+  function esc(s){ return String(s).replace(/[&<>"]/g,function(ch){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch];}); }
+  function cs(id){ return state.cats[id] || (state.cats[id] = {s:"", t:[], n:""}); }
+  var currentScen = null;
+
+  var groupsEl = document.getElementById("groups");
+  groupsEl.innerHTML = GROUPS.map(function(g){
+    return '<section class="group"><h2>'+esc(g.name)+'</h2><div class="cats">'+g.cats.map(function(c){
+      return '<div class="cat" id="cat-'+c.id+'"><div class="cat-h"><h3><small>'+c.n+'.</small>'+esc(c.name)+'</h3><span class="status" id="st-'+c.id+'"></span></div>'+
+        '<p class="ask">'+esc(c.ask)+'</p>'+
+        '<div class="chips" role="group" aria-label="'+esc(c.name)+'">'+c.opts.map(function(o,i){
+          return '<button class="chip" id="o-'+c.id+'-'+i+'" data-cat="'+c.id+'" data-i="'+i+'" aria-pressed="false" title="'+esc(o[1])+'">'+esc(o[0])+(o[3]?'<span class="mk">'+o[3]+'</span>':'')+'</button>';
+        }).join('')+'</div>'+
+        '<div class="skip"><button class="btn" data-skip="NIE TERAZ" data-cat="'+c.id+'" aria-pressed="false">Nie teraz</button><button class="btn" data-skip="NIE DOTYCZY" data-cat="'+c.id+'" aria-pressed="false">Nie dotyczy</button></div>'+
+        '<input class="note" id="note-'+c.id+'" data-cat="'+c.id+'" hidden>'+
+        '<p class="info" id="info-'+c.id+'" aria-live="polite"></p>'+
+        '<p class="pg">'+(c.f.length?'<span class="usual">Zwykle u nas: '+esc(c.f.join(", "))+'.</span> ':'')+(c.ow?'<b>trudno cofnąć</b> · ':'')+c.pg+'</p></div>';
+    }).join('')+'</div></section>';
+  }).join('');
+
+  function showInfo(c, i){
+    var o = c.opts[i], el = document.getElementById("info-"+c.id);
+    el.innerHTML = '<b>'+esc(o[0])+'</b>: '+esc(o[1])+'<span class="when">'+esc(o[2])+'</span>';
+  }
+  function defaultInfo(c){
+    var picked = cs(c.id).t[0], idx = picked ? c.names.indexOf(picked) : -1;
+    if (idx>-1) showInfo(c, idx); else document.getElementById("info-"+c.id).innerHTML = '<span class="when" style="margin:0">Najedź na narzędzie, żeby zobaczyć, co to i kiedy je wybrać.</span>';
+  }
+  groupsEl.addEventListener("mouseover", function(e){ var b=e.target.closest(".chip"); if (b) showInfo(byId[b.dataset.cat], +b.dataset.i); });
+  groupsEl.addEventListener("focusin", function(e){ var b=e.target.closest(".chip"); if (b) showInfo(byId[b.dataset.cat], +b.dataset.i); });
+  groupsEl.addEventListener("click", function(e){
+    var b = e.target.closest(".chip"), k = e.target.closest("[data-skip]");
+    if (b){
+      var c = byId[b.dataset.cat], st = cs(c.id), o = c.names[+b.dataset.i], i = st.t.indexOf(o);
+      if (i>-1) st.t.splice(i,1); else st.t.push(o);
+      st.s = st.t.length ? "DECYZJA" : ""; if (st.t.length) st.n = "";
+      currentScen = null; save(); render(false); showInfo(c, +b.dataset.i);
+    } else if (k){
+      var s2 = cs(k.dataset.cat), v = k.dataset.skip;
+      if (s2.s === v){ s2.s = ""; } else { s2.s = v; s2.t = []; }
+      s2.n = ""; currentScen = null; save(); render(false);
+      if (s2.s) document.getElementById("note-"+k.dataset.cat).focus();
+    }
+  });
+  groupsEl.addEventListener("input", function(e){ var n = e.target.closest(".note"); if (!n) return; cs(n.dataset.cat).n = n.value; save(); renderSide(); });
+  var marketEl = document.getElementById("market");
+  marketEl.value = state.market || "GL";
+  marketEl.addEventListener("change", function(){ state.market = marketEl.value; save(); render(false); });
+  document.getElementById("reset").addEventListener("click", function(){ state = {cats:{}, market: state.market}; currentScen = null; save(); render(true); });
+  var scenEl = document.getElementById("scen");
+  scenEl.innerHTML = SCEN.map(function(s,i){
+    var swaps = [];
+    CATS.forEach(function(c){ (s.s[c.id]||[]).forEach(function(o){ if (c.f.indexOf(o)<0) swaps.push(o); }); });
+    return '<button class="sc" id="sc-'+i+'" data-s="'+i+'"><span class="t">'+esc(s.t)+'</span><span class="w">'+esc(s.w)+'</span><span class="k">'+(swaps.length?'zmienia: '+esc(swaps.join(" · ")):'bez zmian')+'</span></button>';
+  }).join('');
+  scenEl.addEventListener("click", function(e){
+    var b = e.target.closest(".sc"); if (!b) return;
+    var s = SCEN[+b.dataset.s]; state.cats = {};
+    Object.keys(s.s).forEach(function(id){ state.cats[id] = {s:"DECYZJA", t:s.s[id].slice(), n:""}; });
+    currentScen = s.t; save(); render(true);
+    document.getElementById("toast").textContent = 'Wczytano przykład: '+s.t+'. Pozostałe kroki są nadal otwarte.';
+  });
+
+  function counts(){ var r={open:0,DECYZJA:0,"NIE TERAZ":0,"NIE DOTYCZY":0}; CATS.forEach(function(c){ var s=cs(c.id).s; if (s) r[s]++; else r.open++; }); return r; }
+  function offFleet(c){ return cs(c.id).t.filter(function(o){ return c.f.indexOf(o)<0; }); }
+  function whyOf(c,o){ var i=c.names.indexOf(o); return i>-1 ? c.opts[i][2] : ""; }
+  function cell(s){ return String(s).replace(/\|/g,"\\|").replace(/\n/g," "); }
+
+  function diagramSVG(){
+    var rows = GROUPS.map(function(g){ return {name:g.name, items:g.cats.reduce(function(a,c){ return a.concat(cs(c.id).t.map(function(o){ return {o:o,dev:c.f.indexOf(o)<0}; })); },[])}; }).filter(function(r){ return r.items.length; });
+    var W=360, pad=10, rowH=26, labelW=64, y=pad, parts=[];
+    rows.forEach(function(r){
+      var x=labelW, lines=[[]], lw=0;
+      r.items.forEach(function(it){ var w=Math.min(W-labelW-pad, it.o.length*6.2+14); if (lw+w>W-labelW-pad && lines[lines.length-1].length){ lines.push([]); lw=0; } lines[lines.length-1].push({it:it,w:w}); lw+=w+6; });
+      var h = lines.length*rowH+8;
+      parts.push('<rect x="4" y="'+y+'" width="'+(W-8)+'" height="'+h+'" rx="6" fill="var(--panel)" stroke="var(--line)"/>');
+      parts.push('<text x="12" y="'+(y+18)+'" font-family="IBM Plex Mono, monospace" font-size="9" fill="var(--muted)">'+esc(r.name.split(" ")[0].toUpperCase())+'</text>');
+      lines.forEach(function(line,li){ x=labelW; line.forEach(function(p){
+        var yy=y+5+li*rowH;
+        parts.push('<rect x="'+x+'" y="'+yy+'" width="'+p.w+'" height="20" rx="4" fill="var(--chip-on)" stroke="'+(p.it.dev?'var(--hint)':'var(--accent)')+'"'+(p.it.dev?' stroke-dasharray="3 2"':'')+'/>');
+        parts.push('<text x="'+(x+7)+'" y="'+(yy+14)+'" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--ink)">'+esc(p.it.o)+'</text>');
+        x+=p.w+6; }); });
+      y+=h+8;
+    });
+    if (!rows.length){ parts.push('<text x="'+(W/2)+'" y="40" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">Przejdź kroki po lewej</text>'); y=70; }
+    return '<svg viewBox="0 0 '+W+' '+y+'" xmlns="http://www.w3.org/2000/svg" role="img"><title>Warstwy stacku</title>'+parts.join('')+'</svg>';
+  }
+
+  function renderSide(){
+    var n = counts(), done = CATS.length - n.open;
+    document.getElementById("s-open").textContent=n.open;
+    document.getElementById("s-dec").textContent=n.DECYZJA;
+    document.getElementById("s-later").textContent=n["NIE TERAZ"];
+    document.getElementById("s-na").textContent=n["NIE DOTYCZY"];
+    document.getElementById("bar").style.width = Math.round(100*done/CATS.length)+"%";
+    document.getElementById("bom-title").textContent = (currentScen ? currentScen+": " : "Postęp: ")+done+" z "+CATS.length+" kroków";
+    document.getElementById("bom").innerHTML = CATS.map(function(c){
+      var st = cs(c.id), v;
+      if (st.s === "DECYZJA") v = esc(st.t.join(", "))+(offFleet(c).length?' <span class="later">+ADR</span>':'');
+      else if (st.s === "NIE TERAZ") v = '<span class="later">nie teraz'+(st.n?': '+esc(st.n):' (dopisz sygnał z liczbą)')+'</span>';
+      else if (st.s === "NIE DOTYCZY") v = '<span class="na">nie dotyczy'+(st.n?': '+esc(st.n):' (dopisz powód)')+'</span>';
+      else v = '<span class="open">do rozstrzygnięcia</span>';
+      return '<tr><td>'+c.n+'. '+esc(c.name)+'</td><td>'+v+'</td></tr>';
+    }).join('');
+    document.getElementById("diagram").innerHTML = diagramSVG();
+  }
+  function render(resetInfo){
+    var mk = state.market;
+    CATS.forEach(function(c){
+      var st = cs(c.id), el = document.getElementById("cat-"+c.id), note = document.getElementById("note-"+c.id);
+      el.dataset.s = st.s || "";
+      document.getElementById("st-"+c.id).textContent = st.s ? st.s.toLowerCase() : "otwarte";
+      c.opts.forEach(function(o,i){ var b=document.getElementById("o-"+c.id+"-"+i); b.setAttribute("aria-pressed", st.t.indexOf(o[0])>-1 ? "true":"false"); b.classList.toggle("local", !!o[3] && (o[3]===mk || (mk==="PL" && o[3]==="EU"))); });
+      el.querySelectorAll("[data-skip]").forEach(function(k){ k.setAttribute("aria-pressed", st.s===k.dataset.skip ? "true":"false"); });
+      var need = st.s === "NIE TERAZ" || st.s === "NIE DOTYCZY";
+      note.hidden = !need;
+      note.placeholder = st.s === "NIE TERAZ" ? "Sygnał powrotu z liczbą, np. „> 1000 użytkowników”" : "Dlaczego nie dotyczy, np. „brak płatności w produkcie”";
+      note.setAttribute("aria-label", note.placeholder);
+      if (document.activeElement !== note) note.value = st.n || "";
+      if (resetInfo) defaultInfo(c);
+    });
+    renderSide();
+  }
+
+  var MARKET = {GL:"globalny", PL:"Polska", EU:"Unia Europejska", IS:"Islandia"};
+  function matrixRows(){
+    return CATS.map(function(c){
+      var st = cs(c.id), name = c.name+" (stack-"+c.id+")";
+      if (st.s === "DECYZJA") return "| "+name+" | DECYZJA | "+cell(st.t.map(function(o){ return o+": "+whyOf(c,o); }).join("; "))+" |  |  |";
+      if (st.s === "NIE TERAZ") return "| "+name+" | NIE TERAZ | Start bez tej warstwy | | "+cell(st.n)+" |";
+      if (st.s === "NIE DOTYCZY") return "| "+name+" | NIE DOTYCZY | "+cell(st.n)+" |  |  |";
+      return "| "+name+" |  |  |  |  |";
+    }).join("\n");
+  }
+  function prompt(){
+    var lines = ["Projekt PG, rynek docelowy: "+MARKET[state.market]+(currentScen?" (przykład: "+currentScen+")":"")+". Krok „stack” procesu architektury z ~/.claude/pg/design.md (A PRD-lite, B mini-design, G macierz obszarów).","","Stan warstw:"];
+    CATS.forEach(function(c){ var st=cs(c.id); lines.push("- "+c.name+": "+(st.s==="DECYZJA"?st.t.join(", "):st.s?st.s.toLowerCase()+(st.n?" ("+st.n+")":""):"DO ROZSTRZYGNIĘCIA")); });
+    var open = CATS.filter(function(c){ return !cs(c.id).s; });
+    if (open.length) lines.push("","Najpierw rozstrzygnij z uzytkownikiem otwarte warstwy: "+open.map(function(c){ return c.name; }).join(", ")+".");
+    var dev = []; CATS.forEach(function(c){ offFleet(c).forEach(function(o){ dev.push("- "+c.name+": "+o+" — powód do potwierdzenia: "+whyOf(c,o)); }); });
+    if (dev.length){ lines.push("","Spoza zwykłego zestawu floty — krótki ADR w docs/adr/ (kontekst, odrzucone alternatywy, jak cofnąć); najpierw potwierdź w aktualnej dokumentacji:"); lines = lines.concat(dev); }
+    lines.push("","Wiersze stack-* wpisz do docs/architecture/obszary.md (Dowód = plik/ADR/komenda), potem: node ~/.claude/bin/sd-matrix-lint.js --repo . i bash ~/.claude/bin/mas-quality-init.sh -r <ścieżka>.");
+    return lines.join("\n");
+  }
+  function mermaid(){
+    var l=["flowchart TB"]; GROUPS.forEach(function(g,gi){ var items=[]; g.cats.forEach(function(c){ cs(c.id).t.forEach(function(o){ items.push(c.name+": "+o); }); });
+      if (!items.length) return; l.push('  subgraph G'+gi+'["'+g.name+'"]'); items.forEach(function(t,i){ l.push('    G'+gi+'n'+i+'["'+t.replace(/"/g,"'")+'"]'); }); l.push("  end"); });
+    var shown = GROUPS.map(function(g,gi){ return g.cats.some(function(c){ return cs(c.id).t.length; }) ? 'G'+gi : null; }).filter(Boolean);
+    for (var i=0;i<shown.length-1;i++) l.push("  "+shown[i]+" --> "+shown[i+1]);
+    return l.join("\n");
+  }
+  function copy(text, label){
+    var t=document.getElementById("toast"), out=document.getElementById("out");
+    out.value=text;
+    function fallback(){ out.hidden=false; out.focus(); out.select(); t.textContent="Schowek zablokowany: tekst zaznaczony poniżej, skopiuj Ctrl+C."; }
+    try { navigator.clipboard.writeText(text).then(function(){ out.hidden=true; t.textContent=label+" skopiowany."; }, fallback); } catch(e){ fallback(); }
+  }
+  document.getElementById("copy-matrix").addEventListener("click", function(){ copy(matrixRows(),"Wiersze macierzy"); });
+  document.getElementById("copy-prompt").addEventListener("click", function(){ copy(prompt(),"Prompt"); });
+  document.getElementById("copy-mermaid").addEventListener("click", function(){ copy(mermaid(),"Diagram"); });
+
+  render(true);
+})();
+</script>
