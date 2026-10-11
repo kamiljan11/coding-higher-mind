@@ -3,6 +3,40 @@
 All notable changes to the public PG export. Dates are the export dates; the private system moves faster and is squashed
 into these releases.
 
+## [1.7.0] — 2026-10-11
+
+Architecture that stays decided, and a release pipeline with the second half of what large companies do: a wait before
+release, watching production after it, and an automatic rollback that knows when not to roll back. Both went through
+several rounds of departmental AI review (security, operations, code, data) before release; the count is in ADR-0004.
+
+- **Architecture conformance (`bin/arch-check.js`, 0 tokens).** Compares a repo with its system-design matrix
+  (`docs/architecture/obszary.md`, 62 rows) and reports three things: areas with no decision, technology found in
+  dependencies, files or code that the matrix does not declare (or marks "not now" / "not applicable"), and evidence
+  (`file:line`) that no longer exists. Each issue comes with a proposed fix.
+  - Session start prints 1–3 lines, only when something is off. Older issues wait on a list; they are fixed on request.
+  - Drift made in the current session blocks the end of the session in repos with `pg.sd_matrix: required` (the new-repo
+    template sets it); in other repos it is a hint. `--signals` lists the "not now" return thresholds (when to scale).
+- **Release gates for Vercel projects (`templates/repo/.github/workflows/deploy-gate.yml`).** Triggered by Vercel's
+  `repository_dispatch` events; probes and thresholds are data in `.github/deploy/probes.json`.
+  - PREVIEW: critical paths probed on every pull-request preview (`pg/preview`).
+  - BAKE: the production build waits outside live traffic while synthetic requests hit it; Vercel Deployment Checks hold the
+    domain until `pg/bake` is green. Zero tolerance, early exit on the first red round.
+  - WATCH: production is watched after promotion. Rollback happens only when the last three rounds in a row fail (rounds
+    30 seconds apart, so about a minute); a database outage, a firewall, a redirect or the runner's own network are alarms, not regressions.
+  - Rollback goes through Vercel's REST API to an explicit target: the last production build with a green BAKE that was
+    not rolled back before. It is held when the release range contains migrations or backend functions (old code on a new
+    schema), when production already serves a newer build, or while a previous automatic rollback is still open.
+  - Deadman every 3 hours for production builds left without a BAKE result; kill switches `PG_DEPLOY_GATE=off` and
+    `PG_AUTO_ROLLBACK=off`; a triage job where a fresh Claude instance (subscription, read-only, no shell) comments on
+    the incident.
+  - Security model: jobs with secrets check out the default branch only; payload values are validated in a tested script;
+    the protection-bypass header is sent only after the Vercel API confirms project, team, target and commit, and never to
+    pull-request previews; secrets live in a branch-restricted GitHub Environment.
+- **Docs.** RUNBOOK › release pipeline (setup checklist, staging drills in both directions, rollback and expand/contract),
+  PRR item P18, ADR-0004 with every review round, the system-design card on deployments updated.
+- Tests: `bin/test_arch_check.js`, `bin/test_deploy_probe.js` (wired into CI and `pg-selftest`).
+- Honest limit: the pipeline has not run on a live project yet; the checklist requires staging first.
+
 ## [1.6.0] — 2026-10-10
 
 PG v4.5: the guard now covers code that runs inside Claude Code itself, the architect walks every layer of the stack as part

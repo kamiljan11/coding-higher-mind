@@ -148,7 +148,7 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 
 **Domyślnie u nas.**
 - **Blue/green za darmo:** każdy deploy Vercela jest niezmiennym URL-em, a produkcja to alias. Poprzednia wersja dalej żyje, więc rollback to przepięcie aliasu (Instant Rollback w panelu, `vercel rollback` / `vercel promote <url-poprzedniego>`) w ~minutę `[~]` `[NIEPEWNE: ograniczenia planu Hobby i to, że po rollbacku nowe deploye nie trafiają same na produkcję do ręcznego promote — sprawdź w docs]`.
-- **Smoke po deployu + automatyczny rollback:** workflow `on: deployment_status` (stan `success`, środowisko Production) uruchamia 3–5 żądań ścieżek krytycznych (strona główna, logowanie, kluczowe API, `/health` z bazą → 03 › Health checki). Czerwony smoke → `vercel rollback` z tokenem z menedżera sekretów + alert do człowieka. To nasz „auto-rollback". Rollback na metrykach (error rate, p95) ma sens dopiero przy ruchu, który daje statystykę (~setki żądań/min `[~]`); do tego czasu wystarczą alerty Sentry i ręczny promote.
+- **Bramki wdrożenia (szablon `deploy-gate.yml`, Vercel Pro):** podgląd PR → sondy (`pg/preview`, wymagany do merge; Playwright w `quality.yml`, nie na kodzie PR w kontekście main); build produkcji czeka poza ruchem, a Deployment Checks trzyma promocję do zielonego BAKE (`pg/bake`: sondy przez ~10 min na niezmiennym URL-u wdrożenia); po promocji WATCH ~15 min sondami domeny → przekroczenie progów = rollback przez REST do ostatniego zielonego BAKE + issue + triage Claude (subskrypcja). Rollback wyłącza auto-przypisanie domen, więc linia stoi do `vercel promote` przez człowieka. Sondy i progi to dane (`.github/deploy/probes.json`), host z allowlisty przed wysłaniem sekretu obejścia ochrony. Rollback na metrykach platformy (error rate z logów, Rolling Releases) ma sens dopiero przy ruchu, który daje statystykę (~setki żądań/min `[~]`); do tego czasu sondy syntetyczne + alerty Sentry.
 - **Feature flags (deploy ≠ release):** tabela `feature_flags(key, org_id null, enabled, owner, remove_by)` albo kolumna ustawień org. Ryzykowną funkcję włączasz najpierw dla jednej organizacji (wewnętrznej lub testowej klienta), potem dla wszystkich. Flagę sprawdza serwer (API, RLS/RPC), nie tylko UI. Każda flaga ma właściciela i datę usunięcia. To nasz „canary": po organizacjach, nie po procentach ruchu.
 - **Canary procentowy i rolling:** rolling (podmiana instancji partiami) robi platforma; w serverless ten problem nie istnieje. Canary po % ruchu to Vercel Rolling Releases `[NIEPEWNE: dostępność w planie floty i koszt]` — nie domyślnie.
 - **Supabase Edge Functions i migracje:** deploy funkcji podmienia ją w całości, bez canary. Ryzykowną zmianę funkcji chowaj za flagą albo wdrażaj jako nową funkcję `-v2` i przełączaj klienta. Warunkiem każdego rollbacku kodu jest migracja expand → contract: stary kod musi działać na nowym schemacie (→ 02 › Model danych).
@@ -160,13 +160,13 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 | rolling | platforma robi | zero | zero |
 | blue/green (alias Vercela) | rollback = przepięcie aliasu | zero | niski |
 | feature flag w tabeli | flagi do sprzątania, dwie ścieżki kodu | zero | niski–średni |
-| smoke po deployu + auto-rollback | workflow, token Vercela w CI | minuty CI | niski |
-| canary % (Rolling Releases) | konfiguracja, analiza metryk | plan `[NIEPEWNE]` | średni |
+| bramki preview/bake/watch + auto-rollback (`deploy-gate.yml`) | workflow, token Vercela w CI, setup Deployment Checks | minuty CI (~25 min/deploy) | niski |
+| canary % (Rolling Releases) | konfiguracja, analiza metryk | w planie Pro (mamy) | średni |
 | platforma flag (LaunchDarkly itp.) | vendor, SDK | abonament | średni — nie |
 | auto-rollback na metrykach (Argo Rollouts, mesh) | klaster, metryki | wysoki | wysoki — nie |
 
 **Awarie i detekcja.**
-- *brak smoke po deployu produkcji* — `rg -n -i "deployment_status|smoke|environment_url" .github/workflows`
+- *brak bramek wdrożenia* — `rg -n "vercel.deployment.(ready|promoted)|deploy-probe" .github/workflows` (0 = brak BAKE/WATCH; szablon `deploy-gate.yml`)
 - *rollback nieopisany lub nieprzećwiczony* — `rg -n -i "vercel (rollback|promote)|instant rollback" docs/RUNBOOK.md`
 - *rollback kodu łamie się na nowym schemacie* — `node ~/.claude/bin/sql-migration-lint.js --repo . --strict --json` (DROP/RENAME/NOT NULL w tym samym PR co kod)
 - *flaga sprawdzana tylko w UI* — `rg -n "<klucz-flagi>" src/app/api supabase/functions supabase/migrations` (0 trafień poza komponentami = finding)

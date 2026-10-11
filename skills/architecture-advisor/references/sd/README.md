@@ -37,6 +37,7 @@ Zasada przewodnia (z `SKILL.md`): burden of proof leży po stronie złożoności
 | Zdjęcia/pliki/załączniki | `02 › Pliki i object storage` |
 | Typ ID, numeracja dokumentów, enumeracja po ID | `02 › Identyfikatory` |
 | „Czy to uniesie?", limity połączeń, plan bazy | `03 › Wąskie gardło i skalowanie`, `capacity.md` |
+| Kiedy wejść piętro wyżej (VM → baza osobno → obserwowalność → LB → CDN/cache → kolejka → repliki/sharding), sygnały skalowania | `03 › Drabina skalowania (kiedy wejść piętro wyżej)` |
 | Nagłówki cache, CDN, bezpieczeństwo nagłówków | `03 › CDN, nagłówki i brzeg` |
 | Bot/spam/rachunek za LLM-SMS-mail, logowanie | `03 › Rate limiting i budżety kosztu` |
 | Masowa wysyłka szybsza niż dostawca, pik LLM, 2FA za newsletterem (backpressure, load shedding) | `03 › Backpressure i zrzucanie obciążenia` |

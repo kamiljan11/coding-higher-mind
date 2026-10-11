@@ -24,12 +24,14 @@ const OUT_MAX = 9800;
 // Po kompakcji migawka (do 2600 znakow) niesie stan biezacej pracy, wiec pliki dostaja ~2/3 limitow — kazdy plik
 // zostaje choc w skrocie (code-review 2026-10-10: przy 4000 wypadaly Projects i Active Systems).
 const SCALE = reason === 'compact' ? 0.58 : 1;
-const CAP_TOTAL = Math.round(6600 * SCALE);
+const CAP_TOTAL = Math.round(7200 * SCALE);
 const FILES = [
   ['RESUME.md', Math.round(3300 * SCALE), 'punkt kontrolny biezacej pracy (czytaj PIERWSZY; najnowsze wpisy)', 'tail'],
   ['Notes for Claude.md', Math.round(1900 * SCALE), 'reguly operacyjne + stan'],
   ['Projects.md', Math.round(800 * SCALE), 'aktywne projekty'],
   ['Active Systems.md', Math.round(600 * SCALE), 'zbudowane systemy — nie buduj od nowa'],
+  // reguly zapisane z paska moda reflect-pg (korekty wlasciciela; NIGDY w CLAUDE.md — 2026-10-11)
+  ['Reflect - reguly.md', Math.round(600 * SCALE), 'wyuczone reguly wlasciciela (reflect-pg) — stosuj'],
 ];
 const out = [];
 const tail = [];  // linie PG (wpiecia, sync, pieczec) + stopka — zawsze w calosci, przed nimi przycinamy pamiec
@@ -123,6 +125,23 @@ try {
     if (ahead > 0) tail.push(`[PG-SYNC] ${ahead} lokalnych commitow PG nie ma w kopii na GitHubie: node ~/.claude/bin/pg-sync.js push`);
   }
 } catch (e) { /* brak gita = brak przypomnienia, sesja startuje normalnie */ }
+// Zgodnosc z ustalona architektura (decyzja uzytkownika 2026-10-11): skrypt 0-tokenowy, 1-3 linie, tylko gdy sa problemy.
+// Pelna lista z propozycjami = na zadanie (stare problemy naprawiamy na „napraw"); drift z tej sesji lapie stop-gate.
+try {
+  const raw = path.resolve(input.cwd || process.cwd());
+  // Korzen repo, nie podkatalog (monorepo: package.json w apps/x dawal falszywe „brak macierzy").
+  const top = require('child_process').spawnSync('git', ['-C', raw, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 2000, windowsHide: true });
+  const cwd = top.status === 0 && String(top.stdout).trim() ? path.resolve(String(top.stdout).trim()) : raw;
+  const home = require('os').homedir();
+  if (cwd !== home && !cwd.startsWith(path.join(home, '.claude')) && !/scratch-workspaces/.test(cwd)) {
+    // CHILD_ENV: git w obcym repo bez core.fsmonitor itp. (jak stop-gate). Blad/timeout = slad w gates.jsonl, nie cisza.
+    const { CHILD_ENV } = require('./lib/lint-file');
+    const r = require('child_process').spawnSync(process.execPath, [path.join(__dirname, '..', 'bin', 'arch-check.js'), '--repo', cwd, '--brief'], { encoding: 'utf8', timeout: 4000, windowsHide: true, env: CHILD_ENV });
+    const txt = String(r.stdout || '').trim();
+    if (r.status === 1 && txt) tail.push(txt.slice(0, 600));
+    else if (r.status !== 0) require('./lib/gate-log').log({ hook: 'session-context', event: 'skipped', reason: `arch-check: ${r.error ? r.error.code : 'exit ' + r.status} ${String(r.stderr || '').slice(0, 100)}`, target: cwd });
+  }
+} catch (e) { /* brak arch-check = brak raportu, sesja startuje normalnie */ }
 // Pieczec warstwy kontrolnej (landscape #11): rozjazd = ktos/cos zmienilo bramki poza swiadomym oknem. Ostrzezenie, nie blokada.
 try {
   const { current, SEAL } = require(path.join(__dirname, '..', 'bin', 'pg-seal.js'));

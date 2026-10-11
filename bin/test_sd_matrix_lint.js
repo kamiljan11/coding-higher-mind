@@ -198,6 +198,24 @@ ok('stop-gate: bez opt-in + otwarte drzwi (auth) => 0 + podpowiedz z lista drzwi
 const g7 = t3Scenario('sg-hint-doors-closed', '# repo\n', full(areas.filter((a) => a.id !== 'rate-limiting')));
 ok('stop-gate: bez opt-in + otwarte tylko zwykle wiersze => 0 i cisza (lekkie ryzyko dozwolone)', g7.status === 0 && !/Podpowiedz PG/.test(g7.stdout || ''), 'exit=' + g7.status + ' ' + (g7.stdout || '').slice(0, 300));
 
+// Drift od macierzy w tej sesji (arch-check, decyzja uzytkownika 2026-10-11): Dockerfile przy docker-containers = NIE DOTYCZY.
+function driftScenario(name, claudeMd) {
+  const repo = makeRepo(name, { 'package.json': JSON.stringify({ name }), 'supabase/migrations/001_init.sql': 'select 1;\n', 'CLAUDE.md': claudeMd, [L.MATRIX_REL]: full() });
+  const mig = path.join(repo, 'supabase/migrations/002_orders.sql');
+  write(mig, 'create table orders (id uuid primary key);\nalter table orders enable row level security;\n');
+  const adr = path.join(repo, 'docs/adr/0001-orders.md');
+  write(adr, ADR);
+  const dock = path.join(repo, 'Dockerfile');
+  write(dock, 'FROM node:22\n');
+  return runGate(repo, transcriptWith([{ name: 'Write', input: { file_path: mig } }, { name: 'Write', input: { file_path: adr } }, { name: 'Write', input: { file_path: dock } }].concat(T3_ALL)));
+}
+const d1 = driftScenario('sg-drift-required', OPT_IN);
+ok('stop-gate: opt-in + drift w sesji (Dockerfile vs NIE DOTYCZY) => 2 [arch-drift]', d1.status === 2 && /\[arch-drift\]/.test(d1.stderr || '') && /docker-containers/.test(d1.stderr || ''), 'exit=' + d1.status + ' ' + (d1.stderr || '').slice(0, 400));
+const d2 = driftScenario('sg-drift-hint', '# repo\n');
+ok('stop-gate: bez opt-in + drift => 0 + podpowiedz z driftem', d2.status === 0 && /drift od macierzy obszarow/.test(d2.stdout || ''), 'exit=' + d2.status + ' ' + (d2.stdout || '').slice(0, 400));
+const d3 = t3Scenario('sg-drift-none', OPT_IN, full());
+ok('stop-gate: opt-in + pelna macierz + brak driftu => brak [arch-drift]', !/\[arch-drift\]/.test(d3.stderr || ''), 'exit=' + d3.status + ' ' + (d3.stderr || '').slice(0, 300));
+
 // Stop #3 w cyklu: review i arch juz zablokowaly (need=null) — bramka obszarow nie moze zniknac.
 {
   const repo = makeRepo('sg-third-stop', { 'package.json': JSON.stringify({ name: 'x' }), 'supabase/migrations/001_init.sql': 'select 1;\n', 'CLAUDE.md': OPT_IN });

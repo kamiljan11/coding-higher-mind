@@ -12,7 +12,12 @@ REPO="$(cd "$REPO" && pwd)"
 mkdir -p "$REPO/.github/workflows" "$REPO/docs/adr"
 
 # Workflows: CREATE-ONLY (nadpisanie skasowalo lokalne utwardzenia w workshop-app, 2026-09-05).
-for wf in quality.yml claude-review.yml pg-review.yml release.yml; do
+# Bramki wdrozenia tylko dla repo na Vercelu (vercel.json albo .vercel/project.json) i NIE Lovable (deploy z Lovable) — ops-review 2026-10-11.
+WFS=(quality.yml claude-review.yml pg-review.yml release.yml)
+if { [ -e "$REPO/vercel.json" ] || [ -e "$REPO/.vercel/project.json" ]; } && ! grep -qi lovable-tagger "$REPO/package.json" 2>/dev/null; then
+  WFS+=(deploy-gate.yml); DEPLOY_GATE=1
+else DEPLOY_GATE=0; echo "[=] brak Vercela albo projekt Lovable: pomijam deploy-gate.yml (bramki wdrozenia)"; fi
+for wf in "${WFS[@]}"; do
   src="$TPL/.github/workflows/$wf"; dst="$REPO/.github/workflows/$wf"
   if [ ! -e "$dst" ]; then cp "$src" "$dst"; echo "[+] .github/workflows/$wf dodany"; continue; fi
   if cmp -s "$src" "$dst"; then echo "[=] $wf identyczny z szablonem"; continue; fi
@@ -21,6 +26,12 @@ for wf in quality.yml claude-review.yml pg-review.yml release.yml; do
 done
 # Bramka audytu zaleznosci (quality.yml ja wola; 2026-10-05): zawsze aktualna wersja ze szablonu.
 mkdir -p "$REPO/.github/scripts" && cp -f "$TPL/.github/scripts/audit-gate.mjs" "$REPO/.github/scripts/"
+# Sondy bramek wdrozenia (deploy-gate.yml): skrypt zawsze aktualny, konfiguracja (dane projektu) create-only nizej.
+# Skrypt aktualizowany TYLKO, gdy workflow w repo == szablon (albo swiezo dodany): stary workflow + nowy skrypt = rozjechany kontrakt flag (ops r6).
+if [ "$DEPLOY_GATE" = 1 ]; then
+  if cmp -s "$TPL/.github/workflows/deploy-gate.yml" "$REPO/.github/workflows/deploy-gate.yml"; then cp -f "$TPL/.github/scripts/deploy-probe.mjs" "$REPO/.github/scripts/"
+  else echo "[!] deploy-gate.yml rozni sie od szablonu: NIE aktualizuje deploy-probe.mjs (zaktualizuj oba razem: -f)"; fi
+fi
 cp -f "$TPL/docs/adr/0000-template.md" "$REPO/docs/adr/"
 
 if [ ! -e "$REPO/CLAUDE.md" ]; then
@@ -30,6 +41,7 @@ elif grep -q 'pg\.tier_floor' "$REPO/CLAUDE.md"; then echo "[=] CLAUDE.md juz ma
 else echo "[!] CLAUDE.md istnieje, ale bez sekcji PG v3: dopisz recznie blok 'PG v3' z szablonu"; fi
 
 CREATE_ONLY=(docs/REVIEW-LEARNINGS.md docs/RUNBOOK.md docs/ARCHITECTURE.md docs/GLOSSARY.md CHANGELOG.md .github/pull_request_template.md)
+[ "$DEPLOY_GATE" = 1 ] && CREATE_ONLY+=(.github/deploy/probes.json)
 # Szablony Node tylko przy package.json (martwy e2e w statycznym repo, finding 2026-09-05).
 if [ -e "$REPO/package.json" ]; then CREATE_ONLY+=(e2e/smoke.spec.ts tsconfig.base.json)
 else echo "[=] brak package.json: pomijam e2e/smoke.spec.ts i tsconfig.base.json (szablony Node)"; fi
@@ -81,4 +93,5 @@ if [ -d "$REPO/supabase/migrations" ] && [ -e "$BIN/sql-migration-lint.js" ]; th
   echo "[i] sql-migration-lint: HIGH powyzej = dlug T3; pre-commit blokuje tylko HIGH w nowych/stagowanych plikach"
 fi
 echo "[+] Bootstrap PG v3 gotowy. Nastepne: git add -A; commit 'chore(quality): PG v3 bootstrap' (commit-msg wymaga conventional commits)"
+[ "$DEPLOY_GATE" = 1 ] && echo "[i] Pipeline wdrozenia (Vercel): checklista docs/RUNBOOK.md › Pipeline wdrozenia — Deployment Checks pg/bake, bypass secret, VERCEL_TOKEN, vars, probes.json allowedHosts, drill rollbacku"
 echo "[i] Sekret repo (raz): CLAUDE_CODE_OAUTH_TOKEN — wymagany dla auto-merge T1/T2 (check pg-review), opcjonalny dla claude-review; bez niego oba sie pomijaja (SKIPPED)"

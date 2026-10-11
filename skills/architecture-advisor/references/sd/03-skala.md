@@ -60,7 +60,7 @@ Zasada: przy 1–10 tys. użytkowników problemy „skali" prawie zawsze okazuj�
 - *FK bez indeksu* — zapytanie z karty „Model danych" (02).
 - *seq scany na dużych tabelach* — `select relname, seq_scan, idx_scan, n_live_tup from pg_stat_user_tables where n_live_tup > 10000 order by seq_scan desc limit 10;`
 - *nieużywane indeksy (koszt zapisu bez zysku)* — `select s.relname, s.indexrelname, s.idx_scan, (select stats_reset from pg_stat_database where datname=current_database()) as stats_reset from pg_stat_user_indexes s join pg_index i on i.indexrelid=s.indexrelid where s.idx_scan=0 and not i.indisunique and not i.indisprimary and not i.indisexclusion and not exists (select 1 from pg_constraint k where k.contype='f' and k.conrelid=i.indrelid and i.indkey::int2[] @> k.conkey) order by pg_relation_size(s.indexrelid) desc limit 10;` — wynik to KANDYDACI, nie wyrok: `idx_scan=0` liczy się od `stats_reset` (świeży restart lub reset statystyk = puste dane; patrz kolumna), zapytanie pomija indeksy unikalne, wykluczające i pokrywające FK (karta 02 wymaga indeksu na każdym FK). Zakaz `DROP INDEX` bez sprawdzenia, że żaden FK ani zapytanie sezonowe/raportowe go nie używa
-- *najdroższe zapytania* — `select calls, round(mean_exec_time::numeric,1) as ms, left(query,80) from pg_stat_statements order by total_exec_time desc limit 10;`
+- *najdroższe zapytania* — `select calls, round(mean_exec_time::numeric,1) as ms, left(query,80) from pg_stat_statements order by total_exec_time desc limit 10;` (uwaga: polecenia narzędziowe, np. `ALTER ROLE … PASSWORD`, trzymają literały — tekst zapytania może wnieść sekret do transkryptu; odfiltruj `where query !~* 'password|secret|key'`).
 - *offset-paginacja i exact count* — `rg -n "\.range\(|offset|count: ?'exact'" src`
 - *`select *` w listach* — `rg -n "select\('\*'\)|select\(\"\*\"\)|\.select\(\)" src`
 - *funkcja na kolumnie bez indeksu funkcyjnego* — `rg -n "lower\(|ilike" src supabase/migrations`
@@ -266,3 +266,41 @@ Stare okna sprząta zadanie cykliczne (`delete from rate_limits where window_sta
 - własny load balancer (L4/L7, algorytmy round-robin/least-connections/consistent hash) → ≥2 instancje własnego hosta za jednym adresem; wtedy reverse proxy z health checkiem, domyślnie round-robin.
 - service mesh → ≥5 usług rozmawiających po sieci z wymaganiem mTLS i retry na poziomie infrastruktury.
 - routing kanarkowy → ~>1000 aktywnych użytkowników dziennie na ścieżce, gdzie błąd wydania kosztuje pieniądze; najpierw flaga funkcji (→ 07 › CI/CD).
+
+---
+
+### Drabina skalowania (kiedy wejść piętro wyżej)
+
+**Problem.** Skalowanie to drabina: każde piętro gasi jeden konkretny objaw i dokłada złożoność, więc wchodzi się o JEDNO piętro, gdy objaw da się zmierzyć, nie „na zapas". Piętra (za System Evolution, arjaythedev.com/scale): (1) jedna maszyna → (2) baza na osobnym hoście → (3) logi, metryki, alerty, analityka → (4) kilka bezstanowych instancji za load balancerem → (5) CDN + cache → (6) wolna praca w kolejce → (7) repliki odczytu, potem sharding. Pytanie projektowe brzmi „które piętro i jaki objaw każe wejść wyżej", nie „czy to się skaluje". Sygnały w diffie: Redis, replika, kolejka zewnętrzna, K8s, drugi region — bez zmierzonego objawu.
+
+**Domyślnie u nas.** Vercel + Supabase daje od pierwszego dnia piętra 2 (osobna, zarządzana baza z backupem), 4 (funkcje bezstanowe, deploy bez przestoju) i CDN z piętra 5. Realne kroki w naszych projektach: piętro 3 przed produkcją (Sentry, logi z `request_id`, alert na błędy i p95, analityka tylko z nazwaną metryką — `prr.md` P6, 05 › Obserwowalność i alerty), piętro 6 przy pierwszym wolnym lub zawodnym kroku (tabela `jobs`, 04 › Zadania w tle i kolejki), piętro 7a (widok zmaterializowany albo replika odczytu) dopiero gdy raporty i dashboardy obciążają bazę produkcyjną. Piętro wpisujemy w macierzy (`docs/architecture/obszary.md`, obszar `scaling`) jako DECYZJA z obecnym piętrem albo NIE TERAZ z sygnałem wejścia wyżej.
+**Kiedy NIE:** prototyp i projekt bez użytkowników — piętro 1-2 wystarczy, nawet bez alertów.
+
+| Wariant | Koszt operacyjny | Finansowy | Poznawczy |
+|---|---|---|---|
+| zostać na piętrze + pomiar sygnału | jeden alert/zapytanie | zero | niski |
+| piętro 6: tabela `jobs` + worker | worker, retencja | zero | niski |
+| piętro 7a: widok zmaterializowany / replika | odświeżanie, lag repliki | replika = osobna instancja `[NIEPEWNE: wg planu]` | średni |
+| piętro 5: cache przy bazie (Redis) | inwalidacja, drugi magazyn | abonament | wysoki |
+| piętro 7b: sharding | router, cross-shard, reshardowanie | wysoki | bardzo wysoki — nie przy tej skali |
+
+**Awarie i detekcja.**
+- *piętro 1→2: baza i aplikacja padają razem (OOM, wyczerpane połączenia)* — `select state, count(*) from pg_stat_activity group by state;` i `show max_connections;` (u nas piętro 2 jest od startu; dotyczy własnych hostów/VPS).
+- *piętro 2→3: „jest wolno", nikt nie wie czemu* — brak błędów i p95 w jednym miejscu: `rg -n "sentry" package.json` i `rg -n "\[link" docs/RUNBOOK.md` (placeholder = brak monitoringu).
+- *piętro 5→6: wolny dostawca (płatność, mail, LLM) blokuje żądanie użytkownika* — `rg -n "await fetch\(|await .*\.(send|create|charge)\(" src/app/api supabase/functions` w handlerach + czas spanu dostawcy w Sentry ~>2 s.
+- *piętro 6→7a: raporty, BI i dashboardy na bazie produkcyjnej* — `select left(query,80), calls, round(total_exec_time) as ms from pg_stat_statements order by total_exec_time desc limit 10;` (zapytania raportowe w czołówce).
+- *po piętrze 7: replika oddaje nieaktualny odczyt* — odczyt zaraz po zapisie idzie na replikę: `rg -n -i "replica|read_only|readonly" src supabase/functions`; saldo, uprawnienia i stany magazynowe czytaj z primary (→ 02 › Spójność per przepływ (C vs A)).
+
+**Audyt „czy się trzymamy".**
+1. Czy macierz wpisuje obecne piętro i sygnał wejścia wyżej z liczbą (obszar `scaling`)? → `rg -n "\(scaling\)" docs/architecture/obszary.md`.
+2. Czy każdy sygnał ma źródło pomiaru (zapytanie, metryka Sentry/Vercel, alert), a nie tylko liczbę? → komendy z awarii.
+3. Czy piętro 3 (błędy, p95, alert z testowym zdarzeniem) jest przed produkcją? → `prr.md` P6 i 05 › Obserwowalność i alerty.
+4. Czy wywołania zewnętrznych dostawców w żądaniu mają timeout albo idą do kolejki? → komenda z awarii piętra 5→6.
+5. Czy nowy element infrastruktury (Redis, replika, kolejka, K8s) ma ADR ze ZMIERZONYM objawem? → `rg -n -i "redis|replica|queue|kubernetes" docs/adr`.
+
+**Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
+- własna maszyna i load balancer (piętra 1 i 4 poza platformą) → koszt platformy ~>3× VPS przy stałym ruchu albo wymóg, którego platforma nie spełnia; z ADR.
+- Redis jako cache (piętro 5) → to samo zapytanie ~>100/s na gorącej ścieżce po indeksach i widoku zmaterializowanym (→ 02 › Cache i inwalidacja).
+- kolejka zewnętrzna zamiast tabeli `jobs` (piętro 6) → ~setki zadań/s albo fan-out do wielu konsumentów (→ 04 › Zadania w tle i kolejki).
+- replika odczytu (piętro 7a) → zapytania raportowe ~>30 % czasu bazy w `pg_stat_statements` albo CPU bazy ~>70 % po naprawie zapytań i widokach zmaterializowanych.
+- sharding (piętro 7b) → zapisy ~>kilku tysięcy/s na największym planie; klucz podziału = tenant (`org_id`), zaprojektowany w modelu danych od początku (→ 02 › Multi-tenancy w danych).
