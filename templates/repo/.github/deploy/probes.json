@@ -1,0 +1,10 @@
+{
+  "_opis": "Sondy bramek deploy-gate.yml (dane, nie kod; czytane z GALEZI DOMYSLNEJ). allowedHosts: TYLKO hosty projektu — `*` = hash wdrozenia [a-z0-9]+, domena produkcji dokladnie; samo *.vercel.app odrzucane; placeholdery z szablonu blokuja bramke do uzupelnienia. Sondy = CP z docs/CRITICAL-PATHS.md bez logowania (+ /api/health z zapytaniem do bazy; asercja `json` = pola ROWNE, nie podciag; wzor endpointu: RUNBOOK › Pipeline). thresholds: BAKE i PREVIEW (zero tolerancji po 1 ponowieniu). watch: rollback dopiero gdy OSTATNIE failingStreak rund z rzedu sa czerwone (stan teraz; wczesne wyjscie). `dependency: true` = sonda zaleznosci (baza): jej seria to alarm, nie rollback. 401/403/429 i 3xx = nie regresja (bramka niesprawna, bez rollbacku); PROD_URL = kanoniczna domena bez przekierowania.",
+  "allowedHosts": ["NAZWA-PROJEKTU-*-TWOJ-ZESPOL.vercel.app", "twoja-domena.pl"],
+  "probes": [
+    { "name": "strona glowna", "path": "/", "expect": [200], "maxMs": 3000 },
+    { "name": "health z baza", "path": "/api/health", "expect": [200], "json": { "ok": true, "db": "ok" }, "maxMs": 2000, "dependency": true }
+  ],
+  "thresholds": { "maxFailureRate": 0, "maxP95Ms": 2000, "timeoutMs": 10000, "retries": 1 },
+  "watch": { "failingStreak": 3 }
+}

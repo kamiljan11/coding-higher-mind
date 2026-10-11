@@ -378,11 +378,11 @@ function safeReaddir(dir) { try { return fs.readdirSync(dir); } catch (e) { retu
 // obejmuje, zadne okno tej sesji (async = do konca sesji) nie, a jego czas w reflogu jest monotoniczny wzgledem sasiadow
 // (GIT_COMMITTER_DATE podrobiony = niemonotoniczny = liczy sie).
 function sessionCommitFiles(root, startedAt, windows, ownPath) {
-  if (!startedAt) return { files: [], lines: 0, shas: [] };
+  if (!startedAt) return { files: [], lines: 0, shas: [], degraded: true };
   // ops-review 2026-09-26: do 30 x `git show` bez sprawdzenia budzetu mogl przekroczyc timeout hooka.
-  if (budgetLeft() < 30000) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (commity sesji)', target: root }); return { files: [], lines: 0, shas: [] }; }
+  if (budgetLeft() < 30000) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (commity sesji)', target: root }); return { files: [], lines: 0, shas: [], degraded: true }; }
   const r = sh('git log -g --date=unix --format=%gd%x09%H%x09%gs -n 200 HEAD', root, GIT_TIMEOUT_MS);
-  if (!r.ok) return { files: [], lines: 0, shas: [] };
+  if (!r.ok) return { files: [], lines: 0, shas: [], degraded: true };
   const entries = [];
   for (const line of r.out.split('\n')) {
     const m = /^HEAD@\{(\d+)\}\t([0-9a-f]{7,40})\t(.*)$/.exec(line.trim());
@@ -660,6 +660,26 @@ function sdMatrixHint(root) {
   }
 }
 
+// Drift od ustalonej architektury ZROBIONY W TEJ SESJI (decyzja uzytkownika 2026-10-11): bin/arch-check.js porownuje stan teraz
+// z rodzicem najstarszego commitu sesji (bez commitow: z HEAD). Tylko NOWE problemy (drift, niezadeklarowane, nieaktualny dowod);
+// luki macierzy ocenia bramka [obszary]. Stare problemy nie blokuja (ZAKRES) — sa na liscie z SessionStart.
+// null = czysto albo wlasny blad (fail-open z logiem); tablica = komunikaty.
+const ARCH_CHECK = path.join(__dirname, '..', 'bin', 'arch-check.js');
+const ARCH_CHECK_TIMEOUT_MS = 8000;
+function archDrift(root, shas, degraded) {
+  if (!fs.existsSync(ARCH_CHECK) || !fs.existsSync(path.join(root, SD_MATRIX_DOC))) return null;
+  if (budgetLeft() < ARCH_CHECK_TIMEOUT_MS + 5000) { log({ hook: HOOK, event: 'skipped', reason: 'stop budget (arch-drift)', target: root }); return null; }
+  // shas [] bywa tez degradacja (budzet, brak startedAt, blad git log) — wtedy tylko niezacommitowane, ale ze sladem w logu.
+  if (degraded) log({ hook: HOOK, event: 'skipped', reason: 'arch-drift: commity sesji nieznane — tylko zmiany niezacommitowane', target: root });
+  const since = shas && shas.length ? ['--since-shas', shas.slice(0, 50).join(',')] : ['--since', 'HEAD'];
+  const r = spawnSync(process.execPath, [ARCH_CHECK, '--repo', root, '--json', '--new-only', ...since], { cwd: root, encoding: 'utf8', timeout: ARCH_CHECK_TIMEOUT_MS, env: CHILD_ENV });
+  if (r.status !== 0 && r.status !== 1) { log({ hook: HOOK, event: 'skipped', reason: `arch-drift: arch-check ${r.error ? r.error.code : 'exit ' + r.status}`, target: root }); return null; }
+  try {
+    const issues = (JSON.parse(String(r.stdout || '{}')).issues || []).filter((i) => i.kind !== 'gap' && i.kind !== 'no-matrix');
+    return issues.length ? issues.slice(0, 8).map((i) => `- ${i.msg}\n  propozycja: ${i.fix}`) : null;
+  } catch (e) { log({ hook: HOOK, event: 'skipped', reason: `arch-drift: ${String(e.message).slice(0, 100)}`, target: root }); return null; }
+}
+
 // Tier T0..T3 z lib/risk-tier.js (sciezki + rozmiar diffu). T0/T1 nie wymagaja recenzji przy Stop
 // (T1 = code-reviewer zalecany, ale blokujemy dopiero od T2 — proporcjonalnosc, nie paraliz).
 function reviewRequirement(root, changedCode, extraLines, sessionShas) {
@@ -875,6 +895,14 @@ async function main() {
     } else if (!sdRequired && archNeed && (archNeed.tier === 'T2' || archNeed.tier === 'T3')) {
       const hint = sdMatrixHint(root);
       if (hint) nudgesOut.push(hint);
+    }
+    if (!alreadyBlocked('arch-drift', root)) {
+      const drift = archDrift(root, committed.shas, !transcript.available || committed.degraded);
+      if (drift && sdRequired) block('arch-drift', root,
+        `Ta sesja odeszla od ustalonej architektury (${SD_MATRIX_DOC}, \`pg.sd_matrix: required\`):\n${drift.join('\n')}\n` +
+        'Napraw sam w tej turze: cofnij zmiane w kodzie ALBO zaktualizuj wiersz macierzy (DECYZJA + dowod; zmiana decyzji = ADR w docs/adr/). ' +
+        'Sprawdz: `node ~/.claude/bin/arch-check.js --repo . --since HEAD --new-only`. Procedura: ~/.claude/pg/design.md › G.');
+      if (drift) nudgesOut.push(`[stop-gate] Podpowiedz PG (bez blokady): drift od macierzy obszarow w tej sesji (${path.basename(root)}):\n${drift.join('\n')}`);
     }
     nudges(root, changed);
   }

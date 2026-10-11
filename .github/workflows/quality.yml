@@ -39,6 +39,9 @@ jobs:
           node bin/test_sql_migration_lint.js
           node bin/test_fleet_metrics.js
           node bin/test_hooks_v3.js
+          node bin/test_sd_matrix_lint.js
+          node bin/test_arch_check.js
+          node bin/test_deploy_probe.js
           node bin/pg-rule-coverage.js
       - name: Python tools lint (ruff)
         run: |

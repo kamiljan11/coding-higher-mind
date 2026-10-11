@@ -8,6 +8,7 @@ Zapytania SQL poniżej działają na katalogach Postgresa (sprawdzone na PG 17);
 ### Wybór magazynu danych
 
 **Problem.** Czy dodać cokolwiek poza Postgresem (Redis, Pinecone, Elasticsearch, Mongo, kolejka, SQLite). Każdy dodatkowy magazyn to osobny backup, tryb awarii i granica spójności. Sygnały w diffie: nowa zależność w `package.json` (`redis`, `ioredis`, `@upstash/*`, `@pinecone-database/*`, `mongodb`, `@elastic/*`, `algoliasearch`), nowy kontener w Compose, nowa „tabela" poza bazą.
+**Najpierw wzorce dostępu, nie „SQL czy NoSQL".** Zanim padnie nazwa magazynu, wypisz w mini-designie 3–5 głównych zapytań i zapisów z kształtem i proporcją: lookup po kluczu (klucz → wartość), relacje z joinami, zakres po czasie, pełnotekst/podobieństwo, agregat po dużym zbiorze; oraz stosunek odczytów do zapisów (np. ~100:1 katalog, ~1:1 czat, ~1:100 logi/telemetria). Magazyn wynika z tej listy: relacje i transakcje → Postgres; czysty lookup po kluczu przy ~tysiącach/s → dopiero wtedy KV; agregat czytany często → widok zmaterializowany zamiast liczenia przy każdym odczycie; zapis-heavy strumień → partycje po czasie albo kolejka zapisu. Odczyty skalują się kopiami (cache, CDN, repliki, prekomputacja), zapisy podziałem (asynchronicznie, partycje) — to dwa różne zestawy narzędzi (→ 03 › Wąskie gardło).
 
 **Domyślnie u nas.** Postgres do wszystkiego. W repo Supabase: Supabase Postgres (Auth, Storage, RLS, pgvector, pg_cron). W repo Payload (shop-app): `@payloadcms/db-postgres` na Postgresie z migracjami Payloada. Rozszerzenia załatwiają typowe potrzeby: `pg_trgm` + `unaccent` (wyszukiwanie), `pgvector` (embeddingi), `PostGIS` (geo), `btree_gist` (EXCLUDE) — dostępność zależy od projektu i planu: `select name from pg_available_extensions where name in ('vector','postgis','pg_cron','pg_trgm','unaccent','btree_gist');` [NIEPEWNE: lista wg planu]. Drugi magazyn dopiero z: mierzalnym powodem, ADR, planem backupu i możliwością odbudowy ze źródła w Postgresie.
 **Kiedy NIE zostawać przy samym Postgresie (progi ~, do zmierzenia):** wyszukiwanie z literówkami i facetami na ~>1 mln dokumentów, wektory ~>1–5 mln rekordów przy wymaganym niskim p95, strumień zapisów szeregów czasowych rzędu tysięcy/s.
@@ -31,6 +32,7 @@ Zapytania SQL poniżej działają na katalogach Postgresa (sprawdzone na PG 17);
 3. Czy każdy magazyn ma przećwiczony restore? → `rg -n "Ostatni test restore: [0-9]{4}" docs/RUNBOOK.md`.
 4. Czy kolumny JSONB mają walidację na granicy (zod/CHECK)? → komenda z awarii.
 5. Czy indeks pochodny da się odbudować jednym poleceniem ze źródła w Postgresie? → szukaj skryptu `reindex|rebuild|backfill` w `scripts/`.
+6. Czy decyzja o magazynie podaje wzorce dostępu i stosunek odczyt:zapis (a nie „bo NoSQL skaluje się lepiej")? → `rg -n -i "wzorc[a-z]* dostępu|odczyt[a-z]*:zapis|read:write|access pattern" docs/adr docs/architecture`.
 
 **Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
 - Redis → współdzielony stan o ~>kilkuset zapisach/s (limiter, sesje, kolejka), którego Postgres nie znosi po pomiarze (→ 02 › Cache, 03 › Rate limiting).
