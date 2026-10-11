@@ -56,7 +56,7 @@ function sqlRisk(cmd, ctx, wrapper, depth) {
     if (/^(infisical|doppler)$/.test(cmd.prog)) {
       const ci = args.findIndex((a) => /^--command(=|$)/.test(a));
       const code = ci < 0 ? '' : args[ci].includes('=') ? args[ci].slice(args[ci].indexOf('=') + 1) : (args[ci + 1] || '');
-      if (code) { try { return parse(code).commands.some((sub) => sqlRisk(sub, ctx, cmd.prog, depth + 1)); } catch (e) { return true; } }
+      if (code) { try { return parse(code).commands.some((sub) => sqlRisk(sub, ctx, cmd.prog, depth + 1)); } catch (e) { return true; } } // fail-closed: nieparsowalne --command = blokada (sh -c wyzej ocenia reszta reguly)
     }
     // `npx -y supabase@latest`, `pnpm dlx supabase` — nazwa pakietu z wersja (ops-review r2)
     const tool = (a) => progName(a).replace(/@[^/]*$/, '');
