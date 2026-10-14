@@ -81,7 +81,30 @@ function archSignals(files) {
   return reasons;
 }
 
-const hasAdr = (files) => Object.entries(files || {}).some(([p, f]) => ADR_RX.test(p.replace(/\\/g, '/')) &&
-  (f.added || []).filter((l) => l.trim()).length >= ADR_MIN_LINES);
+// „Wszystko to trade-off” (uzytkownik 2026-10-11): NOWY ADR musi nazwac odrzucona alternatywe i koszt/konsekwencje — sama
+// tresc >= 5 linii przepuszczala decyzje bez kompromisu (flota: 4/53 ADR bez alternatyw). Aktualizacja istniejacego ADR:
+// wystarczy tresc (dopisek „Aktualizacja” nie musi powtarzac alternatyw).
+// Heurystyka etykiet, nie rozumienie tresci: sekcja = linia-etykieta (naglowek, **Etykieta:**, punkt) + linie do nastepnej etykiety.
+// Liczy sie TRESC sekcji (>= 12 znakow, nie pytanie z szablonu, nie [placeholder]) — sam naglowek albo nieuzupelniony szablon
+// nie przechodzi (code-review 2026-10-11).
+const ADR_ALTERNATIVE_RX = /alternatyw|odrzucon|rozwa[zż]on|alternatives?\b|rejected|considered/i;
+const ADR_COST_RX = /konsekwencj|koszt|po[sś]wi[eę]camy|trade-?off|kompromis|consequences?\b|\bcosts?\b|downside/i;
+const ADR_LABEL_LINE_RX = /^\s*(?:#{1,6}\s|\*\*[^*]{2,60}:?\*\*|[-*]\s+\*\*)/;
+const ADR_SECTION_END_RX = /^\s*(?:#{1,6}\s|\*\*[^*]{2,60}:\*\*)/;
+function adrSection(lines, i) {
+  const head = lines[i].includes(':') ? lines[i].slice(lines[i].indexOf(':') + 1) : '';
+  const rest = [];
+  // granica sekcji = naglowek albo **Etykieta:** na poczatku linii; punkty `- **X** — ...` to TRESC sekcji (ADR floty: „## Odrzucone”)
+  for (let j = i + 1; j < lines.length && !ADR_SECTION_END_RX.test(lines[j]); j++) rest.push(lines[j]);
+  return [head, ...rest].join(' ').replace(/[*_`#>]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+const substantive = (t) => t.length >= 12 && !/\?\s*$/.test(t) && !/^\[[^\]]*\]$/.test(t);
+const hasSection = (lines, rx) => lines.some((l, i) => (ADR_LABEL_LINE_RX.test(l) || /^\s*\S[^:]{0,40}:/.test(l)) && rx.test(l.split(':')[0] || l) && substantive(adrSection(lines, i)));
+const adrHasTradeoff = (lines) => hasSection(lines, ADR_ALTERNATIVE_RX) && hasSection(lines, ADR_COST_RX);
+const hasAdr = (files) => Object.entries(files || {}).some(([p, f]) => {
+  if (!ADR_RX.test(p.replace(/\\/g, '/'))) return false;
+  const body = (f.added || []).filter((l) => l.trim());
+  return body.length >= ADR_MIN_LINES && (!f.isNew || adrHasTradeoff(body));
+});
 
-module.exports = { parseUnifiedDiff, archSignals, hasAdr, ADR_RX };
+module.exports = { parseUnifiedDiff, archSignals, hasAdr, adrHasTradeoff, ADR_RX };

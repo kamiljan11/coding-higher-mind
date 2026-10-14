@@ -1,16 +1,14 @@
 <meta charset="utf-8">
 <title>PG Stack Picker</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
 /* Layout: lewa kolumna = kroki (kategorie po kolei, kazda do rozstrzygniecia), prawa = postep + wynik przyklejony; na telefonie wynik pod spodem */
 :root{
   --bg:#eef0ec; --panel:#fbfcf9; --ink:#15181c; --muted:#5d6560; --line:#d5d9d2;
   --accent:#2340c8; --accent-ink:#fff; --hint:#b86e00; --hint-bg:#fdf1dc; --warn:#a3361d; --ok:#2c6e3f; --later:#6b5bb5;
   --chip:#f4f6f1; --chip-on:#e3e8fb;
-  --f-display:"Archivo", "Helvetica Neue", Arial, sans-serif;
-  --f-body:"IBM Plex Sans", system-ui, sans-serif;
-  --f-mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --f-display:system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; /* bez Google Fonts: zero zapytan do stron trzecich (RODO) */
+  --f-body:system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --f-mono:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
   --bg:#121417; --panel:#1a1d21; --ink:#e9ece6; --muted:#9aa29c; --line:#2c3137;
@@ -524,15 +522,15 @@ footer{font:12px/1.5 var(--f-mono);color:var(--muted);max-width:80ch}
       r.items.forEach(function(it){ var w=Math.min(W-labelW-pad, it.o.length*6.2+14); if (lw+w>W-labelW-pad && lines[lines.length-1].length){ lines.push([]); lw=0; } lines[lines.length-1].push({it:it,w:w}); lw+=w+6; });
       var h = lines.length*rowH+8;
       parts.push('<rect x="4" y="'+y+'" width="'+(W-8)+'" height="'+h+'" rx="6" fill="var(--panel)" stroke="var(--line)"/>');
-      parts.push('<text x="12" y="'+(y+18)+'" font-family="IBM Plex Mono, monospace" font-size="9" fill="var(--muted)">'+esc(r.name.split(" ")[0].toUpperCase())+'</text>');
+      parts.push('<text x="12" y="'+(y+18)+'" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="9" fill="var(--muted)">'+esc(r.name.split(" ")[0].toUpperCase())+'</text>');
       lines.forEach(function(line,li){ x=labelW; line.forEach(function(p){
         var yy=y+5+li*rowH;
         parts.push('<rect x="'+x+'" y="'+yy+'" width="'+p.w+'" height="20" rx="4" fill="var(--chip-on)" stroke="'+(p.it.dev?'var(--hint)':'var(--accent)')+'"'+(p.it.dev?' stroke-dasharray="3 2"':'')+'/>');
-        parts.push('<text x="'+(x+7)+'" y="'+(yy+14)+'" font-family="IBM Plex Sans, sans-serif" font-size="10.5" fill="var(--ink)">'+esc(p.it.o)+'</text>');
+        parts.push('<text x="'+(x+7)+'" y="'+(yy+14)+'" font-family="system-ui, sans-serif" font-size="10.5" fill="var(--ink)">'+esc(p.it.o)+'</text>');
         x+=p.w+6; }); });
       y+=h+8;
     });
-    if (!rows.length){ parts.push('<text x="'+(W/2)+'" y="40" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--muted)">Przejdź kroki po lewej</text>'); y=70; }
+    if (!rows.length){ parts.push('<text x="'+(W/2)+'" y="40" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="var(--muted)">Przejdź kroki po lewej</text>'); y=70; }
     return '<svg viewBox="0 0 '+W+' '+y+'" xmlns="http://www.w3.org/2000/svg" role="img"><title>Warstwy stacku</title>'+parts.join('')+'</svg>';
   }
 

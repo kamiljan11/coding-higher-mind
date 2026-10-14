@@ -4,18 +4,19 @@
 // mial 213 plikow i nikt nie byl w stanie go zmergowac; moj wlasny PR na 21 plikow potrzebowal 4 dogrywek.
 //
 // Liczy NETTO linie (dodane + usuniete) w plikach ZRODLOWYCH: pomija lockfile'y, generated, snapshoty,
-// testy (tez pgTAP: supabase/tests/, *.test.sql), docs, migracje SQL i dane. Prog domyslny 400.
+// testy (tez pgTAP: supabase/tests/, *.test.sql), docs, migracje SQL i dane. Prog domyslny 1500 (plan v3 L4, 2026-10-14;
+// wczesniej 400 = ~110 blokad / 12 dni obchodzonych ALLOW_LARGE_DIFF — bramka bez efektu, blokuje tylko giganty).
 // Wyjatek swiadomy: ALLOW_LARGE_DIFF=1. Blizna 2026-09-13 (workshop-app #166): 109-liniowy test pgTAP
 // liczyl sie jako zrodlo -> falszywy blok 429/400, choc kod zrodlowy mial 320.
 //
-// Uzycie: node diff-size-gate.js [--base origin/main] [--max 400] [--staged] [--json]
+// Uzycie: node diff-size-gate.js [--base origin/main] [--max 1500] [--staged] [--json]
 'use strict';
 const { execFileSync } = require('node:child_process');
 
 const SKIP = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lock(b)?|Cargo\.lock|poetry\.lock|uv\.lock)$|\.snap$|\.(min|bundle)\.(js|css)$|(^|\/)(dist|build|coverage|node_modules|\.next)\/|\.(test|spec)\.[cm]?[jt]sx?$|__tests__\/|(^|\/)supabase\/tests\/|\.(test|spec)\.sql$|\.(md|mdx|txt|csv|json|svg|png|jpg|webp|lock)$|(^|\/)supabase\/migrations\/|(^|\/)seed\.sql$|(^|\/)(i18n|locales?|translations?)\//;
 
 function parseArgs(argv) {
-  const o = { base: 'origin/main', max: 400, staged: false, json: false };
+  const o = { base: 'origin/main', max: 1500, staged: false, json: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--base') o.base = argv[++i];
     else if (argv[i] === '--max') o.max = Number(argv[++i]);
@@ -48,7 +49,7 @@ function main() {
   if (s.total <= o.max) { console.log(`diff-size-gate: OK — ${s.total} linii zrodlowych w ${s.files.length} plikach (prog ${o.max})`); return 0; }
   console.log(`diff-size-gate: ${s.total} linii zrodlowych w ${s.files.length} plikach > prog ${o.max}. Najwieksze:`);
   for (const f of s.files.slice(0, 8)) console.log(`   +${f.add}/-${f.del}  ${f.file}`);
-  console.log('Podziel na mniejsze PR-y (jeden temat = jeden PR). Swiadomy wyjatek (migracja, wygenerowany kod): ALLOW_LARGE_DIFF=1.');
+  console.log('Kilka niezaleznych tematow -> rozdziel. Jeden temat (migracja, wygenerowany kod, duzy feature) zostaje razem: ALLOW_LARGE_DIFF=1.');
   return 1;
 }
 

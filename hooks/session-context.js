@@ -138,7 +138,7 @@ try {
     const { CHILD_ENV } = require('./lib/lint-file');
     const r = require('child_process').spawnSync(process.execPath, [path.join(__dirname, '..', 'bin', 'arch-check.js'), '--repo', cwd, '--brief'], { encoding: 'utf8', timeout: 4000, windowsHide: true, env: CHILD_ENV });
     const txt = String(r.stdout || '').trim();
-    if (r.status === 1 && txt) tail.push(txt.slice(0, 600));
+    if ((r.status === 0 || r.status === 1) && txt) tail.push(txt.slice(0, 900)); // exit 0 + tekst = sam cel architektury
     else if (r.status !== 0) require('./lib/gate-log').log({ hook: 'session-context', event: 'skipped', reason: `arch-check: ${r.error ? r.error.code : 'exit ' + r.status} ${String(r.stderr || '').slice(0, 100)}`, target: cwd });
   }
 } catch (e) { /* brak arch-check = brak raportu, sesja startuje normalnie */ }

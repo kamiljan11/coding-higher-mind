@@ -173,7 +173,7 @@ fi
 # w 11 plikach przeszla lint/typy/testy/review. Skan patrzy tylko na dodane linie indeksu, wiec nie
 # dotyka dlugu historycznego. Swiadomy wyjatek: ALLOW_DUP_LITERALS=1.
 if [ "${ALLOW_DUP_LITERALS:-0}" != "1" ] && command -v node >/dev/null 2>&1 && need_tool "$HOME/.claude/bin/dup-literals.js"; then
-  node "$HOME/.claude/bin/dup-literals.js" --staged || { echo "[pre-commit] dup-literals (BLOCKED: same literal added >=3x in >=2 files, extract one source of truth; escape: ALLOW_DUP_LITERALS=1): ten sam literal dodany >=3x w >=2 plikach — wyciagnij do jednego zrodla (stala/modul). Wyjatek: ALLOW_DUP_LITERALS=1 w komendzie." >&2; exit 1; }
+  node "$HOME/.claude/bin/dup-literals.js" --staged || { echo "[pre-commit] dup-literals (BLOCKED: same literal added >=6x in >=3 files, extract one source of truth; escape: ALLOW_DUP_LITERALS=1): ten sam literal dodany >=6x w >=3 plikach — wyciagnij do jednego zrodla (stala/modul). Wyjatek: ALLOW_DUP_LITERALS=1 w komendzie." >&2; exit 1; }
 fi
 
 # Zakomentowany kod w NOWYM diffie (research 2026-09-06: "comment traps" — martwy kod w komentarzu uczy
@@ -251,7 +251,13 @@ sql=$(echo "$files" | grep -E '(^|/)migrations/.*\.sql$' | grep -vE '(^|/)(fixtu
 # Lint liczy caly zestaw (kontekst miedzy plikami), ale BLOKUJE tylko HIGH w plikach STAGOWANYCH (zasada: stary dlug nie blokuje).
 SQL_LINT="$HOME/.claude/bin/sql-migration-lint.js"
 if [ -n "$sql" ] && need_tool "$SQL_LINT" && command -v node >/dev/null 2>&1; then
-  report=$(node "$SQL_LINT" --repo . --min-severity high 2>/dev/null | grep '^\[HIGH\]' || true)
+  raw=$(node "$SQL_LINT" --repo . --min-severity high 2>/dev/null); rc=$?
+  if [ "$rc" -ne 0 ]; then
+    # awaria parsera = migracje NIEsprawdzone; fail-open, ale z sladem (guard_health) i ostrzezeniem (ops-review 2026-10-11)
+    command -v node >/dev/null 2>&1 && [ -f "$PG_GATE_LOG_JS" ] && node "$PG_GATE_LOG_JS" pre-commit skipped "sql-migration-lint exit $rc - migracje niesprawdzone" "$(pwd)" 2>/dev/null
+    echo "[pre-commit] UWAGA: sql-migration-lint padl (exit $rc) - migracje NIE zostaly sprawdzone | WARNING: SQL linter crashed, migrations unchecked" >&2
+  fi
+  report=$(printf '%s\n' "$raw" | grep '^\[HIGH\]' || true)
   hits=""
   for f in $sql; do
     # lint drukuje sama nazwe pliku (bez katalogu); nazwy migracji sa unikalne (timestamp), wiec basename wystarcza
@@ -260,9 +266,9 @@ if [ -n "$sql" ] && need_tool "$SQL_LINT" && command -v node >/dev/null 2>&1; th
 $m"
   done
   if [ -n "$(printf '%s' "$hits" | tr -d '\n')" ]; then
-    echo "[pre-commit] sql-migration-lint: HIGH w stagowanych migracjach — commit ZABLOKOWANY: | BLOCKED: HIGH findings in staged migrations (RLS USING+WITH CHECK, DEFINER hygiene, anon grants); fix or '-- lint-ignore Rn' with a reason" >&2
+    echo "[pre-commit] sql-migration-lint: HIGH w stagowanych migracjach — commit ZABLOKOWANY: | BLOCKED: HIGH findings in staged migrations (RLS USING+WITH CHECK, DEFINER hygiene, anon grants, R14 expand/contract); fix, '-- lint-ignore Rn' with a reason, or for a deliberate contract step '-- pg:contract <reason>' in the file header" >&2
     printf '%s\n' "$hits" | head -10 >&2
-    echo "[pre-commit] Napraw (WITH CHECK / SET search_path + REVOKE / bez GRANT anon) albo '-- lint-ignore Rn' z powodem w linii wyzej." >&2
+    echo "[pre-commit] Napraw (WITH CHECK / SET search_path + REVOKE / bez GRANT anon / R14: expand-contract w osobnych wydaniach) albo '-- lint-ignore Rn' z powodem w linii wyzej; swiadomy krok contract: '-- pg:contract <powod>' w naglowku pliku." >&2
     exit 1
   fi
 fi

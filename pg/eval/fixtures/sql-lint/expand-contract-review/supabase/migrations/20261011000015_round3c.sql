@@ -1,0 +1,10 @@
+drop function if exists public.rpc_named(uuid);
+create function public.rpc_named(org uuid) returns int language sql as $$ select 1 $$;
+drop function if exists public.rpc_default(uuid);
+create function public.rpc_default(p uuid, q int default 0) returns int language sql as $$ select 1 $$;
+drop function public.rpc_noargs;
+create function public.rpc_noargs(a int, b int) returns int language sql as $$ select 1 $$;
+drop index if exists public.orders_org_email_uidx2;
+alter table orders drop constraint orders_custom_unq;
+alter table orders add column z3 text default E'it\'s', drop column legacy3;
+alter table orders alter column s set default null;

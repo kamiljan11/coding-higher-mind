@@ -266,6 +266,11 @@ function expandVars(raw, env) {
   return out;
 }
 
+// Rodzic-symlink: `rm -rf build` kasuje sam link, a `rm -rf build/cache` idzie za nim (security-review 2026-10-14 F4).
+function isSymlinkDir(p) {
+  try { return fs.lstatSync(p).isSymbolicLink(); } catch (e) { return false; } // brak sciezki = nic do sledzenia
+}
+
 function isSafeRmTarget(rawTarget, ctx) {
   const raw = expandVars(rawTarget, ctx.env);
   if (/\$\(|`/.test(raw)) return false; // cel z podstawieniem = nie wiemy, co skasujemy
@@ -276,6 +281,14 @@ function isSafeRmTarget(rawTarget, ctx) {
   const segs = norm.split('/').filter(Boolean);
   if (!segs.length) return false;
   const last = segs[segs.length - 1];
+  // Plan v3 L3 (2026-10-14): `<bezpieczny>/cache` i `<bezpieczny>/cache/*` (np. .next/cache) — rodzic i tak wolno skasowac.
+  // Samo `cache` bez bezpiecznego rodzica dalej blokuje.
+  const cacheAt = last === '*' ? segs.length - 2 : segs.length - 1;
+  // Ani rodzic, ani sam `cache` nie moga byc dowiazaniem (forma `X/cache/*` kasuje zawartosc celu linku — code-review 2026-10-14).
+  // lstat ma sens tylko na prawdziwej sciezce: po `cd "$P"` / `pushd` cwd jest nieznany -> cel wzgledny blokowany (security etap1e F1).
+  const pathKnown = ctx.cwdKnown !== false || /^(\/|~(\/|$))/.test(raw);
+  if (pathKnown && cacheAt >= 1 && /^cache$/i.test(segs[cacheAt]) && SAFE_DIRS.test(segs[cacheAt - 1])
+    && !isSymlinkDir('/' + segs.slice(0, cacheAt).join('/')) && !isSymlinkDir('/' + segs.slice(0, cacheAt + 1).join('/'))) return true;
   if (last === '*' && segs.length > 1) return SAFE_DIRS.test(segs[segs.length - 2]);
   return SAFE_DIRS.test(last);
 }
@@ -530,7 +543,7 @@ const RULES = [
     why: 'Destrukcyjny SQL (DROP/TRUNCATE/DELETE/UPDATE bez WHERE/ALTER COLUMN TYPE, pg_restore --clean, dropdb, supabase db reset|query --linked, prisma migrate reset, prisma db push --accept-data-loss) albo SQL niewidoczny (plik, stdin, heredoc) na bazie ZDALNEJ = ryzyko nieodwracalnej utraty danych. Dozwolone bez frazy: odczyt `psql "$URL" -c "select ..."`, migracje `supabase db push` (oslona = recenzja migracji T3), baza lokalna (localhost / docker exec), backup-drill.py. Destrukcja na zdalnej: najpierw backup (bin/backup-drill.py), dzialaj na kopii/branchu; potem decyzja uzytkownika.',
     parsed: (cmd, ctx) => sqlRisk(cmd, ctx, '', 0) },
   { id: 'rm-rf', esc: 'ALLOW_RM', mode: 'enforce',
-    why: 'rm -r poza katalogami build/cache (node_modules, dist, .output, /tmp...) = nieodwracalne. Przenies do _to_delete/ albo trash.',
+    why: 'rm -r poza katalogami build/cache (node_modules, dist, .output, <build>/cache, /tmp...) = nieodwracalne. Przenies do _to_delete/ albo trash. Cel w tmp/scratchpadzie podany przez zmienna albo po `cd` -> podaj literalna sciezke absolutna (warstwa regex nie rozwija zmiennych).',
     legacy: (raw) => {
       // Cele = tokeny do konca TEJ komendy; blizna 2026-09-12 (cala linia brana za cele -> FP na /tmp).
       const matches = [...raw.matchAll(/(^|[;&|]\s*|\s)rm\s+(-[a-zA-Z]*r[a-zA-Z]*|--recursive)\b([^;&|\n]*)/gm)];

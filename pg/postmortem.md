@@ -5,7 +5,7 @@ jesli prod dziala. Google SRE: „kazde pytanie na checkliscie musi byc uzasadni
 uzytkownik ma katastrofy (31 sygnalow w pamieci, A2) — nie mial przelozenia na bramki (21/31 niegatowane).
 Blameless: szukamy przyczyny w systemie (brak bramki), nie w osobie/modelu.
 
-## Szablon (15 min, do `~/.claude/memory/log\incidents.md` — APPEND, nigdy rewrite)
+## Szablon (15 min, do `~/Obsidian/MAIN/Claude Memory/Log/incidents.md` — APPEND, nigdy rewrite)
 
 ```
 ## <data ISO> — <tytul jednym zdaniem>

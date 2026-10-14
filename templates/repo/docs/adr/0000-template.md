@@ -4,7 +4,7 @@ Data: RRRR-MM-DD | Status: proponowane / przyjete / zastapione przez ADR-XXXX
 
 **Kontekst:** Jaki problem rozwiazujemy? Co istnialo wczesniej?
 
-**Decyzja:** Co wybralismy?
+**Decyzja:** Co wybralismy? Ktoremu priorytetowi z `docs/ARCHITECTURE.md › Cel architektury` sluzy (nr) i czego kosztem?
 
 **Rozwazone alternatywy:** Co jeszcze bylo na stole i czemu odrzucone?
 
@@ -14,4 +14,6 @@ Data: RRRR-MM-DD | Status: proponowane / przyjete / zastapione przez ADR-XXXX
 
 **Pulapki dla przyszlego siebie:** 1-2 rzeczy, ktore maintainer musi wiedziec.
 
-<!-- Max 15 linii. Gesto i uzytecznie. Kopia idzie do Obsidian (Claude Memory). -->
+**Sygnal powrotu:** [mierzalny prog albo zdarzenie, po ktorym ta decyzja przestaje obowiazywac]
+
+<!-- Max 20 linii. Gesto i uzytecznie. Kopia idzie do Obsidian (Claude Memory). -->

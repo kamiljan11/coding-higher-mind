@@ -8,10 +8,12 @@
 // historycznego (zasada 2026-08-09) i nie da falszywego alarmu na starym kodzie.
 //
 // Regula: ten sam literal tekstowy (>= MIN_LEN znakow, po odcieciu cudzyslowow) dodany
-// >= MAX_COPIES razy w >= 2 PLIKACH = blokada. W jednym pliku to zwykle tablica danych
+// >= MAX_COPIES razy w >= MIN_FILES PLIKACH = blokada. W jednym pliku to zwykle tablica danych
 // (seed, i18n, testy) i nie jest slopem — dlatego prog na pliki, nie na wystapienia.
+// Kalibracja plan v3 L4 (2026-10-14): 3x/2 pliki -> 6x/3 pliki + ignor seedow (seed.*, seeds/). Prog 3/2 dawal 65 blokad
+// w 12 dni, obchodzonych ALLOW_DUP_LITERALS (poziom A) = bramka bez efektu; blizna 45 kopii w 11 plikach nadal lapana.
 //
-// Uzycie: node dup-literals.js [--base origin/main] [--staged] [--min-len 12] [--max-copies 3] [--json]
+// Uzycie: node dup-literals.js [--base origin/main] [--staged] [--min-len 12] [--max-copies 6] [--min-files 3] [--json]
 //   --staged  : diff indeksu (pre-commit); domyslnie diff base...HEAD + working tree
 // Wyjscie: lista literal -> pliki:linie; exit 1 gdy jest blokada.
 // Ignorowane: testy, pliki i18n/locale, seedy SQL, lockfile'y, snapshoty, markdown.
@@ -20,10 +22,10 @@
 
 const { execFileSync } = require('node:child_process');
 
-const DEFAULTS = { base: 'origin/main', minLen: 12, maxCopies: 3 };
+const DEFAULTS = { base: 'origin/main', minLen: 12, maxCopies: 6, minFiles: 3 };
 // Testy takze w konwencji `test_*.js|py` i katalogach `tests/` (~/.claude, Python) — false positive 2026-09-12:
 // bateria testow bramek powtarza nazwy narzedzi ("phase-gate.js" x5) i blokowala wlasny commit.
-const IGNORE_PATH = /(\.(test|spec)\.[cm]?[jt]sx?$)|(__tests__\/)|((^|\/)test_[^/]*\.(py|[cm]?[jt]s)$)|((^|\/)tests?\/)|(\/(i18n|locales?|translations?)\/)|(\.snap$)|(seed\.sql$)|(lock(\.json|b|file)?$)|(\.md$)|(\.json$)|(\.svg$)|(\.css$)/;
+const IGNORE_PATH = /(\.(test|spec)\.[cm]?[jt]sx?$)|(__tests__\/)|((^|\/)test_[^/]*\.(py|[cm]?[jt]s)$)|((^|\/)tests?\/)|(\/(i18n|locales?|translations?)\/)|(\.snap$)|(seed\.sql$)|((^|\/)seeds?\.[cm]?[jt]s$)|((^|\/)seeds?\.py$)|((^|\/)(db|supabase|prisma|scripts)\/seeds?([/._-][^/]*)?$)|((^|\/)(db|supabase|prisma|scripts)\/seeds?\/)|(lock(\.json|b|file)?$)|(\.md$)|(\.json$)|(\.svg$)|(\.css$)/;
 const CODE_EXT = /\.(c?m?[jt]sx?|py|sql|go|rs|kt|java|cs|php|rb|vue|svelte)$/;
 // Literal: "..." lub '...' lub `...` bez interpolacji. Odrzucamy sciezki importow i URL-e:
 // import z tej samej sciezki w wielu plikach to norma, nie slop.
@@ -47,6 +49,11 @@ function parseArgs(argv) {
     else if (a === '--base') out.base = argv[++i];
     else if (a === '--min-len') out.minLen = Number(argv[++i]);
     else if (a === '--max-copies') out.maxCopies = Number(argv[++i]);
+    else if (a === '--min-files') out.minFiles = Number(argv[++i]);
+  }
+  // NaN/0 w progu = kazde porownanie false = bramka po cichu przepuszcza wszystko (code-review 2026-10-14 F8) -> blad zamiast fail-open.
+  for (const k of ['minLen', 'maxCopies', 'minFiles']) {
+    if (!Number.isInteger(out[k]) || out[k] < 1) throw new Error(`${k} musi byc liczba calkowita >= 1 (jest: ${out[k]})`);
   }
   return out;
 }
@@ -102,21 +109,21 @@ function collectLiterals(rows, minLen) {
   return map;
 }
 
-/** Zwraca tylko literaly przekraczajace prog: >= maxCopies wystapien W >= 2 plikach. */
-function offenders(map, maxCopies) {
+/** Zwraca tylko literaly przekraczajace prog: >= maxCopies wystapien W >= minFiles plikach (wywolania biblioteczne: domyslnie 2). */
+function offenders(map, maxCopies, minFiles = 2) {
   const out = [];
   for (const [lit, hits] of map) {
     const files = new Set(hits.map((h) => h.file));
-    if (hits.length >= maxCopies && files.size >= 2) out.push({ literal: lit, count: hits.length, files: files.size, hits });
+    if (hits.length >= maxCopies && files.size >= minFiles) out.push({ literal: lit, count: hits.length, files: files.size, hits });
   }
   return out.sort((a, b) => b.count - a.count);
 }
 
 function main() {
   const opts = parseArgs(process.argv.slice(2));
-  const found = offenders(collectLiterals(addedLines(gitDiff(opts)), opts.minLen), opts.maxCopies);
+  const found = offenders(collectLiterals(addedLines(gitDiff(opts)), opts.minLen), opts.maxCopies, opts.minFiles);
   if (opts.json) { process.stdout.write(JSON.stringify(found, null, 1) + '\n'); return found.length ? 1 : 0; }
-  if (!found.length) { console.log('dup-literals: OK — brak literalu dodanego >= ' + opts.maxCopies + 'x w >= 2 plikach'); return 0; }
+  if (!found.length) { console.log('dup-literals: OK — brak literalu dodanego >= ' + opts.maxCopies + 'x w >= ' + opts.minFiles + ' plikach'); return 0; }
   console.log(`dup-literals: ${found.length} literal(ow) powtorzonych w NOWYM kodzie — jedno zrodlo prawdy zamiast kopii:`);
   for (const f of found) {
     console.log(`  "${f.literal.slice(0, 60)}"  x${f.count} w ${f.files} plikach`);

@@ -133,7 +133,7 @@ function renderCouncil(decision, verdict, positions, catfish) {
     if ((catfish.missing_facts || []).length) L.push('', '**Fakty, ktorych nikt nie wniosl:** ' + catfish.missing_facts.join(' · '));
   }
   if (verdict.invalid_positions.length) L.push('', '## Stanowiska odrzucone (schemat)', ...verdict.invalid_positions.map((i) => `- ${i.file}: ${i.errors.join('; ')}`));
-  L.push('', '## DACI', `- Driver: sesja-orkiestrator · **Approver: ${verdict.approver}** · Contributors: ${positions.map((p) => p.role).join(', ')}${catfish ? ', catfish' : ''} · Informed: ADR + CHANGELOG`,
+  L.push('', '## DACI', `- Driver: sesja-orkiestrator · **Approver: ${verdict.approver}** · Contributors: ${positions.map((p) => p.role).join(', ')}${catfish ? ', catfish' : ''} · Informed: ADR + tytul PR (CHANGELOG przy release)`,
     `- Status: **${verdict.status}** -> ${verdict.needsHuman ? 'decyzja uzytkownika (T3 / nieodwracalne / spor / blocker)' : 'orkiestrator decyduje i zapisuje ADR; uzytkownik informowany'}`);
   return L.join('\n') + '\n';
 }

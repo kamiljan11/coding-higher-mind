@@ -77,6 +77,29 @@ const ALLOW = ['git commit -m "fix --no-verify docs"', 'git push -u origin featu
   'rm -rf /tmp/tmp.abc; set -u; T=$(mktemp -d); cd "$T" && git init -q', // cele tylko do `;` — false positive 2026-09-12 (cala linia brana za cele)
   'rm -rf /tmp/a && rm -rf /tmp/b'];
 BLOCK.push('rm -rf node_modules && rm -rf src'); // kazde `rm -r` w lancuchu sprawdzane osobno
+// Plan v3 L3 (2026-10-14): `<bezpieczny>/cache` przepuszczony, samo `cache` / zly rodzic / traversal dalej blokowane.
+ALLOW.push('rm -rf .next/cache', 'rm -rf node_modules/cache/*', 'rm -rf dist/cache');
+BLOCK.push('rm -rf cache', 'rm -rf ~/cache', 'rm -rf src/cache', 'rm -rf node_modules/../cache', 'rm -rf .next/cache/../../src');
+// L3 + dowiazania (code-review etap1c): rodzic-link i cache-link blokowane. Fixture POZA tmp — isTempPath przepuszcza
+// wszystko pod /tmp wczesniej, wiec test w tmp niczego by nie rozroznial.
+{
+  const { isSafeRmTarget } = require(path.join(HOOKS, 'lib', 'bash-rules'));
+  const rmRoot = fs.mkdtempSync(path.join(HOME, '.pg-hooktest-rm-'));
+  const proj = path.join(rmRoot, 'proj');
+  fs.mkdirSync(path.join(rmRoot, 'real', 'cache'), { recursive: true });
+  fs.mkdirSync(path.join(proj, 'dist'), { recursive: true });
+  fs.mkdirSync(path.join(proj, '.next', 'cache'), { recursive: true });
+  fs.symlinkSync(path.join(rmRoot, 'real'), path.join(proj, 'build'));
+  fs.symlinkSync(path.join(rmRoot, 'real', 'cache'), path.join(proj, 'dist', 'cache'));
+  const ctx = { cwd: proj, env: {} };
+  try {
+    for (const t of ['build/cache', 'build/cache/*', 'dist/cache', 'dist/cache/*']) check(`rm cache: ${t} przez dowiazanie => blok`, isSafeRmTarget(t, ctx) === false);
+    for (const t of ['.next/cache', '.next/cache/*']) check(`rm cache: ${t} zwykly katalog => wolno`, isSafeRmTarget(t, ctx) === true);
+    // cwd nieznany (po `cd "$P"`): lstat nie widzi prawdziwej sciezki -> wzgledny cel cache blokowany (security etap1e F1)
+    check('rm cache: build/cache/* przy nieznanym cwd => blok', isSafeRmTarget('build/cache/*', { cwd: proj, cwdKnown: false, env: {} }) === false);
+    check('bash-guard: cd "$P" && rm -rf build/cache/* => blok', runHook('bash-guard.js', { tool_name: 'Bash', tool_input: { command: 'cd "$P" && rm -rf build/cache/*' }, cwd: proj }).status === 2);
+  } finally { fs.rmSync(rmRoot, { recursive: true, force: true }); } // rmSync nie idzie za dowiazaniami
+}
 // 2026-10-09 mody: zapis do kodu modow i zmiana zestawu wtyczek = warstwa kontrolna; odczyt/testy wolne.
 BLOCK.push('sed -i s/a/b/ ~/mods/blast-radius/hooks/blast-radius.mjs', 'cp x.js ~/.claude/plugins/cache/local-mods/m/1/hooks/r.js',
   'python3 -c "open(\'' + HOME.replace(/\\/g, '/') + '/mods/x/hooks/r.ts\',\'w\').write(\'x\')"', 'claude plugin install evil@mkt', 'claude plugins enable x@y',
@@ -585,16 +608,16 @@ check('pre-push: ALLOW_MAIN=1 => 0', runPrePush(ppRepo, mainRefs, { ALLOW_MAIN: 
 write(path.join(ppRepo, 'package.json'), JSON.stringify({ devDependencies: { 'lovable-tagger': '1.0.0' } }));
 check('pre-push: legacy Lovable (lovable-tagger) push na main => 0', runPrePush(ppRepo, mainRefs).status === 0);
 fs.unlinkSync(path.join(ppRepo, 'package.json'));
-// diff-size-gate: origin/main = init, galaz feature z 500 liniami zrodlowymi => blok; ALLOW_LARGE_DIFF=1 => 0
+// diff-size-gate: origin/main = init, galaz feature z 1600 liniami zrodlowymi => blok (prog 1500, plan v3 L4); ALLOW_LARGE_DIFF=1 => 0
 git(ppRepo, ['update-ref', 'refs/remotes/origin/main', ppSha]);
 git(ppRepo, ['checkout', '-q', '-b', 'feat/big']);
-write(path.join(ppRepo, 'src', 'big.ts'), Array.from({ length: 500 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n');
+write(path.join(ppRepo, 'src', 'big.ts'), Array.from({ length: 1600 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n');
 git(ppRepo, ['add', '-A']);
 git(ppRepo, ['commit', '-q', '-m', 'big']);
 const bigSha = git(ppRepo, ['rev-parse', 'HEAD']).stdout.trim();
 const bigRefs = `refs/heads/feat/big ${bigSha} refs/heads/feat/big ${ZERO_SHA}\n`;
 const pp5 = runPrePush(ppRepo, bigRefs);
-check('pre-push: > 400 linii zrodlowych vs origin/main => 1 (diff-size-gate)', pp5.status === 1 && /diff-size-gate/.test(pp5.stderr || ''), 'exit=' + pp5.status + ' ' + (pp5.stderr || '').slice(0, 160));
+check('pre-push: > 1500 linii zrodlowych vs origin/main => 1 (diff-size-gate)', pp5.status === 1 && /diff-size-gate/.test(pp5.stderr || ''), 'exit=' + pp5.status + ' ' + (pp5.stderr || '').slice(0, 160));
 check('pre-push: ALLOW_LARGE_DIFF=1 => 0', runPrePush(ppRepo, bigRefs, { ALLOW_LARGE_DIFF: '1' }).status === 0);
 
 // ---------- settings.json wiring ----------
@@ -700,7 +723,17 @@ try {
   const adr5 = { added: ['a', 'b', 'c', 'd', 'e'] };
   check('arch-signals: ADR w docs/adr i pg/adr (>= 5 linii) uznany, gdzie indziej nie',
     AS.hasAdr({ 'docs/adr/0001-x.md': adr5 }) && AS.hasAdr({ 'pg/adr/0003-x.md': adr5 }) && !AS.hasAdr({ 'notes/adr/0001-x.md': adr5 }) && !AS.hasAdr({ 'pg/adr/0003-x.md': { added: ['a'] } }));
-  const adrBody = ['# 0003 Kolejka', '## Decyzja', 'BullMQ', '## Alternatywy', 'cron', '## Konsekwencje', 'Redis'];
+  const adrBody = ['# 0003 Kolejka', '## Decyzja', 'BullMQ', '## Alternatywy', 'cron co minute — odrzucony, opoznienie do 60 s', '## Konsekwencje', 'Redis jako nowa usluga, koszt 0 zl na Upstash free'];
+  const noTradeoff = ['# 0005 Kolejka', '## Decyzja', 'BullMQ', 'bo jest najlepszy', 'i szybki', 'koniec'];
+  check('arch-signals: NOWY ADR bez odrzuconej alternatywy i kosztu => nie uznany (wszystko to trade-off); aktualizacja istniejacego => wystarczy tresc',
+    !AS.hasAdr({ 'docs/adr/0005-x.md': { added: noTradeoff, isNew: true } }) && AS.hasAdr({ 'docs/adr/0005-x.md': { added: noTradeoff, isNew: false } }) &&
+    !AS.adrHasTradeoff(['Alternatywy: cron']) && AS.adrHasTradeoff(['**Rozwazone alternatywy:** cron co minute (odrzucony: 60 s opoznienia)', '**Konsekwencje:** Redis jako nowa usluga do utrzymania']));
+  const tpl = require('fs').readFileSync(require('path').join(os.homedir(), '.claude', 'templates', 'repo', 'docs', 'adr', '0000-template.md'), 'utf8').split('\n');
+  check('arch-signals: nieuzupelniony szablon ADR i same naglowki => brak trade-offu (tresc, nie slowa)',
+    !AS.hasAdr({ 'docs/adr/0009-x.md': { added: tpl, isNew: true } }) && !AS.hasAdr({ 'docs/adr/0009-x.md': { added: ['# 9 X', '## Decyzja', 'a', '## Alternatywy', '## Konsekwencje'], isNew: true } }) &&
+    !AS.adrHasTradeoff(['Decyzja: Redis zamiast nic. Koszt: brak.']));
+  const own = require('fs').readFileSync(require('path').join(os.homedir(), '.claude', 'pg', 'adr', '0005-cel-architektury-i-bramka-expand-contract.md'), 'utf8').split('\n');
+  check('arch-signals: prawdziwy ADR (pg/adr/0005) z alternatywami i konsekwencjami => uznany', AS.hasAdr({ 'pg/adr/0005-x.md': { added: own, isNew: true } }));
   check('arch-signals: ADR z trescia rozpoznany; pusty ADR i nie-ADR => nie', AS.hasAdr({ 'docs/adr/0003-kolejka.md': { added: adrBody, isNew: true } }) &&
     !AS.hasAdr({ 'docs/adr/0004-x.md': { added: [''], isNew: true } }) && !AS.hasAdr({ 'docs/README.md': { added: adrBody, isNew: false } }));
   const bump = AS.archSignals(pud('diff --git a/package.json b/package.json\n+++ b/package.json\n-    "zod": "^4.0.1",\n+    "zod": "^4.0.2",\n' +

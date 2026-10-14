@@ -9,6 +9,9 @@ const os = require('os');
 const path = require('path');
 
 const HOME = os.homedir();
+// Telemetria testow do wlasnego pliku w tmp, ZANIM require zaladuje biblioteki bramek (plan v3 L1, 2026-10-14).
+process.env.PG_GATE_LOG = path.join(os.tmpdir(), 'claude-pggaps-gates-' + process.pid + '.jsonl');
+process.on('exit', () => { try { fs.rmSync(process.env.PG_GATE_LOG, { force: true }); } catch (e) { /* sprzatanie best-effort */ } });
 const BIN = path.join(HOME, '.claude', 'bin');
 const HOOKS = path.join(HOME, '.claude', 'hooks');
 const { classify } = require(path.join(HOOKS, 'lib', 'risk-tier.js'));

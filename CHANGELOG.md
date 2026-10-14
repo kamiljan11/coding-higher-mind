@@ -3,6 +3,40 @@
 All notable changes to the public PG export. Dates are the export dates; the private system moves faster and is squashed
 into these releases.
 
+## [1.8.0] — 2026-10-14
+
+Proportionality: a quality system that blocks only where a real incident justified it. Reviewed in four rounds by AI
+reviewers (code, operations and product each round; security and data in the last one). This release loosens gates that
+created friction without catching anything, and stops routines from checking projects nobody is working on.
+
+- **New rule: no incident, no new block.** A new gate starts in observe mode and blocks only after a real incident. PG
+  changes reach new repositories through the template; old project repositories are read-only for the agent unless the
+  owner asks.
+- **Calibrated gates (numbers from the gate log, test fixtures excluded).**
+  - Diff size: 1500 source lines instead of 400. One topic (a migration, generated code, a large feature) stays in one
+    change; independent topics are split.
+  - Duplicate literals: a literal must repeat 6 times in at least 3 files (was 3 times in 2), and seed data is ignored.
+    Invalid threshold arguments now fail instead of silently passing everything.
+  - `rm -rf <build>/cache` (for example `.next/cache`) is allowed; `..` and symlinked parents stay blocked.
+  - Lint after an edit skips throwaway scripts in the temp directory outside any git repository; a clone in temp is still linted.
+- **CHANGELOG at release, not in every PR.** A shared file edited by parallel pull requests caused merge conflicts. The
+  PR title (Conventional Commits) is the record; the release collects titles since the last tag. Reviewers no longer
+  flag a PR without a CHANGELOG entry; the readiness score checks that the latest tag has a version heading.
+- **Routines check only active projects.** The daily PR review and the monthly vulnerability watch take their repo list
+  from GitHub history (`bin/fleet-active-repos.py`): activity in the last 30 days, excluding days when PG swept the whole
+  fleet, fleet-wide rollout PRs and dependency bots. Configuration is data (`pg/fleet-scope.json`: window, always-check
+  list, never-check list). First measurement: 12 active repositories out of 47.
+- **Clean telemetry.** Test batteries write to their own temporary gate log, and the weekly health check counts test
+  traces separately, so bypass counts reflect real work.
+- **Gate decisions recorded.** ADR-0006 (active-repo routines) and ADR-0007 (gate calibration) say how to roll back each
+  item and when to revisit (2026-11-12); a short glossary explains PG terms and how a new gate is added (observe first).
+- **Context window documented.** The session window stays at 400k tokens on purpose (a 1M window used about 2.3 times
+  more of the weekly limit in our transcripts); a 600k trial starts on 2026-10-17 with an explicit keep-or-revert rule.
+- **Known limit: routines are paused.** On the owner's machine no scheduled routine has done any work since the move to
+  a new computer on 2026-10-03 (most started in a folder the app no longer trusts; the rest stopped at an unanswered
+  permission prompt). They are disabled until the setup is fixed, so the new active-repo scope has not run yet. Three
+  will return (vulnerability watch, PR review, weekly health check); three that only work on PG itself stay off.
+
 ## [1.7.0] — 2026-10-11
 
 Architecture that stays decided, and a release pipeline with the second half of what large companies do: a wait before
