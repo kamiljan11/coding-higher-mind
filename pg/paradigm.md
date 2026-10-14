@@ -54,7 +54,7 @@ Deterministycznie: `bin/sql-migration-lint.js --strict`.
 | Zasada | Werdykt | Dlaczego |
 |---|---|---|
 | Encapsulation | TAK, ale przez MODUL (eksportuj malo), nie przez klase z getterami | Ousterhout: deep module = maly interfejs, duza implementacja |
-| Abstraction | TAK, ale dopiero przy 2. realnym uzyciu (rule of three light) | abstrakcja „na zapas" = zlozonosc bez zwrotu; GitClear: LLM i tak generuje za duzo warstw |
+| Abstraction | TAK, ale dopiero przy 2. realnym uzyciu TEJ SAMEJ wiedzy (rule of three light; podobny kod != wspolna wiedza — DRY dotyczy wiedzy, nie wygladu kodu) | abstrakcja „na zapas" = zlozonosc bez zwrotu; GitClear: LLM i tak generuje za duzo warstw |
 | Inheritance | NIE (poza `Error`/framework) | krucha baza, Hyrum, trudne do przejecia |
 | Polymorphism | TAK — unie dyskryminowane + `never`; interfejsy tylko dla wstrzykiwania zaleznosci w testach | mechanicznie sprawdzalne przez tsc |
 | SOLID | SRP (modul = jeden temat), ISP (male typy props), DIP (zaleznosci jako parametry funkcji dla testowalnosci) — TAK; OCP przez konfiguracje/unie; LSP bez hierarchii nieistotne | tylko to, co da sie sprawdzic |
@@ -67,6 +67,11 @@ Deterministycznie: `bin/sql-migration-lint.js --strict`.
 | Immutability | TAK | mniej bugow ze stanu, latwe porownania w React |
 
 ## Kiedy zmienic projekt systemu (sygnaly refaktoru — mierzone, nie odczuwane)
+
+Pomiar (2026-10-11: change amplification NIE ma jeszcze skryptu — liczysz ta komenda, nie na oko): ile katalogow najwyzszego
+poziomu dotyka kazdy z ostatnich 30 commitow funkcjonalnych:
+`git log -30 --no-merges --format=%x00 --name-only | awk 'BEGIN{RS="\0"} NF{delete d; n=0; for(i=1;i<=NF;i++){split($i,p,"/"); if(!(p[1] in d)){d[p[1]]=1;n++}} print n}' | sort -n | uniq -c`
+— wiele commitow z > 3 katalogami = zmiana jest trudna -> refaktor przygotowawczy (design.md B.1b) przed kolejna funkcja.
 
 | Sygnal | Prog | Reakcja |
 |---|---|---|
@@ -91,5 +96,5 @@ dlug historyczny tylko na wskazanie uzytkownika (2026-08-09) — ale funkcje, kt
 - `docs/GLOSSARY.md`: terminy domeny PL/EN/IS (zlecenie=job, kennitala, ISK bez groszy).
 - `docs/RUNBOOK.md`: co robic o 3 w nocy (alerty, rollback, kill switch, kontakty do uslug).
 - Stack „boring" z wersjami w README; zero zaleznosci bez powodu (McKinley: 3 zetony innowacji).
-- `CHANGELOG.md` aktualny (bramka), commity conventional (bramka).
+- `CHANGELOG.md` z sekcja dla kazdego wydania (punkt w `repo-readiness` R5, nie bramka), commity conventional (bramka `commit-msg`).
 - Testy uruchamialne jedna komenda; e2e smoke krytycznych sciezek.

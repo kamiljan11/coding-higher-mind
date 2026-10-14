@@ -40,6 +40,10 @@ check("denylista: lapie linuksowa sciezke domowa", bool(exp.scan("~/x", "f")), "
 check("denylista: fikstura /home/user/ przechodzi", not exp.scan("rm -rf /home/user/x", "f"))
 check("SECRET: token Meta EAA", any("SECRET" in p for p in exp.scan("EAAG" + "a1" * 40, "f")))
 check("scan: kazde trafienie w linii osobno", len(exp.scan("uzytkownik i shop-app", "f")) >= 2, repr(exp.scan("uzytkownik i shop-app", "f")))
+# security etap1f: klient spoza tablicy przeszedl eksport z „problemy: 0" (ADR-0007, fleet-cve-watch) — podmiana + denylista.
+_cl = exp.substitute("replay " + "client-app 31, repo sten" + "erg-prototyp")[0]
+check("substytucja: klient client-app i jego repo", "tenerg" not in _cl.lower() and "client-prototype" in _cl, _cl)
+check("denylista: klient client-app", bool(exp.scan("sten" + "erg", "f")))
 
 with tempfile.TemporaryDirectory() as d:
     u16 = os.path.join(d, "a.csv")

@@ -103,9 +103,11 @@ PG_REFS
 
 # Rozmiar zmiany (ta sama blizna: blok stal POD `exit 0` i nigdy sie nie wykonywal) (research 2026-09-06: duzy PR = slepa recenzja; marketplace-app #2 = 213 plikow, nikt nie zmergowal).
 # Liczy tylko linie zrodlowe (bez lockfile/testow/docs/migracji). Wyjatek: ALLOW_LARGE_DIFF=1.
+# Plan v3 L4 (2026-10-14): prog 400 -> 1500 (tylko giganty). 400 dawal ~110 blokad / 12 dni obchodzonych ALLOW (poziom A),
+# a regula „ten sam temat = ta sama galaz/PR" naturalnie powieksza PR-y. Komunikat nie kaze dzielic jednego tematu.
 if [ "${ALLOW_LARGE_DIFF:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/diff-size-gate.js" ]; then
   if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
-    node "$HOME/.claude/bin/diff-size-gate.js" --base origin/main --max 400 || { echo "[pre-push] diff-size-gate: podziel zmiane na mniejsze PR-y. | BLOCKED: > 400 source lines vs origin/main, split the change. Wyjatek (migracja/generated): ALLOW_LARGE_DIFF=1." >&2; exit 1; }
+    node "$HOME/.claude/bin/diff-size-gate.js" --base origin/main --max 1500 || { echo "[pre-push] diff-size-gate: > 1500 linii zrodlowych vs origin/main — taki diff jest nie do zrecenzowania. Kilka niezaleznych tematow -> rozdziel; jeden temat (migracja, wygenerowany kod, duzy feature) -> ALLOW_LARGE_DIFF=1. | BLOCKED: > 1500 source lines vs origin/main; split only independent topics, one topic: ALLOW_LARGE_DIFF=1." >&2; exit 1; }
   fi
 fi
 

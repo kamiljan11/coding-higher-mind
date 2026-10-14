@@ -89,15 +89,23 @@ const score = (id, name, points, max, why) => results.push({ id, name, points: M
   const adrs = listDir('docs/adr').filter((f) => f.endsWith('.md') && !/^0000/.test(f));
   score('R4', 'ADR (realne)', adrs.length >= 2 ? 8 : adrs.length === 1 ? 5 : 0, 8, adrs.length ? `${adrs.length} ADR` : 'tylko szablon lub brak');
 }
-// R5 CHANGELOG (6): istnieje 2, [Unreleased] 2, swiezy 2 (ostatnia zmiana CHANGELOG >= ostatni feat commit)
+// Naglowek sekcji wersji (## [1.2.0], ## v1.2.0 - data); przy tagu z sufiksem (v1.2.0-rc.1) liczy sie tez sekcja wersji bazowej.
+// Naglowek, nie dowolne wystapienie: '1.2.0' w tresci (np. 'zaleznosc 11.2.0') nie jest sekcja (code-review 2026-10-14 F5/F6).
+function hasVersionHeading(changelog, tag) {
+  const full = tag.replace(/^v/, '');
+  const esc = (v) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return [full, full.replace(/[-+].*$/, '')].some((v) => new RegExp('^##\\s*\\[?v?' + esc(v) + '(?![\\w.-])', 'm').test(changelog));
+}
+// R5 CHANGELOG (6): istnieje 2, sekcja [Unreleased] albo wersji 2, zgodny z wydaniami 2.
+// 2026-10-14 (plan v3 N1): CHANGELOG powstaje przy release z PR-ow od ostatniego tagu, nie w kazdym PR — dlatego
+// swiezosc = najnowszy tag v* ma sekcje w CHANGELOG; brak tagow (brak wydania) = stan poprawny, nie kara.
 {
   const changelog = read('CHANGELOG.md');
   let pts = 0; const why = [];
   if (changelog) pts += 2; else why.push('brak');
-  if (/\[Unreleased\]/i.test(changelog)) pts += 2; else if (changelog) why.push('brak [Unreleased]');
-  const lastChangelog = git(['log', '-1', '--format=%ct', '--', 'CHANGELOG.md']);
-  const lastFeat = git(['log', '-1', '--format=%ct', '--grep=^feat', '--', 'src', 'app', 'lib']);
-  if (changelog && (!lastFeat || Number(lastChangelog) >= Number(lastFeat))) pts += 2; else if (changelog) why.push('feat commity nowsze niz CHANGELOG');
+  if (/\[Unreleased\]|^##\s*\[?v?\d+\.\d+\.\d+/im.test(changelog)) pts += 2; else if (changelog) why.push('brak sekcji [Unreleased]/wersji');
+  const lastTag = git(['describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*', '--match', '[0-9]*']);
+  if (changelog && (!lastTag || hasVersionHeading(changelog, lastTag))) pts += 2; else if (changelog) why.push(`tag ${lastTag} bez sekcji w CHANGELOG`);
   score('R5', 'CHANGELOG', pts, 6, why.join('; '));
 }
 // R6 .github (6)

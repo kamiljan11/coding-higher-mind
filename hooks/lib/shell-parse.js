@@ -36,14 +36,23 @@ function decodeAnsiC(body) {
 function readSubstitution(src, start, closer) {
   let depth = 1;
   let quote = null;
+  let inCase = 0;
   for (let i = start; i < src.length; i++) {
     const ch = src[i];
-    if (quote) { if (ch === '\\' && quote === '"') { i++; continue; } if (ch === quote) quote = null; continue; }
+    if (quote) { if (ch === '\\' && quote !== "'") { i++; continue; } if (ch === quote.slice(-1)) quote = null; continue; }
     if (ch === '\\') { i++; continue; }
+    if (ch === '$' && src[i + 1] === "'") { quote = "$'"; i++; continue; } // $'..': \' nie zamyka (code etap1k)
     if (ch === "'" || ch === '"') { quote = ch; continue; }
     if (closer === '`') { if (ch === '`') return { inner: src.slice(start, i), end: i + 1 }; continue; }
+    // `#` na poczatku slowa = komentarz do konca linii; `case`..`esac`: `)` wzorca nie zamyka podstawienia (code+security etap1j/1k)
+    if (ch === '#' && /[\s(;&|]/.test(src[i - 1] || ' ')) { const nl = src.indexOf('\n', i); if (nl < 0) break; i = nl; continue; }
+    if (/[A-Za-z_]/.test(ch) && !/\w/.test(src[i - 1] || '')) {
+      const w = /^\w+/.exec(src.slice(i))[0];
+      if (w === 'case') inCase++; else if (w === 'esac' && inCase) inCase--;
+      i += w.length - 1; continue;
+    }
     if (ch === '(') depth++;
-    else if (ch === ')' && --depth === 0) return { inner: src.slice(start, i), end: i + 1 };
+    else if (ch === ')' && !(inCase && depth === 1) && --depth === 0) return { inner: src.slice(start, i), end: i + 1 };
   }
   return { inner: src.slice(start), end: src.length };
 }
@@ -53,6 +62,23 @@ function readSubstitution(src, start, closer) {
  * Zwraca liste { words: [..], redirects: [{ op, target }], subst: [inner...], heredocs: [delim], sep } gdzie
  * `sep` = separator PO komendzie ('|' laczy w pipeline). Komentarz `#` na poczatku slowa ucina reszte linii.
  */
+// Tresc heredoca z niecytowanym ogranicznikiem: bash wykonuje w niej $(...) i `...`. Zamiast odtwarzac jego skladnie
+// (komentarz, case, heredoc w srodku, $'..' — kolejne obejscia w recenzjach 1i-1k) reszta tresci od pierwszego
+// podstawienia idzie do parsera jako kod (fail-closed); tresc bez podstawien zostaje danymi. \<newline> znika jak w bashu.
+function heredocCode(body, posix) {
+  let b = '';
+  for (let j = 0; j < body.length; j++) {
+    if (body[j] === '\\' && body[j + 1] === '\n') { j++; continue; }
+    b += body[j];
+    if (body[j] === '\\' && j + 1 < body.length) b += body[++j];
+  }
+  for (let j = 0; j < b.length; j++) {
+    if (b[j] === '\\') { j++; continue; }
+    if ((b[j] === '$' && b[j + 1] === '(') || (posix && b[j] === '`')) return b.slice(j);
+  }
+  return null;
+}
+
 function tokenize(src, notes, dialect) {
   // PowerShell: `\` to zwykly znak (sciezki Windows), znakiem ucieczki jest backtick; backtick NIE jest podstawieniem.
   // cmd.exe: `\` tez zwykly znak. Tylko POSIX sh ma backslash-escape i backtick-podstawienie.
@@ -127,6 +153,8 @@ function tokenize(src, notes, dialect) {
         const em = endRx.exec(rest);
         const body = em ? rest.slice(0, em.index) : rest;
         cur.heredocs.push({ delim: m[2], body });
+        // Ogranicznik bez cudzyslowu: bash wykonuje $(...) i `...` z tresci (security etap1h: `true <<EOF` + `$(ln -s ..)`).
+        if (!m[1]) { const code = heredocCode(body, posix); if (code) cur.subst.push(code); }
         const afterBody = em ? bodyStart + em.index + em[0].length : s.length;
         // Reszta linii z `<<EOF` (np. `| sh`, `> plik`) nadal nalezy do komendy: wycinamy sam operator i tresc heredoca,
         // a parsowanie idzie dalej od reszty linii.
@@ -276,4 +304,4 @@ function parse(raw, opts) {
   return out;
 }
 
-module.exports = { parse, progName, tokenize, unwrap, MAX_INPUT, MAX_DEPTH, INTERPRETERS };
+module.exports = { parse, progName, tokenize, unwrap, heredocCode, MAX_INPUT, MAX_DEPTH, INTERPRETERS };

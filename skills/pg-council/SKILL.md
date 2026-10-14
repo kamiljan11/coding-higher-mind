@@ -63,7 +63,7 @@ Potem ponownie krok 4. Trzeciej rundy nie ma (Debate-or-Vote: kolejne rundy poga
 
 ## 6. Decyzja i zapis (DACI)
 - `approver = uzytkownik`: pokaz raport (krok 7) i ZATRZYMAJ sie — nie implementuj przed decyzja.
-- `approver = orkiestrator`: decyduj wg `council.json`, skopiuj `adr-draft.md` do `docs/adr/NNNN-<slug>.md` repo (uzupelnij koszt/rollback), wpis w CHANGELOG jesli widoczne. uzytkownik = Informed (1 linia w raporcie).
+- `approver = orkiestrator`: decyduj wg `council.json`, skopiuj `adr-draft.md` do `docs/adr/NNNN-<slug>.md` repo (uzupelnij koszt/rollback), tytul PR w Conventional Commits (CHANGELOG dopiero przy release). uzytkownik = Informed (1 linia w raporcie).
 - Sprzeciw zostaje w ADR imiennie (disagree and commit). Nie „wygladzaj" go.
 
 ## 7. Raport dla uzytkownika (<= 5 linii, CAVEMAN; kolejnosc obowiazkowa)

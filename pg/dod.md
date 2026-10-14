@@ -27,8 +27,8 @@ Dzial **qa-reviewer** (`optional_reviewers` w `risk-tier.js`, gdy diff dotyka UI
 | G6 | zaleznosci: `npm audit --audit-level=high`, license-checker, brak nowego pakietu bez wpisu w manifescie | CI; review rubryka | F6 (slopsquatting) |
 | G7 | suppression-as-fix: nowy `eslint-disable` / `@ts-ignore` / `# noqa` / pusty `catch` / luzniejszy tsconfig w diffie | `git diff -U0 \| rg "^\+.*(eslint-disable\|@ts-ignore\|@ts-expect-error\|noqa\|catch \(\w*\) \{\s*\})"` -> code-reviewer blocker | F5, S03 |
 | G8 | test edytowany razem z kodem, ktory testuje, bez uzasadnienia w opisie | `git diff --name-only \| rg "\.test\."` && odpowiadajacy plik zrodlowy w diffie -> pytanie w review | F8 |
-| G9 | CHANGELOG `[Unreleased]` ma wpis, gdy zmiana `feat`/`fix` widoczna dla usera | commit-msg conventional + review checkbox | S28 (-105 commitow) |
-| G10 | jakosc kodu (miary, nie odczucia): `node ~/.claude/bin/fleet-metrics.js --repo .` -> ratchet: silentCatch, anyUsage, functions>60, shortIdentifiers nie rosna vs main | CI (informacyjnie), review | A1: silentCatch 250/298 w workshop-app |
+| G9 | tytul PR / commit w Conventional Commits (`feat`/`fix` widoczne dla usera); `CHANGELOG.md` pisany przy release z PR-ow od ostatniego tagu, NIE w kazdym PR (wspolny plik = konflikty rownoleglych PR; decyzja 2026-10-14) | commit-msg conventional; przy release: sekcja CHANGELOG w PR wydania | konflikty: `CHANGELOG.md` = najczestszy plik z konfliktem merge w transkryptach (30 linii `Merge conflict in CHANGELOG.md`, 4 sesje); wpis „po merge" = dodatkowy PR na chronionym main |
+| G10 | jakosc kodu (miary, nie odczucia): `node ~/.claude/bin/fleet-metrics.js --repo .` -> ratchet: silentCatch, anyUsage, functions>60, shortIdentifiers nie rosna vs punkt odniesienia `docs/quality/baseline-metrics.json` (`bin/baseline-metrics.js`) | review, recznie (porownania z baseline w CI jeszcze NIE ma — nie twierdz, ze ratchet blokuje) | A1: silentCatch 250/298 w workshop-app |
 | G11 | faza projektu: zmiana `pg.phase` -> `production` bez `docs/prr/<data>.md` w tym samym commicie = blok; nieznana wartosc fazy = blok | pre-commit: `node ~/.claude/bin/phase-gate.js --staged` (`ALLOW_PHASE=1`) | slownik SH sekcja 1-2; Lovable-prototypy na prodzie |
 | G12 | srodowiska: `.env.local`/`.env.development` wskazuje na `SUPABASE_PROJECT_REF_PROD` = dev na prodzie | stop-gate (ostrzezenie) + ops-reviewer 2 + PRR P15: `node ~/.claude/bin/env-ref-gate.js --repo .` | workshop-app live-testing na prodzie 2026-07 |
 | G13 | dlug rejestrowany przy zaciagnieciu: nowy `TODO|FIXME|HACK|XXX` w kodzie bez zmiany `docs/quality/BACKLOG.md` w tym samym commicie = blok | pre-commit: `node ~/.claude/bin/todo-ledger-gate.js --staged` (`ALLOW_TODO=1`) | slownik SH: dlug = kredyt z odsetkami; PR „Pominiete" ginelo |
@@ -43,7 +43,7 @@ Kazdy punkt ma `how_to_check`; finding bez wykonanej komendy w `evidence` nie is
 5. **Naming/comments**: nazwy z domeny z jednostka; komentarz opisujacy CO -> usun; DLACZEGO -> zostaje. `rg "//\s*(set|get|return|loop|increment)"`
 6. **Errors/observability**: kazdy `catch` loguje z kontekstem lub rethrow; user widzi sensowny komunikat. `rg -n "catch \(" -A3`
 7. **Consistency**: konwencje sasiednich plikow > preferencje autora; brak nowego wzorca bez ADR. `ls` katalogu, porownaj
-8. **Docs**: README gdy zmiana setup/env/komend; ADR gdy architektura; CHANGELOG gdy feat/fix. `git diff --name-only \| rg "README\|CHANGELOG\|docs/"`
+8. **Docs**: README gdy zmiana setup/env/komend; ADR gdy architektura; CHANGELOG tylko w PR wydania (release). `git diff --name-only \| rg "README\|CHANGELOG\|docs/"`
 
 ## Definition of Done — deklaracja koncowa (w raporcie, z dowodem)
 - Komendy + exit code: lint, tsc, testy (nie „przeszlo").

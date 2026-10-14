@@ -16,8 +16,22 @@ i nie bylo wypelniane (ADR = 0 w 6/7 repo, audyt 2026-09-05).
 6. **Rachunek zamiast gustu**: koszt budowy + utrzymania vs wartosc; alternatywa NIE-kodowa (instrukcja dla pracownika klienta, gotowy komponent, no-code, „nie robic") nazwana i odrzucona z powodem. Proces obslugujacy 2 przypadki brzegowe miesiecznie = kwadrans pracy czlowieka, nie 2 miesiace kodu.
 7. **Rynek, gdy funkcja jest widoczna dla klienta klienta**: 1 search, 5 minut — jak ten sam problem rozwiazuje konkurencja klienta; jesli lepiej, STOP i sygnal w gore zamiast konczenia w ciemno rzeczy, o ktorej juz wiadomo, ze powstaje przestarzala.
 
+## B.0 Cel architektury (dzial: Architecture) — 3-4 linie, RAZ na projekt, zanim powstanie macierz obszarow (2026-10-11)
+Pytanie: „czy architektura ma konkretny cel i czy zespol go zna?”. PRD-lite (A) mowi, po co jest PRODUKT; B.0 mowi, czemu
+podporzadkowane sa decyzje TECHNICZNE. Bez tego kazdy obszar macierzy (G) optymalizuje „wszystko”, a konflikty (cache vs spojnosc,
+koszt vs region, szybkosc dostawy vs izolacja) rozstrzyga gust sesji.
+1. **Cel: 1 zdanie** — co architektura ma umozliwic biznesowo, z liczba (z A.1/A.5): „mechanik zamyka zlecenie z telefonu w 2 min, faktura tego samego dnia”.
+2. **Ranking 2-3 priorytetow** (atrybuty jakosci w KOLEJNOSCI, kazdy mierzalny): np. 1. izolacja danych organizacji, 2. zmiany tresci przez klienta bez deployu, 3. koszt < 200 zl/mies. Remis = brak rankingu.
+3. **Swiadomie poswiecamy** — co jest gorsze, zeby 1-3 dzialaly (offline, skala > N, multi-region). To lista „nie potrzebujesz jeszcze” z uzasadnieniem.
+4. **Gdzie zyje i kto go zna:** sekcja `## Cel architektury` w `docs/ARCHITECTURE.md` (szablon). `arch-check --brief` wstrzykuje ja na starcie KAZDEJ sesji (zespol = uzytkownik + agenci; takze w repo bez macierzy). ADR podaje numer priorytetu (szablon), uzasadnienie wiersza macierzy moze go wskazac (konwencja, nie egzekwowane), konflikt obszarow = wygrywa wyzszy priorytet. Brak sekcji = problem `no-goal` w arch-check: obecny juz na poczatku sesji = tylko lista (stare repo, naprawa na „napraw”); powstaly w tej sesji (nowe repo) przy `pg.sd_matrix: required` = blokada stop-gate [arch-drift]. „Z liczba” i „mierzalny” to norma recenzji (product-reviewer), nie regex.
+
 ## B. Mini-design (dzial: Architecture) — 5 linii
 1. **Podejscie + jedna ODRZUCONA alternatywa z powodem** (koszt/ryzyko/boring tech: 3 zetony innowacji na projekt).
+1b. **Najpierw zrob zmiane latwa, potem latwa zmiane** (Kent Beck; III prawo: adaptowalnosc > perfekcja, 2026-10-11): jesli zmiana
+   wymaga dotkniecia > 3 plikow w roznych katalogach albo obejscia istniejacej struktury -> NAJPIERW refaktor przygotowawczy
+   (osobny commit/PR, zero zmian zachowania, testy zielone przed i po), POTEM sama zmiana. Dozwolone przy ZAKRESIE: to kod,
+   ktorego dotykasz w tym zadaniu, nie sprzatanie historii. Adaptowalnosc != abstrakcje na zapas: „puste sloty” tylko dla
+   tego, co klient poprosi za 3 miesiace (B.2), reszta = NIE TERAZ z sygnalem powrotu.
 2. **Model danych i granice**: ktore tabele/moduly; co jest DANE (edytowalne przez klienta) vs KOD; co klient poprosi za 3 miesiace -> puste sloty teraz.
 3. **Blast radius**: kto to wola, co jeszcze czyta te dane, ktory tier wg `hooks/lib/risk-tier.js` (`node ~/.claude/hooks/lib/risk-tier.js <root> <pliki>`).
 4. **Rollback**: odwracalne? feature flag? migracja DWUETAPOWA (add-nullable -> backfill -> constraint), kompatybilna z poprzednia wersja kodu przez 1 deploy.
@@ -75,11 +89,11 @@ Szablon: `templates/repo/docs/adr/0000-template.md`. Tresc: kontekst, decyzja, o
 Dlaczego: bez macierzy nie da sie odroznic „swiadomie nie dotyczy" od „przeoczone" (tender-app 2026-10: rate limiting i real-time pominiete bez decyzji); B+ dziala tylko od T2, a drzwi jednokierunkowe (ID, pliki, tozsamosc, region) nie czekaja na tier.
 - **Lista obszarow:** `~/.claude/pg/sd-areas.json` — 37 obszarow kursu w 12 grupach + grupa `stack`: 25 warstw narzedzi `stack-*` (frontend … wysylka; karta `stack-catalog.md`, artefakt Stack Picker https://claude.ai/artifact/CaWzJDJ4iikuxtnh2FZooD — nic nie jest wybrane z gory, rynek PL/UE/globalny/IS) = 62 wiersze (id, karta, `one_way`, warianty). `mas-quality-init.sh` tworzy pusty `docs/architecture/obszary.md` przy bootstrapie. Szablon tabeli: `node ~/.claude/bin/sd-matrix-lint.js --template > docs/architecture/obszary.md`.
 - **Kiedy:**
-  - nowy projekt (7N) = wszystkie 62 wiersze (37 obszarow + 25 warstw stack);
+  - nowy projekt (7N) od fazy `mvp` = wszystkie 62 wiersze (37 obszarow + 25 warstw stack); `prototype`/`poc` = bez `pg.sd_matrix: required`, tylko 9 drzwi jednokierunkowych rozstrzygnietych w ADR albo obszary.md (proporcjonalnosc, 2026-10-14);
   - wybor/zmiana narzedzia, dostawcy, platnosci, hostingu = wiersze grupy `stack` (`--groups stack`);
   - repo z macierza sprzed 2026-10-10 (37 wierszy) przy wlaczaniu `pg.sd_matrix: required`: najpierw dopisz 25 wierszy `stack-*` (`node ~/.claude/bin/sd-matrix-lint.js --template --groups stack | grep "(stack-" >> docs/architecture/obszary.md` albo eksport z artefaktu), inaczej lint = 25x brak-wiersza;
   - duza zmiana (7D), nowa tabela, endpoint, zaleznosc lub integracja = wiersze grup, ktorych dotyka diff (`--groups g1,g2`);
-  - wiersze `one_way: true` (model danych, ID, pliki/bucket, tozsamosc, kontrakt API, podzial na uslugi, DNS/domena, region, DR) = ZAWSZE, niezaleznie od tieru.
+  - wiersze `one_way: true` (9 drzwi jednokierunkowych z `sd-areas.json`: `databases` model danych, `id-generation` ID, `object-storage` pliki/bucket, `auth` tozsamosc, `api-design` kontrakt API, `microservices-monolith` podzial na uslugi, `dns-routing` DNS/domena, `multi-region-dr` region+DR, `cloud-building-blocks` dostawca/klocki chmury) = ZAWSZE, niezaleznie od tieru.
 - **Plik w repo projektu:** `docs/architecture/obszary.md`, jedna tabela:
   `| Obszar (id) | Status | Decyzja / uzasadnienie | Dowod | Sygnal powrotu |` — komorka obszaru `Nazwa (id)`.
 - **Status** ∈ {`DECYZJA`, `NIE DOTYCZY`, `NIE TERAZ`}; kazdy wymaga tekstu w „Decyzja / uzasadnienie", a ponadto:

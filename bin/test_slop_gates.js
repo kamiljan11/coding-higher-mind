@@ -57,6 +57,14 @@ it('diff-size-gate BLOKUJE 500 linii zrodlowych', () => {
   reset(); write('src/big.ts', Array.from({ length: 500 }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n'); stage('src/big.ts');
   assert.equal(run('diff-size-gate.js', '--staged', '--max', '400').status, 1);
 });
+// Domyslny prog bez --max (plan v3 L4: 1500) — przypiety granicami, nie jawnym --max (code-review etap1c).
+it('diff-size-gate domyslnie przepuszcza 1400 linii i blokuje 1600', () => {
+  const src = (n) => Array.from({ length: n }, (_, i) => `export const v${i} = ${i};`).join('\n') + '\n';
+  reset(); write('src/big.ts', src(1400)); stage('src/big.ts');
+  assert.equal(run('diff-size-gate.js', '--staged').status, 0);
+  reset(); write('src/big.ts', src(1600)); stage('src/big.ts');
+  assert.equal(run('diff-size-gate.js', '--staged').status, 1);
+});
 it('diff-size-gate ignoruje testy, lockfile i migracje', () => {
   reset(); const big = Array.from({ length: 500 }, (_, i) => `export const v${i} = ${i};`).join('\n');
   write('src/big.test.ts', big); write('package-lock.json', '{}'); write('supabase/migrations/1.sql', big); stage('src/big.test.ts', 'package-lock.json', 'supabase/migrations/1.sql');
@@ -71,8 +79,50 @@ it('diff-size-gate nadal LICZY zwykly SQL poza migracjami i testami', () => {
   reset(); write('db/report.sql', Array.from({ length: 500 }, (_, i) => `select ${i};`).join('\n')); stage('db/report.sql');
   assert.equal(run('diff-size-gate.js', '--staged', '--max', '400').status, 1);
 });
-it('dup-literals BLOKUJE literal x3 w 2 plikach', () => {
+// Kalibracja plan v3 L4 (2026-10-14): prog 6x w >= 3 plikach (bylo 3x/2) + seedy ignorowane.
+it('dup-literals BLOKUJE literal x6 w 3 plikach', () => {
+  reset();
+  write('src/a.ts', 'const a = "Acme Rentals Ltd.";\nconst b = "Acme Rentals Ltd.";\n');
+  write('src/b.ts', 'const c = "Acme Rentals Ltd.";\nconst d = "Acme Rentals Ltd.";\n');
+  write('src/c.ts', 'const e = "Acme Rentals Ltd.";\nconst f = "Acme Rentals Ltd.";\n');
+  stage('src/a.ts', 'src/b.ts', 'src/c.ts');
+  assert.equal(run('dup-literals.js', '--staged').status, 1);
+});
+it('dup-literals PRZEPUSZCZA literal x3 w 2 plikach (ponizej progu 6/3)', () => {
   reset(); write('src/a.ts', 'const a = "Acme Rentals Ltd.";\nconst b = "Acme Rentals Ltd.";\n'); write('src/b.ts', 'const c = "Acme Rentals Ltd.";\n'); stage('src/a.ts', 'src/b.ts');
+  assert.equal(run('dup-literals.js', '--staged').status, 0);
+});
+// Granice obu wymiarow progu (code-review 2026-10-14): cofniecie jednego z nich ma wywalic test.
+it('dup-literals PRZEPUSZCZA x6 w 2 plikach (za malo plikow) i x5 w 3 plikach (za malo kopii)', () => {
+  reset();
+  write('src/a.ts', 'const a = "Acme Rentals Ltd.";\nconst b = "Acme Rentals Ltd.";\nconst c = "Acme Rentals Ltd.";\n');
+  write('src/b.ts', 'const d = "Acme Rentals Ltd.";\nconst e = "Acme Rentals Ltd.";\nconst f = "Acme Rentals Ltd.";\n');
+  stage('src/a.ts', 'src/b.ts');
+  assert.equal(run('dup-literals.js', '--staged').status, 0, 'x6/2');
+  reset();
+  write('src/a.ts', 'const a = "Acme Rentals Ltd.";\nconst b = "Acme Rentals Ltd.";\n');
+  write('src/b.ts', 'const c = "Acme Rentals Ltd.";\nconst d = "Acme Rentals Ltd.";\n');
+  write('src/c.ts', 'const e = "Acme Rentals Ltd.";\n');
+  stage('src/a.ts', 'src/b.ts', 'src/c.ts');
+  assert.equal(run('dup-literals.js', '--staged').status, 0, 'x5/3');
+});
+it('dup-literals: --min-files abc = blad (exit 2), nie ciche przepuszczenie', () => {
+  reset(); assert.equal(run('dup-literals.js', '--staged', '--min-files', 'abc').status, 2);
+});
+it('dup-literals PRZEPUSZCZA seedy (seed.ts, db/seeds/, scripts/seed-*) nawet x6 w 3 plikach', () => {
+  reset();
+  write('src/seed.ts', 'const a = "Acme Rentals Ltd.";\nconst b = "Acme Rentals Ltd.";\n');
+  write('db/seeds/b.ts', 'const c = "Acme Rentals Ltd.";\nconst d = "Acme Rentals Ltd.";\n');
+  write('scripts/seed-demo.ts', 'const e = "Acme Rentals Ltd.";\nconst f = "Acme Rentals Ltd.";\n');
+  stage('src/seed.ts', 'db/seeds/b.ts', 'scripts/seed-demo.ts');
+  assert.equal(run('dup-literals.js', '--staged').status, 0);
+});
+it('dup-literals NADAL skanuje kod z „seed" w nazwie (seeds-service, seed.service, features/seeds/) — security-review F2', () => {
+  reset();
+  write('src/seeds-service.ts', 'const a = "Acme Rentals Ltd.";\nconst b = "Acme Rentals Ltd.";\n');
+  write('src/seed.service.ts', 'const c = "Acme Rentals Ltd.";\nconst d = "Acme Rentals Ltd.";\n');
+  write('src/features/seeds/pricing.ts', 'const e = "Acme Rentals Ltd.";\nconst f = "Acme Rentals Ltd.";\n');
+  stage('src/seeds-service.ts', 'src/seed.service.ts', 'src/features/seeds/pricing.ts');
   assert.equal(run('dup-literals.js', '--staged').status, 1);
 });
 it('dep-exists: czyste funkcje — nowe zaleznosci i typosquat (Damerau-1)', () => {

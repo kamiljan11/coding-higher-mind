@@ -36,6 +36,7 @@ Zasada przewodnia (z `SKILL.md`): burden of proof leży po stronie złożoności
 | Dane z cache/ISR/repliki bywają stare; „zapisałem, nie widzę" | `02 › Spójność per przepływ`, `02 › Cache i inwalidacja` |
 | Zdjęcia/pliki/załączniki | `02 › Pliki i object storage` |
 | Typ ID, numeracja dokumentów, enumeracja po ID | `02 › Identyfikatory` |
+| „Ma być szybkie / skalowalne / niezawodne" — który to atrybut, scenariusz z liczbą, ranking B.0 | `atrybuty-jakosci.md` |
 | „Czy to uniesie?", limity połączeń, plan bazy | `03 › Wąskie gardło i skalowanie`, `capacity.md` |
 | Kiedy wejść piętro wyżej (VM → baza osobno → obserwowalność → LB → CDN/cache → kolejka → repliki/sharding), sygnały skalowania | `03 › Drabina skalowania (kiedy wejść piętro wyżej)` |
 | Nagłówki cache, CDN, bezpieczeństwo nagłówków | `03 › CDN, nagłówki i brzeg` |
