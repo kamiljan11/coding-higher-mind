@@ -57,7 +57,10 @@ def repo_alerts(owner, name, token, gh):
         return [], "err shape"
     if len(alerts) >= 100:  # pelna strona = lista moze byc niepelna; glosny blad zamiast zanizonej liczby
         return [], "err truncated"
-    return [alert_row(a) for a in alerts], "ok"
+    try:
+        return [alert_row(a) for a in alerts], "ok"
+    except (AttributeError, TypeError):  # element listy nie jest obiektem alertu (code etap1k)
+        return [], "err shape"
 
 
 def run(cfg, token, out=print, list_repos=far.list_repos, gh=far.gh):
@@ -93,7 +96,7 @@ def main():
         if not token:
             raise RuntimeError("brak tokenu - uruchom przez menedzer sekretow (np. Infisical CLI) (--secrets GITHUB_Token)")
         return run(cfg, token)
-    except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError, RuntimeError) as e:  # siec/HTTP, JSON, config = jawny FAILED z END
+    except (OSError, http.client.HTTPException, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as e:  # siec/HTTP, JSON, config = jawny FAILED z END
         print(f"fleet-dependabot-alerts: BLAD {type(e).__name__}: {e}", file=sys.stderr)
         print("END repos=0 alerts=0 disabled=0 err=1")
         return 1

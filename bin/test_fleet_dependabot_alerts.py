@@ -105,6 +105,10 @@ class Run(unittest.TestCase):
         self.assertEqual(lines, ["ERR\ta\tjson", "ERR\tb\tshape", "ERR\tc\tnet:IncompleteRead",
                                  "END repos=4 alerts=0 disabled=0 err=3"])
 
+    def test_non_object_alert_is_shape_err_and_scan_continues(self):
+        rc, lines = collect(CFG, repos("a", "b"), lambda p, t: ["not-a-dict"] if "/a/" in p else [ALERT])
+        self.assertEqual((rc, lines[0], lines[-1]), (1, "ERR\ta\tshape", "END repos=2 alerts=1 disabled=0 err=1"))
+
     def test_alert_without_fix_or_scope_keeps_columns(self):
         bare = {"security_advisory": {"severity": "high", "ghsa_id": "GHSA-bbbb"},
                 "dependency": {"package": {"ecosystem": "pip", "name": "pillow"}}}

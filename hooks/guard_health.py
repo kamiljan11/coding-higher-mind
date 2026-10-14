@@ -414,7 +414,7 @@ for logname in (_cc_tasks or ["fleet-pr-reviewer", "fleet-cve-watch"]):
         starts = [i for i, ln in enumerate(lines) if ln.startswith("STARTED")]
         run = lines[starts[-1]:] if starts else lines[-1:]
         words = [(_status_word(ln), ln) for ln in run]
-        failed = [ln for w, ln in words if w == "FAILED" or "KROK 1b FAILED" in ln]
+        failed = [ln for w, ln in words if w == "FAILED" or re.search(r"KROK 1b\W+FAILED", ln)]
         if lines and lines[-1].startswith("STARTED"):
             red.append(f"log {logname}: ostatni wpis to STARTED bez DONE/FAILED — run umarl w trakcie")
         elif failed:

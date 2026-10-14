@@ -121,7 +121,16 @@ BLOCK.push('rm -rf cache', 'rm -rf ~/cache', 'rm -rf src/cache', 'rm -rf node_mo
       ['<<"EOF" => wolno', `cat <<"EOF"\n$(${MRG})\nEOF`, 0],
       ['<<\\EOF => wolno', `cat <<\\EOF\n$(${MRG})\nEOF`, 0],
       ['\\$( w tresci => wolno', `cat <<EOF\n\\$(${MRG})\nEOF`, 0],
+      // code etap1k: heredoc w srodku podstawienia i $'..' z \' — reszta tresci od podstawienia = kod
+      ['$(cat <<X ) X ..) => blok', `cat <<EOF2 > /dev/null\n$(cat <<X\n)\nX\n${MRG})\nEOF2`, 2],
+      ["$(echo $'\\')' ..) => blok", `cat <<EOF\n$(echo $'\\')'; ${MRG})\nEOF`, 2],
+      ['commit z $(date) i proza => wolno', `git commit -F - <<EOF\nfix: x $(date +%F)\n\nRemoves old cache, don't worry (see #12)\nEOF`, 0],
     ]) check(`bash-guard heredoc: ${name}`, runHook('bash-guard.js', { tool_name: 'Bash', tool_input: { command: cmd }, cwd: proj }).status === want);
+    // heredocCode: tabela jednostkowa (code etap1k: skaner mial tylko testy e2e)
+    const { heredocCode } = require(path.join(HOOKS, 'lib', 'shell-parse.js'));
+    for (const [body, want] of [['dane bez podstawien\n', null], ['a $(b) c\n', '$(b) c\n'], ['\\$(b)\n', null], ['$\\\n(b)\n', '$(b)\n'], ['x `y` z\n', '`y` z\n'], ['\\\\$(b)\n', '$(b)\n']]) {
+      check(`heredocCode(${JSON.stringify(body)}) => ${JSON.stringify(want)}`, heredocCode(body, true) === want);
+    }
     // Koszt wyjatku (code etap1h): inna komenda w lancuchu = blok; to samo w osobnym wywolaniu przechodzi (wyzej).
     check('bash-guard: npm run build && rm -rf <abs>/.next/cache => blok', runHook('bash-guard.js', { tool_name: 'Bash', tool_input: { command: `npm run build && rm -rf ${path.join(proj, '.next', 'cache')}` }, cwd: proj }).status === 2);
     check('bash-guard: cd "$P" && rm -rf <abs>/.next/cache => wolno (cel absolutny)', runHook('bash-guard.js', { tool_name: 'Bash', tool_input: { command: `cd "$P" && rm -rf ${path.join(proj, '.next', 'cache')}` }, cwd: proj }).status === 0);
@@ -147,6 +156,8 @@ BLOCK.push('rm -rf cache', 'rm -rf ~/cache', 'rm -rf src/cache', 'rm -rf node_mo
     out = runGH('STARTED 2026-11-01\nCHECKPOINT rate limit: zrobione a,b\n', 'STARTED 2026-11-01\n- STATUS: **FAILED** — x\n');
     check('guard_health: STARTED + checkpoint bez statusu => RED', /RED: log fleet-cve-watch: ostatni przebieg bez statusu koncowego/.test(out));
     check('guard_health: - STATUS: **FAILED** => RED', /RED: log fleet-pr-reviewer: ostatni przebieg FAILED/.test(out));
+    out = runGH('STARTED 2026-11-01\nKROK 1b: FAILED — err=2 (a 403)\nDONE 2026-11-01\n', 'STARTED 2026-11-01\nDONE 2026-11-01\n');
+    check('guard_health: KROK 1b: FAILED przy DONE => RED (ops etap1k)', /RED: log fleet-cve-watch: ostatni przebieg FAILED/.test(out));
     out = runGH('STARTED 2026-11-01\nSTATUS: **VERIFIED** — ok\n---\n', 'STARTED 2026-11-01\nCOMMENT-ONLY 2026-11-01 — 3 PR\n');
     // warunek pozytywny: guard_health naprawde przebiegl (pusty stdout nie moze dac zielonego testu — ops etap1j)
     check('guard_health: STATUS: **VERIFIED** / COMMENT-ONLY => brak RED', /task fleet-cve-watch SKILL\.md/.test(out) && !/RED: log fleet-(cve-watch|pr-reviewer)/.test(out));
