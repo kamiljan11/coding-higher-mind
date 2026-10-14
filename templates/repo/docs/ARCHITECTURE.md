@@ -2,6 +2,15 @@
 
 <!-- Cel: senior, ktory nigdy nie widzial repo, znajduje miejsce zmiany w 15 min. Aktualizuj przy kazdym ADR. -->
 
+## Cel architektury
+<!-- pg/design.md B.0. Czyta to `arch-check --brief` na starcie kazdej sesji (zespol = uzytkownik + agenci). Zastap <...>; placeholder = brak celu.
+     Konflikt miedzy obszarami (cache vs spojnosc, koszt vs region) rozstrzyga WYZSZY priorytet; ADR podaje, ktoremu priorytetowi sluzy. -->
+Cel: <jedno zdanie: co architektura ma umozliwic biznesowo, z liczba>
+1. <priorytet nr 1 — atrybut jakosci + miara>
+2. <priorytet nr 2>
+3. <priorytet nr 3 (opcjonalnie)>
+Swiadomie poswiecamy: <co jest gorsze, zeby 1-3 dzialaly>
+
 ## Co to jest (3 zdania)
 - Dla kogo, jaki problem, jaki model biznesowy (kto placi).
 

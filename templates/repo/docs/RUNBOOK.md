@@ -12,7 +12,7 @@
 ## SLA — krytycznosc i czas reakcji (`pg.sla` w CLAUDE.md: none / internal / contract)
 | SEV | Co | Reakcja | Naprawa lub obejscie | Kto dzwoni |
 |---|---|---|---|---|
-| SEV1 | platnosci, logowanie, utrata/wyciek danych, strona nie wstaje | [1 h] | [4 h] | wlasciciel + klient natychmiast |
+| SEV1 | platnosci, logowanie, utrata/wyciek danych, strona nie wstaje | [1 h od wykrycia — czas wykrycia zalezy od monitoringu nizej] | [4 h] | wlasciciel + klient natychmiast |
 | SEV2 | funkcja glowna nie dziala, jest obejscie | [1 dzien roboczy] | [3 dni] | klient na weekly / mail |
 | SEV3 | kosmetyka, drobiazg | backlog | nastepny release | — |
 - Umowa SLA z klientem: [brak / link do umowy]; pula godzin/mies.: [n]; wycena CR w [n] dni.
@@ -87,9 +87,16 @@ Setup jednorazowy (bez niego bramki sa SKIPPED albo tylko alarmuja — sprawdz c
   BAKE (>= 10 min) i po rollbacku stary kod dziala na nowym schemacie:
   - nowa kolumna NOT NULL = z DEFAULT albo w 2 krokach (nullable + backfill -> NOT NULL w nastepnym wydaniu);
   - zmiana nazwy = expand (nowa kolumna + zapis do obu) -> backfill -> przelaczenie odczytu -> contract (usuniecie starej) dopiero po pelnym WATCH;
-  - DROP/RENAME/NOT NULL bez DEFAULT = osobny PR po pelnym WATCH. UWAGA: to dyscyplina recenzji (dzial data), NIE bramka —
-    `sql-migration-lint` nie ma reguly na RENAME ani SET NOT NULL; DROP bez `IF EXISTS` i ADD COLUMN NOT NULL bez DEFAULT zglasza jako MEDIUM
-    (bez blokady), a `drop column if exists` (typowy contract) przechodzi bez uwag.
+  - DROP/RENAME/SET NOT NULL istniejacego obiektu = osobny PR po pelnym WATCH. Bramka: `sql-migration-lint` R14 (HIGH — pre-commit blokuje
+    stagowana migracje) i R7 (ADD COLUMN NOT NULL bez DEFAULT, HIGH; serial/identity maja DEFAULT niejawny); obie pomijaja tabele utworzone WYZEJ
+    w tym samym pliku zwyklym `create table` (`create table if not exists` nie zwalnia — tabela mogla powstac w panelu). Swiadomy krok
+    contract: komentarz `-- pg:contract <powod>` w NAGLOWKU pliku migracji (przed pierwsza instrukcja; wzmianka nizej nie dziala). R14 lapie tez:
+    zmiane typu kolumny, SET SCHEMA, DROP DEFAULT, DROP constraintu `*_key`/`*_pkey`/`*_uq`/`*uniq*` (stary upsert onConflict; inna nazwa = sprawdz recznie), DDL w blokach `do $$`,
+    DROP/RENAME/SET SCHEMA funkcji (RPC), widokow, typow i schematow w `public` (DROP+CREATE funkcji z innymi typami argumentow = nowa
+    sygnatura RPC); SET NOT NULL flagowany takze z backfillem, bo stary kod moze wstawiac NULL. Poza zasiegiem: dynamiczny SQL
+    (`execute '...'`), ADD CONSTRAINT (CHECK/FK) — sprawdz recznie, czy stary kod go nie lamie.
+  - Recenzja PR: `sql-migration-lint --strict --since origin/main` = tylko migracje z PR (historyczne nie blokuja). Brak `origin/main`
+    (repo bez remote, galaz master) -> podaj galaz bazowa (`--since main`/`--since master`); zly ref = exit 2, nie cichy sukces.
   - Kolejnosc: migracja EXPAND przed mergem zmiany kodu (BAKE widzi nowy schemat); CONTRACT dopiero po pelnym WATCH nastepnego wydania.
 - Migracje stosowane POZA repo (SQL z panelu, reczne `psql` bez pliku w diffie): bramka ich nie widzi -> ustaw `PG_AUTO_ROLLBACK=off`.
 ```bash
@@ -106,6 +113,13 @@ git revert <sha-zlego-commita> && git push   # naprawa do przodu (po rollbacku: 
 - Bledy runtime: Sentry [link do projektu] — alerty ida na you@example.com
 - Healthcheck: [URL/status] — sprawdz najpierw to
 - CI: zakladka Actions w repo (Quality Gate musi byc zielony)
+
+## Zaleznosci zewnetrzne (co sie psuje, gdy dostawca padnie)
+<!-- Czyta to karta sd/05-niezawodnosc.md (zaleznosci i tryby awarii). Pusty wiersz "[np. ...]" = sekcja niewypelniona. Wiersz na kazda usluge spoza repo (baza, auth, platnosci, mail, SMS, LLM, storage). -->
+| Dostawca | Co przestaje dzialac | Co widzi uzytkownik | Wylacznik / tryb awaryjny | Status / kontakt |
+|---|---|---|---|---|
+| [np. Supabase] | | | | |
+| [np. LLM — Anthropic] | | | | |
 
 ## Typowe awarie
 | Objaw | Pierwszy krok |

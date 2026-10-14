@@ -1,7 +1,8 @@
 # Changelog
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), wersjonowanie: [SemVer](https://semver.org/).
-Kazdy PR dopisuje zmiany do [Unreleased]; przy release przenosimy pod numer wersji z data.
+Zwykly PR NIE edytuje tego pliku (wspolny plik = konflikty rownoleglych PR); jego tytul w Conventional Commits wystarcza.
+Przy release: sekcja z numerem wersji i data zebrana z PR-ow od ostatniego tagu (`git log vPOPRZEDNI..HEAD --oneline`), w jezyku klienta.
 
 ## [Unreleased]
 ### Added

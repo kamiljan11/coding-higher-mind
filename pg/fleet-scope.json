@@ -1,0 +1,13 @@
+{
+  "_opis": "Zakres rutyn floty (fleet-pr-reviewer, fleet-cve-watch). uzytkownik 2026-10-14: sprawdzamy tylko repo, nad ktorymi realnie pracujemy (historia GitHuba), nie cala flote. Czyta bin/fleet-active-repos.py. Edytuj swobodnie: to dane, nie kod.",
+  "owner": "<github-owner>",
+  "active_days": 30,
+  "exclude": ["travel-site"],
+  "_exclude": "Nigdy nie sprawdzamy, takze w podsumowaniach (uzytkownik 2026-10-14: travel-site nigdzie).",
+  "sweep_min_repos": 8,
+  "_sweep_min_repos": "Dzien z ruchem w >= tylu repo naraz = przeglad floty przez PG, nie praca nad projektem; taki dzien sie nie liczy. Kalibracja 2026-10-14 (30 dni): zwykle dni 1-6 repo (rownolegle sesje), przeglady 10 (09-20) i 14 (10-05).",
+  "pin": [],
+  "_pin": "Repo sprawdzane ZAWSZE, nawet uspione (np. zywy produkt z klientami). Puste = tylko aktywnosc.",
+  "dependency_bots": ["dependabot[bot]", "dependabot-preview[bot]", "renovate[bot]", "github-actions[bot]"],
+  "_dependency_bots": "Ich commity i PR-y nie sa aktywnoscia. Boty Lovable (gpt-engineer-app[bot], lovable-dev[bot]) SA: to praca uzytkownika w Lovable."
+}

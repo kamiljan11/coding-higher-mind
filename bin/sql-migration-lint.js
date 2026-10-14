@@ -33,13 +33,14 @@ const CHECKS = {
   R4: { severity: SEVERITY.HIGH, why: 'SECURITY DEFINER function missing search_path pin or execute lockdown' },
   R5: { severity: SEVERITY.HIGH, why: 'GRANT to anon beyond SELECT' },
   R6: { severity: SEVERITY.MEDIUM, why: 'destructive DDL without IF EXISTS breaks re-run / partial-apply migrations' },
-  R7: { severity: SEVERITY.MEDIUM, why: 'ADD COLUMN ... NOT NULL without DEFAULT fails on existing rows' },
+  R7: { severity: SEVERITY.HIGH, noDowngrade: true, why: 'ADD COLUMN ... NOT NULL without DEFAULT fails on existing rows and breaks old code that inserts without it (expand/contract)' },
   R8: { severity: SEVERITY.LOW, why: 'FK-shaped column with no matching index (heuristic, perf not security)' },
   R9: { severity: SEVERITY.HIGH, why: 'job/note/order/customer FK with no org/tenant column and no same_org trigger (workshop-app IDOR pattern)' },
   R10: { severity: SEVERITY.HIGH, why: 'SECURITY DEFINER RPC takes an id param but body has no auth.uid()/org check' },
   R11: { severity: SEVERITY.MEDIUM, why: 'USING (true) on a non-obviously-public table -> unrestricted row access' },
   R12: { severity: SEVERITY.MEDIUM, why: 'migration filename does not sort deterministically (bad prefix or duplicate timestamp)' },
   R13: { severity: SEVERITY.INFO, why: 'function left at default EXECUTE-to-PUBLIC (no REVOKE/GRANT tightening seen)' },
+  R14: { severity: SEVERITY.HIGH, noDowngrade: true, why: 'backward-incompatible schema change (RENAME / DROP / SET NOT NULL / TYPE / SET SCHEMA on an existing table, function, view, type or schema): the previous app version runs on the new schema during BAKE and after a rollback — split into expand/contract, or put `-- pg:contract <reason>` in the file header (before the first statement)' },
 };
 
 // ---------------------------------------------------------------------------
@@ -76,6 +77,38 @@ const RE = {
   orgMention: /org/i,
   fileNamePrefix: /^(\d{14})_/,
   lintIgnore: /lint-ignore\s+(r\d+)/i,
+  // Znacznik kroku contract: wlasna linia komentarza w NAGLOWKU pliku (przed 1. instrukcja) z powodem — wzmianka w srodku
+  // pliku albo w literale nie zwalnia (code/data-review 2026-10-11).
+  pgContract: /^\s*--\s*pg:contract\b\s*[:\-–—]?\s*\S.{8,}$/i,
+};
+
+// Identyfikator SQL: "cytowany" albo goly; nazwa kwalifikowana schema.obiekt — format `supabase db diff` to "public"."orders"
+// (stare regexy lapaly z niego samo "public": data-review 2026-10-11).
+const SQL_ID = '(?:"(?:[^"]|"")+"|[a-zA-Z_][a-zA-Z0-9_$]*)';
+const SQL_QID = `${SQL_ID}(?:\\s*\\.\\s*${SQL_ID})?`;
+const OBJ_KIND = '(function|procedure|view|materialized\\s+view|type|schema)';
+const RE14 = {
+  createTable: new RegExp(`^create\\s+(?:(?:global\\s+|local\\s+)?(?:temp|temporary|unlogged)\\s+)?table\\s+(if\\s+not\\s+exists\\s+)?(${SQL_QID})`, 'i'),
+  alterTable: new RegExp(`^alter\\s+table\\s+(?:if\\s+exists\\s+)?(?:only\\s+)?(${SQL_QID})\\s*\\*?\\s+([\\s\\S]+)$`, 'i'),
+  dropTable: /^drop\s+table\s+(?:if\s+exists\s+)?([\s\S]+?)(?:\s+(?:cascade|restrict))?$/i,
+  createObject: new RegExp(`^create\\s+(?:or\\s+replace\\s+)?${OBJ_KIND}\\s+(?:if\\s+not\\s+exists\\s+)?(${SQL_QID})`, 'i'),
+  dropObject: new RegExp(`^drop\\s+${OBJ_KIND}\\s+(?:if\\s+exists\\s+)?([\\s\\S]+?)(?:\\s+(?:cascade|restrict))?$`, 'i'),
+  renameObject: new RegExp(`^alter\\s+${OBJ_KIND}\\s+(?:if\\s+exists\\s+)?(${SQL_QID})[\\s\\S]*?\\b(?:rename\\s+(value|to|attribute|column)|set\\s+(schema))\\b`, 'i'),
+  qid: new RegExp(`^(${SQL_QID})`),
+  actRenameTo: new RegExp(`^rename\\s+to\\s+(${SQL_ID})`, 'i'),
+  actRenameConstraint: /^rename\s+constraint\b/i,
+  actRenameColumn: new RegExp(`^rename\\s+(?:column\\s+)?(${SQL_ID})\\s+to\\b`, 'i'),
+  actSetSchema: new RegExp(`^set\\s+schema\\s+(${SQL_ID})`, 'i'),
+  actSetNotNull: new RegExp(`^alter\\s+(?:column\\s+)?(${SQL_ID})\\s+set\\s+not\\s+null\\b`, 'i'),
+  actType: new RegExp(`^alter\\s+(?:column\\s+)?(${SQL_ID})\\s+(?:set\\s+data\\s+)?type\\b`, 'i'),
+  actDropConstraint: /^drop\s+constraint\b/i,
+  // unikalny/PK constraint (domyslne nazwy Postgresa *_key / *_pkey): stary .upsert(onConflict) bez niego = 42P10.
+  actDropUnique: new RegExp(`^drop\\s+constraint\\s+(?:if\\s+exists\\s+)?(${SQL_ID})`, 'i'),
+  actDropDefault: new RegExp(`^alter\\s+(?:column\\s+)?(${SQL_ID})\\s+(?:drop\\s+default|set\\s+default\\s+null)\\b`, 'i'),
+  dropIndex: /^drop\s+index\s+(?:concurrently\s+)?(?:if\s+exists\s+)?([\s\S]+?)(?:\s+(?:cascade|restrict))?$/i,
+  uniqueIndexName: new RegExp(`^create\\s+unique\\s+index\\s+(?:concurrently\\s+)?(?:if\\s+not\\s+exists\\s+)?(${SQL_ID})\\s+on\\s+(?:only\\s+)?${SQL_QID}[^(]*\\(([^)]*)\\)`, 'i'),
+  uniqueConstraintNames: new RegExp(`\\bconstraint\\s+(${SQL_ID})\\s+(?:unique|primary\\s+key)\\b`, 'gi'),
+  actDropColumn: new RegExp(`^drop\\s+(?:column\\s+)?(?:if\\s+exists\\s+)?(${SQL_ID})`, 'i'),
 };
 
 const SKIP_SCHEMAS = new Set(['auth', 'storage', 'extensions', 'graphql', 'graphql_public', 'realtime', 'vault', 'pgsodium', 'net']);
@@ -151,8 +184,11 @@ function splitStatements(text) {
       continue;
     }
     if (ch === "'") {
+      // E'...' dopuszcza \' — bez tego literal „konczyl sie" za wczesnie i polykal nastepne instrukcje (data-review 2026-10-11)
+      const eString = /[eE]/.test(text[i - 1] || '') && !/[A-Za-z0-9_]/.test(text[i - 2] || '');
       i++;
       while (i < n) {
+        if (eString && text[i] === '\\') { i += 2; continue; }
         if (text[i] === "'" && text[i + 1] === "'") { i += 2; continue; }
         if (text[i] === "'") { i++; break; }
         i++;
@@ -209,7 +245,159 @@ function findMigrationFiles(repoPath) {
 }
 
 function normalizeTable(name) {
-  return name.replace(/"/g, '').toLowerCase().replace(/^public\./, '');
+  return name.replace(/"/g, '').replace(/\s+/g, '').toLowerCase().replace(/^public\./, '');
+}
+
+// Tekst instrukcji bez komentarzy poza 'literalami' i "identyfikatorami" (DEFAULT '--' nie ucina reszty instrukcji).
+function ddlText(text) {
+  let out = '';
+  let q = null;
+  let esc = false; // E'...' z \' (data-review 2026-10-11): bez tego reszta instrukcji ginela jako literal
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (esc && ch === '\\') { out += '  '; i++; continue; }
+      out += ch; if (ch === q) q = null; continue;
+    }
+    if (ch === "'" || ch === '"') { q = ch; esc = ch === "'" && /[eE]/.test(text[i - 1] || '') && !/[A-Za-z0-9_]/.test(text[i - 2] || ''); out += ch; continue; }
+    if (ch === '-' && text[i + 1] === '-') { while (i < text.length && text[i] !== '\n') i++; out += ' '; continue; }
+    if (ch === '/' && text[i + 1] === '*') { const e = text.indexOf('*/', i + 2); i = e === -1 ? text.length : e + 1; out += ' '; continue; }
+    out += ch;
+  }
+  return out.trim();
+}
+
+// Zawartosc nawiasow tuz za pozycja `from` (lista argumentow funkcji) albo null, gdy nawiasow brak.
+function parenArgs(text, from) {
+  let i = from;
+  while (i < text.length && /\s/.test(text[i])) i++;
+  if (text[i] !== '(') return null;
+  let depth = 0;
+  for (let j = i; j < text.length; j++) {
+    if (text[j] === '(') depth++;
+    else if (text[j] === ')' && --depth === 0) return text.slice(i + 1, j);
+  }
+  return null;
+}
+// Sygnatura funkcji: DROP f(typy) pasuje do CREATE f(...) tylko przy tych samych typach w tej samej kolejnosci (nazwa
+// parametru, IN/VARIADIC i DEFAULT pomijane; typ DROP = sufiks argumentu CREATE). Alias typu (int/integer) = brak dopasowania
+// = trafienie (ostroznie). DROP bez listy argumentow = po nazwie.
+const MULTIWORD_TYPE_RX = /^(?:double\s+precision|character\s+varying|bit\s+varying|(?:timestamp|time)(?:\s*\(\d+\))?\s+with(?:out)?\s+time\s+zone)\b/i;
+// Parametr funkcji: {name|null, type, out, hasDefault}. Jeden token = sam typ (lista DROP).
+function parseParam(raw) {
+  let a = raw.replace(/"/g, '').replace(/\s+/g, ' ').trim();
+  const hasDefault = /\s(?:default\b|=)/i.test(` ${a}`);
+  a = a.replace(/\s*(?:\bdefault\b|=)[\s\S]*$/i, '').trim();
+  const mode = (/^(in|out|inout|variadic)\s+/i.exec(a) || [])[1];
+  if (mode) a = a.slice(mode.length).trim();
+  const lower = a.toLowerCase();
+  const sp = lower.indexOf(' ');
+  const typeOnly = sp < 0 || MULTIWORD_TYPE_RX.test(lower);
+  return { name: typeOnly ? null : lower.slice(0, sp), type: typeOnly ? lower : lower.slice(sp + 1), out: /^out$/i.test(mode || ''), hasDefault };
+}
+const inParams = (args) => (args == null ? null : splitTopLevel(args).map(parseParam).filter((p) => !p.out));
+// Nowa definicja zgodna ze stara: kazdy stary parametr jest (po nazwie, a gdy nazwy brak — po pozycji) z tym samym typem,
+// a kazdy NOWY ma DEFAULT. Alias typu (int/integer) = niezgodne (ostroznie).
+function compatibleParams(prev, next) {
+  if (!prev || !next) return false;
+  const used = new Set();
+  for (let i = 0; i < prev.length; i++) {
+    const p = prev[i];
+    const j = p.name ? next.findIndex((q) => q.name === p.name) : i;
+    if (j < 0 || j >= next.length || next[j].type !== p.type) return false;
+    used.add(j);
+  }
+  return next.every((q, j) => used.has(j) || q.hasDefault);
+}
+const normArg = (a) => a.toLowerCase().replace(/"/g, '').replace(/\s*(?:\bdefault\b|=)[\s\S]*$/, '').replace(/^(?:in|inout|variadic)\s+/, '').replace(/\s+/g, ' ').trim();
+function sigMatches(dropArgs, createArgs) {
+  if (dropArgs == null) return true;
+  if (createArgs == null) return false;
+  const d = splitTopLevel(dropArgs).map(normArg);
+  const c = splitTopLevel(createArgs).map(normArg).filter((a) => !/^out\s/.test(a));
+  return d.length === c.length && d.every((t, i) => c[i] === t || c[i].endsWith(' ' + t));
+}
+
+// Podzial po przecinkach na najwyzszym poziomie (poza nawiasami, 'literalami' i "identyfikatorami").
+function splitTopLevel(text) {
+  const parts = [];
+  let depth = 0, start = 0, q = null;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === q) q = null; continue; }
+    if (ch === "'" || ch === '"') q = ch;
+    else if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    else if (ch === ',' && depth === 0) { parts.push(text.slice(start, i)); start = i + 1; }
+  }
+  parts.push(text.slice(start));
+  return parts.map((p) => p.trim()).filter(Boolean);
+}
+
+// Czy tabela jest NOWA (pusta, nieuzywana przez stary kod) w miejscu instrukcji `seq`: utworzona w tym samym pliku
+// WCZESNIEJ zwyklym `create table` (bez if not exists); create PO alterze nie zwalnia altera; `drop table x; create table x` -> drop flagowany osobno.
+function newTableIndex(allStmts) {
+  const perFile = new Map();
+  allStmts.forEach((s, seq) => {
+    const c = RE14.createTable.exec(ddlText(s.text));
+    if (!c) return;
+    const t = normalizeTable(c[2]);
+    // `if not exists` = autor zaklada, ze tabela moze juz istniec (takze spoza historii migracji: panel, Lovable) —
+    // nigdy nie zwalnia (code-review 2026-10-11, runda 2).
+    if (c[1]) return;
+    if (!perFile.has(s.file)) perFile.set(s.file, new Map());
+    const f = perFile.get(s.file);
+    if (!f.has(t)) f.set(t, seq);
+  });
+  return (file, seq, table) => {
+    const at = perFile.get(file) && perFile.get(file).get(normalizeTable(table));
+    return at !== undefined && at < seq;
+  };
+}
+
+// Instrukcje z cial `do $$ ... $$` dolaczone jako wirtualne instrukcje (ten sam plik i linia bloku). Idempotentny
+// wzorzec `if exists (...) then alter table ...; end if;` byl dla R14/R7 niewidoczny (data-review 2026-10-11, runda 2).
+// Dynamiczny SQL (`execute '...'`) zostaje poza zasiegiem.
+const DDL_START_RX = /\b(?:alter\s+(?:table|function|procedure|view|materialized\s+view|type|schema)|drop\s+(?:table|function|procedure|view|materialized\s+view|type|schema)|create\s+(?:or\s+replace\s+)?(?:(?:global\s+|local\s+)?(?:temp|temporary|unlogged)\s+)?(?:table|function|procedure|view|materialized\s+view|type|schema))\b/i;
+function withDoBlocks(allStmts) {
+  const out = [];
+  for (const s of allStmts) {
+    out.push(s);
+    if (!/^do\b/i.test(s.text)) continue;
+    const body = RE.dollarBody.exec(s.text);
+    if (!body) continue;
+    for (const inner of splitStatements(body[2])) {
+      const t = ddlText(inner.text);
+      const masked = t.replace(/'(?:[^']|'')*'/g, (m) => ' '.repeat(m.length));
+      const at = masked.search(DDL_START_RX);
+      if (at >= 0) out.push({ ...s, text: t.slice(at), fromDo: true });
+    }
+  }
+  return out;
+}
+
+// Unikalny klucz/indeks (cel onConflict starego upsertu): nazwa znana z repo (create unique index / constraint ... unique|primary key)
+// albo domyslny wzorzec nazwy. uniqueNames ustawia checkR14 przed iteracja.
+let uniqueNames = new Set();
+const isUniqueName = (n) => uniqueNames.has(normalizeTable(n)) || /(_p?key|_uq|_uidx|uniq\w*)"?$/i.test(n);
+
+// Akcje ALTER TABLE niezgodne wstecz: [{kind, col?, to?}].
+function breakingAlterActions(rest) {
+  const out = [];
+  for (const a of splitTopLevel(rest)) {
+    let m;
+    if ((m = RE14.actRenameTo.exec(a))) out.push({ kind: 'RENAME TABLE', to: m[1] });
+    else if (RE14.actRenameConstraint.test(a)) continue;
+    else if ((m = RE14.actRenameColumn.exec(a))) out.push({ kind: 'RENAME COLUMN', col: m[1] });
+    else if ((m = RE14.actSetSchema.exec(a))) out.push({ kind: 'SET SCHEMA', to: m[1] });
+    else if ((m = RE14.actSetNotNull.exec(a))) out.push({ kind: 'SET NOT NULL', col: m[1] });
+    else if ((m = RE14.actType.exec(a))) out.push({ kind: 'ALTER COLUMN TYPE', col: m[1] });
+    else if ((m = RE14.actDropDefault.exec(a))) out.push({ kind: 'DROP DEFAULT', col: m[1] });
+    else if ((m = RE14.actDropUnique.exec(a)) && isUniqueName(m[1])) out.push({ kind: 'DROP UNIQUE', col: m[1] });
+    else if (RE14.actDropConstraint.test(a)) continue;
+    else if ((m = RE14.actDropColumn.exec(a))) out.push({ kind: 'DROP COLUMN', col: m[1] });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,20 +549,24 @@ function checkR6_dropWithoutIfExists(allStmts) {
   return findings;
 }
 
-function checkR7_notNullNoDefault(allStmts) {
+function checkR7_notNullNoDefault(rawStmts) {
   const findings = [];
-  for (const s of allStmts) {
-    if (!/alter\s+table/i.test(s.text) || !/add\s+column/i.test(s.text)) continue;
+  const allStmts = withDoBlocks(rawStmts);
+  const isNew = newTableIndex(allStmts);
+  allStmts.forEach((s, seq) => {
+    if (!/alter\s+table/i.test(s.text) || !/add\s+column/i.test(s.text)) return;
+    const t = RE14.alterTable.exec(ddlText(s.text));
+    if (t && isNew(s.file, seq, t[1])) return; // nowa (pusta) tabela utworzona wyzej w tym pliku
     RE.addColumnClause.lastIndex = 0;
     let m;
     while ((m = RE.addColumnClause.exec(s.text)) !== null) {
       const colName = m[1];
       const colDef = m[2];
-      if (/not\s+null/i.test(colDef) && !/default/i.test(colDef) && !/generated\s+always/i.test(colDef)) {
+      if (/not\s+null/i.test(colDef) && !/default/i.test(colDef) && !/generated\s+(?:always|by\s+default)/i.test(colDef) && !/\b(?:small|big)?serial[248]?\b/i.test(colDef)) {
         findings.push({ id: 'R7', file: s.file, line: s.startLine, message: `ADD COLUMN "${colName}" NOT NULL without DEFAULT` });
       }
     }
-  }
+  });
   return findings;
 }
 
@@ -500,6 +692,128 @@ function checkR13_functionDefaultExecute(allStmts) {
   return findings;
 }
 
+// R14: zmiana schematu niezgodna wstecz (expand/contract). Poprzednia wersja aplikacji dziala na nowym schemacie w oknie BAKE
+// (>= 10 min) i po rollbacku Vercela (ktory NIE cofa bazy) — RENAME/DROP/SET NOT NULL/zmiana typu istniejacego obiektu ja psuja.
+// Obiekty: tabele (kazda akcja ALTER TABLE i kazda tabela z listy DROP TABLE), a takze funkcje/RPC, widoki, typy, schematy
+// (supabase.rpc() i .from('widok') w starym kodzie). DROP funkcji/widoku/typu odtworzonego w tym samym pliku = podmiana, nie usuniecie.
+// Wyjatek: znacznik `-- pg:contract <powod>` w naglowku pliku (swiadomy krok contract po pelnym WATCH poprzedniego wydania).
+// SET NOT NULL flagowany takze z backfillem w tej samej migracji: backfill naprawia stare wiersze, ale stary kod wstawiajacy
+// NULL i tak padnie (data-review 2026-10-11). Zmiana typu = takze poszerzenie (varchar(50)->text); wtedy `-- lint-ignore R14` z powodem.
+function hasContractHeader(fileRec) {
+  const first = fileRec.statements[0];
+  const end = first ? first.startLine - 1 : fileRec.rawLines.length;
+  return fileRec.rawLines.slice(0, end).some((l) => RE.pgContract.test(l));
+}
+
+function checkR14_backwardIncompatible(rawStmts, fileRecords) {
+  const findings = [];
+  const allStmts = withDoBlocks(rawStmts);
+  const isNew = newTableIndex(allStmts);
+  const contractFiles = new Set(fileRecords.filter(hasContractHeader).map((f) => f.name));
+  const objKey = (kind, name) => `${kind.toLowerCase().replace(/\s+/g, ' ')}:${normalizeTable(name)}`;
+  const isFn = (kind) => /^(function|procedure)$/i.test(kind);
+  const objsCreated = new Map(); // plik -> Map(kind:nazwa -> [lista argumentow CREATE])
+  for (const s of allStmts) {
+    const text = ddlText(s.text);
+    const c = RE14.createObject.exec(text);
+    if (!c) continue;
+    if (!objsCreated.has(s.file)) objsCreated.set(s.file, new Map());
+    const f = objsCreated.get(s.file);
+    const k = objKey(c[1], c[2]);
+    if (!f.has(k)) f.set(k, []);
+    f.get(k).push(isFn(c[1]) ? parenArgs(text, c.index + c[0].length) : null);
+  }
+  // Podmiana w tym samym pliku zwalnia DROP; dla funkcji tylko przy tej samej liczbie argumentow — inna sygnatura RPC
+  // lamie stare wywolania supabase.rpc() (code-review 2026-10-11, runda 2). DROP bez listy argumentow = po nazwie.
+  // Podmiana funkcji: nowa definicja z tego pliku musi byc zgodna z POPRZEDNIA definicja z repo (nazwy+typy+DEFAULT), a gdy
+  // repo jej nie zna — z typami z listy DROP; DROP bez listy i bez znanej definicji = trafienie (data-review 2026-10-11).
+  const objInFile = (file, kind, name, dropArgs, prevArgs) => {
+    const created = (objsCreated.get(file) || new Map()).get(objKey(kind, name));
+    if (!created) return false;
+    if (!isFn(kind)) return true;
+    const prev = prevArgs !== undefined ? inParams(prevArgs) : inParams(dropArgs);
+    return created.some((args) => compatibleParams(prev, inParams(args)));
+  };
+  const lastFnDef = new Map(); // kind:nazwa -> lista argumentow ostatniego CREATE przed biezaca instrukcja
+  const lastIdxCols = new Map(); // indeks unikalny -> kolumny ostatniej definicji przed biezaca instrukcja
+  const idxInFile = new Map(); // plik -> Map(indeks -> [kolumny])
+  const idxCols = (c) => c.toLowerCase().replace(/["\s]/g, '');
+  uniqueNames = new Set();
+  for (const s of allStmts) {
+    const t = ddlText(s.text);
+    const u = RE14.uniqueIndexName.exec(t);
+    if (u) {
+      const k = normalizeTable(u[1]);
+      uniqueNames.add(k);
+      if (!idxInFile.has(s.file)) idxInFile.set(s.file, new Map());
+      const f = idxInFile.get(s.file);
+      if (!f.has(k)) f.set(k, []);
+      f.get(k).push(idxCols(u[2]));
+    }
+    RE14.uniqueConstraintNames.lastIndex = 0;
+    let uc;
+    while ((uc = RE14.uniqueConstraintNames.exec(t)) !== null) uniqueNames.add(normalizeTable(uc[1]));
+  }
+  // Stary kod siega tylko do obiektow wystawionych przez PostgREST (schemat public): funkcje triggerow w app_private
+  // itp. nie sa RPC, wiec ich DROP/RENAME nie lamie poprzedniej wersji aplikacji (flota 2026-10-11: 4 falszywe alarmy).
+  const exposed = (kind, name) => /^schema$/i.test(kind) || !normalizeTable(name).includes('.');
+  const show = (name) => name.replace(/"/g, '').replace(/\s+/g, '');
+  const add = (s, message) => findings.push({ id: 'R14', file: s.file, line: s.startLine, message });
+  allStmts.forEach((s, seq) => {
+    const text = ddlText(s.text);
+    const cf = RE14.createObject.exec(text);
+    if (cf && isFn(cf[1])) lastFnDef.set(objKey(cf[1], cf[2]), parenArgs(text, cf.index + cf[0].length));
+    const ui = RE14.uniqueIndexName.exec(text);
+    if (ui) lastIdxCols.set(normalizeTable(ui[1]), idxCols(ui[2]));
+    if (contractFiles.has(s.file)) return;
+    let m;
+    if ((m = RE14.alterTable.exec(text))) {
+      const table = m[1];
+      if (isNew(s.file, seq, table)) return;
+      for (const a of breakingAlterActions(m[2])) {
+        const t = show(table);
+        if (a.kind === 'RENAME TABLE') add(s, `RENAME TABLE ${t} -> ${show(a.to)} (old code still uses the old name)`);
+        else if (a.kind === 'SET SCHEMA') add(s, `SET SCHEMA ${t} -> ${show(a.to)} (for PostgREST/old code this is a rename)`);
+        else if (a.kind === 'RENAME COLUMN') add(s, `RENAME COLUMN ${t}.${show(a.col)} (old code still uses the old name)`);
+        else if (a.kind === 'SET NOT NULL') add(s, `SET NOT NULL on existing column ${t}.${show(a.col)} (old code may insert NULL)`);
+        else if (a.kind === 'ALTER COLUMN TYPE') add(s, `ALTER COLUMN TYPE ${t}.${show(a.col)} (old code reads/writes the old type; table rewrite under lock)`);
+        else if (a.kind === 'DROP COLUMN') add(s, `DROP COLUMN ${t}.${show(a.col)} (old code may still read it)`);
+        else if (a.kind === 'DROP DEFAULT') add(s, `DROP DEFAULT ${t}.${show(a.col)} (old inserts relying on the default get NULL or fail on NOT NULL)`);
+        else if (a.kind === 'DROP UNIQUE') add(s, `DROP CONSTRAINT ${t}.${show(a.col)} (old upsert onConflict needs this unique key)`);
+      }
+    } else if ((m = RE14.dropTable.exec(text))) {
+      for (const part of splitTopLevel(m[1])) {
+        const q = RE14.qid.exec(part);
+        if (q && !isNew(s.file, seq, q[1])) add(s, `DROP TABLE ${show(q[1])} (old code may still use it)`);
+      }
+    } else if ((m = RE14.dropObject.exec(text))) {
+      const kind = m[1];
+      for (const part of splitTopLevel(m[2])) {
+        const q = RE14.qid.exec(part);
+        if (!q) continue;
+        const dropArgs = isFn(kind) ? parenArgs(part, q[0].length) : null;
+        const prevArgs = lastFnDef.has(objKey(kind, q[1])) ? lastFnDef.get(objKey(kind, q[1])) : undefined;
+        if (exposed(kind, q[1]) && !objInFile(s.file, kind, q[1], dropArgs, prevArgs)) add(s, `DROP ${kind.toUpperCase().replace(/\s+/g, ' ')} ${show(q[1])} (old code may still call/read it)`);
+      }
+    } else if ((m = RE14.dropIndex.exec(text))) {
+      for (const part of splitTopLevel(m[1])) {
+        const q = RE14.qid.exec(part);
+        if (!q) continue;
+        const k = normalizeTable(q[1].replace(/^.*\./, ''));
+        // Odtworzenie w tym samym pliku z TYMI SAMYMI kolumnami = podmiana (np. CONCURRENTLY); inne kolumny = inny cel onConflict.
+        const again = (idxInFile.get(s.file) || new Map()).get(k);
+        const prev = lastIdxCols.get(k);
+        if (again && (prev === undefined || again.includes(prev))) continue;
+        if (isUniqueName(k)) add(s, `DROP INDEX ${show(q[1])} (unique index — old upsert onConflict needs it${again ? '; recreated with different columns' : ''})`);
+      }
+    } else if ((m = RE14.renameObject.exec(text))) {
+      const what = (m[3] || `set ${m[4]}`).toUpperCase();
+      if (exposed(m[1], m[2]) && !objInFile(s.file, m[1], m[2], null)) add(s, `${/^SET/.test(what) ? what : 'RENAME ' + what} on ${m[1].toUpperCase().replace(/\s+/g, ' ')} ${show(m[2])} (old code still uses the old name)`);
+    }
+  });
+  return findings;
+}
+
 // ---------------------------------------------------------------------------
 // Orchestration
 // ---------------------------------------------------------------------------
@@ -523,6 +837,7 @@ function runChecks(repoPath) {
     ...checkR11_usingTrue(allStmts),
     ...checkR12_fileNaming(filesMeta),
     ...checkR13_functionDefaultExecute(allStmts),
+    ...checkR14_backwardIncompatible(allStmts, fileRecords),
   ];
 
   // Suppression: `-- lint-ignore Rn` on the line directly above the finding.
@@ -548,7 +863,8 @@ function runChecks(repoPath) {
   const downgraded = new Set();
   for (const [id, fileSet] of filesPerCheck) {
     const ratio = fileSet.size / totalFiles;
-    if (sampleBigEnough && ratio > BROAD_HEURISTIC_RATIO && CHECKS[id].severity > SEVERITY.INFO) {
+    // noDowngrade: R7/R14 oceniaja konkretna zmiane — 70% historycznych DROP-ow nie moze wyciszyc nowego (ops-review 2026-10-11).
+    if (sampleBigEnough && ratio > BROAD_HEURISTIC_RATIO && CHECKS[id].severity > SEVERITY.INFO && !CHECKS[id].noDowngrade) {
       downgraded.add(id);
       downgradeNotes.push(`${id} downgraded to INFO: fired on ${Math.round(ratio * 100)}% of files (${fileSet.size}/${totalFiles}) — heuristic likely too broad here`);
     }
@@ -567,13 +883,14 @@ function runChecks(repoPath) {
 // CLI
 // ---------------------------------------------------------------------------
 function parseArgs(argv) {
-  const opts = { repo: process.cwd(), json: false, minSeverity: SEVERITY.INFO, strict: false };
+  const opts = { repo: process.cwd(), json: false, minSeverity: SEVERITY.INFO, strict: false, since: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--repo') opts.repo = argv[++i];
     else if (a === '--json') opts.json = true;
     else if (a === '--min-severity') opts.minSeverity = SEVERITY[argv[++i].toUpperCase()] ?? SEVERITY.INFO;
     else if (a === '--strict') opts.strict = true;
+    else if (a === '--since') opts.since = argv[++i];
   }
   return opts;
 }
@@ -597,9 +914,31 @@ function formatHuman(result, minSeverity) {
   return lines.join('\n');
 }
 
+// --since <ref>: findings tylko z migracji zmienionych od merge-base(ref, HEAD) (sledzone + nieśledzone; po nazwie pliku —
+// nazwy migracji to unikalne znaczniki czasu). Kontekst nadal z CALEGO zestawu.
+// Po co: `--strict` w pg-review blokowal PR przez historyczna migracje (R14 na zastosowanym dawno pliku, flota 2026-10-11).
+function changedFilesSince(repo, ref) {
+  const { spawnSync } = require('child_process');
+  if (/^-/.test(ref)) throw new Error(`--since: ref nie moze zaczynac sie od '-': ${ref}`);
+  const { CHILD_ENV } = require('../hooks/lib/lint-file'); // obce repo: bez core.fsmonitor/untrackedCache (security-review)
+  const g = (args) => spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', env: CHILD_ENV });
+  // merge-base: zmiany na ref, ktorych galaz nie ma, nie wchodza do zbioru (code-review 2026-10-11)
+  const mb = g(['merge-base', ref, 'HEAD']);
+  const base = mb.status === 0 && mb.stdout.trim() ? mb.stdout.trim() : ref;
+  const d = g(['diff', '--name-only', base]);
+  if (d.status !== 0) throw new Error(`--since: git diff ${ref} nie powiodl sie: ${String(d.stderr).trim().slice(0, 160)}`);
+  const u = g(['ls-files', '--others', '--exclude-standard']);
+  return new Set(`${d.stdout}\n${u.stdout || ''}`.split('\n').filter(Boolean).map((f) => path.basename(f)));
+}
+
 function main() {
   const opts = parseArgs(process.argv.slice(2));
   const result = runChecks(opts.repo);
+  if (opts.since) {
+    const changed = changedFilesSince(opts.repo, opts.since);
+    result.findings = result.findings.filter((f) => changed.has(f.file));
+    result.since = opts.since;
+  }
   if (opts.json) {
     process.stdout.write(JSON.stringify(result, null, 2) + '\n');
   } else {
@@ -612,4 +951,6 @@ function main() {
 
 module.exports = { runChecks, splitStatements, SEVERITY, CHECKS, normalizeTable };
 
-if (require.main === module) main();
+if (require.main === module) {
+  try { main(); } catch (e) { process.stderr.write(`sql-migration-lint: ${e.message}\n`); process.exit(2); }
+}

@@ -22,8 +22,7 @@ Jeden temat. Zmiany niezwiazane -> osobny PR. Tier (z `node ~/.claude/hooks/lib/
 - [ ] Repo klienckie: feature ma wiersz w `docs/SCOPE.md` (albo to CR z decyzja klienta)
 
 ## Wplyw na release
-- [ ] widoczne dla usera -> wpis w `CHANGELOG.md [Unreleased]`
-- [ ] tylko docs/CI/dev -> bez changelogu
+- [ ] tytul PR w Conventional Commits (`feat:`/`fix:` = trafi do CHANGELOG przy release; nie edytuj `CHANGELOG.md` w PR)
 - [ ] migracja / edge fn -> krok deployu opisany (Lovable: Publish reczny + `supabase functions deploy`; Vercel: push)
 - [ ] rollback: jak cofnac w < 5 min
 

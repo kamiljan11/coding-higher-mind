@@ -184,6 +184,14 @@ if GATES_LOG.exists():
             e = json.loads(line)
             if datetime.fromisoformat(e["ts"].replace("Z", "+00:00")) < since:
                 continue
+            if e.get("redirected"):
+                # Slad z PG_GATE_LOG testow (gate-log.js kopiuje bypass z redirected:true) = osobny licznik,
+                # nie zawyza obejsc floty (ops-review 2026-10-14: LARGE_DIFF 294 z 521 to fixture'y). Powody zostaja
+                # widoczne pod wlasnym kluczem, zeby obejscie z przekierowanym logiem nie znikalo (code-review 2026-10-14).
+                counts[("test-redirected", e.get("event"))] += 1
+                if e.get("event") == "bypass":
+                    counts[("bypass-redirected-reason", (e.get("reason") or "")[:60])] += 1
+                continue
             counts[(e.get("hook"), e.get("event"))] += 1
             if e.get("event") in ("bypass", "would_block"):
                 counts[(e.get("event") + "-reason", (e.get("reason") or "")[:60])] += 1
@@ -388,13 +396,36 @@ for task in [d.name for d in sorted((CLAUDE / "scheduled-tasks").glob("*")) if d
     check(f"task {task} SKILL.md", sk.exists())
     if sk.exists():
         check(f"task {task} model pin", re.search(r"^model:", read(sk), re.MULTILINE) is not None, "brak model: we frontmatter")
+_STATUS_RX = re.compile(r"(STATUS:\s*)?(DONE|VERIFIED|UNVERIFIED|REPORT-ONLY|COMMENT-ONLY|FAILED)\b")
+
+
+def _status_word(ln):
+    """Slowo statusu linii logu rutyny: 'STATUS: **FAILED** — x', '- FAILED x', 'DONE 2026-..' -> slowo; inna linia -> None."""
+    m = _STATUS_RX.match(re.sub(r"[*_`]", "", ln).lstrip(" \t-#>"))
+    return m.group(2) if m else None
+
+
 _cc_tasks = [d.name for d in sorted((CLAUDE / "scheduled-tasks").glob("*")) if d.is_dir()]
 for logname in (_cc_tasks or ["fleet-pr-reviewer", "fleet-cve-watch"]):
     lf = LOG_DIR / f"{logname}.md"
     if lf.exists():
         lines = [ln for ln in read(lf).splitlines() if ln.strip()]
+        # ostatni przebieg = od ostatniego STARTED; status bywa w srodku albo jako "STATUS: FAILED" (ops etap1h)
+        starts = [i for i, ln in enumerate(lines) if ln.startswith("STARTED")]
+        run = lines[starts[-1]:] if starts else lines[-1:]
+        words = [(_status_word(ln), ln) for ln in run]
+        failed = [ln for w, ln in words if w == "FAILED" or "KROK 1b FAILED" in ln]
         if lines and lines[-1].startswith("STARTED"):
             red.append(f"log {logname}: ostatni wpis to STARTED bez DONE/FAILED — run umarl w trakcie")
+        elif failed:
+            # Rutyna sama zglosila porazke (np. fleet-active-repos: blad API/mostu) — bez tego FAILED zostawal zielony (ops-review 2026-10-14).
+            red.append(f"log {logname}: ostatni przebieg FAILED — {failed[-1][:120]}")
+        elif starts and not any(w for w, _ in words):
+            # STARTED + checkpoint/pozycje, ale bez statusu = przebieg przerwany (rate limit, padl) (ops etap1i)
+            red.append(f"log {logname}: ostatni przebieg bez statusu koncowego (DONE/STATUS) — {run[-1][:100]}")
+        gaps = [ln for ln in run if "BEZ POKRYCIA CVE" in ln or "BRAK SKANU CVE" in ln]
+        if gaps:  # staly stan (repo bez lockfile / alertow) = info na poczatku, nie red co miesiac
+            info.insert(0, f"log {logname}: {len(gaps)} repo bez skanu CVE — {gaps[0][:100]}")
 
 # 5. blokada platnych tokenow w tle
 if os.name == "nt":
@@ -419,6 +450,11 @@ check("pg-mutate: kazdy mutant bash-guard zabity", _rc_out(_r)[0] == 0, (_rc_out
 # 6b. Obejscia (#5) i reguly w trybie observe (#20) z 7 dni — widoczne w raporcie, decyzja o enforce po danych.
 for (kind, reason), n in sorted(((k, n) for k, n in counts.items() if k[0] in ("bypass-reason", "would_block-reason")), key=lambda kv: -kv[1])[:8]:
     info.append(f"{kind.split('-')[0]} {reason}: {n}")
+# Obejscia z przekierowanym logiem: osobna linia (zwykle fixture'y testow), zeby realne obejscie spod PG_GATE_LOG nie
+# ginelo w top-12 (security etap1e F2). Na POCZATEK listy: raport tnie info do 12 (ekran) i 8 (log) pozycji (code etap1f).
+_redir = sorted(((k[1], n) for k, n in counts.items() if k[0] == "bypass-redirected-reason"), key=lambda kv: -kv[1])
+if _redir:
+    info.insert(0, "bypass przy przekierowanym logu (zwykle testy): " + "; ".join(f"{r}: {n}" for r, n in _redir[:5]))
 # 6c. Efektywne hooki per repo (#7): lokalny core.hooksPath w repo floty omija globalne bramki. WARN (dlug klientow — naprawa
 # per repo za zgoda uzytkownika, zasada zakresu 2026-08-09), nie RED.
 _global_hooks = (CLAUDE / "git-hooks").resolve()

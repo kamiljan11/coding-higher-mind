@@ -13,6 +13,9 @@ const { parse, progName } = require('./shell-parse');
 const { CONTROL_PLANE } = require('./overrides');
 const { normalizePath, isControlPlane, isQualityConfig, isTempPath, isReviewArtifact, CRED_PATH_RX, CLAUDE_DIR } = require('./protected-paths');
 
+// Komendy, ktore nie tworza dowiazan: tylko z nimi w lancuchu dziala wyjatek `<bezpieczny>/cache` (security etap1g).
+// Bez printf: `printf -v 'a[$(ln -s ...)]'` wykonuje podstawienie w subskrypcie, ktorego parser nie widzi (security etap1h).
+const RM_CHAIN_SAFE_PROGS = new Set(['rm', 'cd', 'pushd', 'popd', 'echo', 'true', 'ls', 'pwd']);
 const SAFE_DIRS = /^(node_modules|dist|build|out|coverage|\.next|\.nuxt|\.output|\.svelte-kit|\.turbo|\.vite|\.cache|\.parcel-cache|\.angular|__pycache__|\.pytest_cache|\.ruff_cache|\.mypy_cache|\.tmp|tmp)$/i;
 const SHELL_PROGS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'powershell', 'pwsh', 'cmd', 'iex', 'invoke-expression']);
 const DOWNLOADERS = new Set(['curl', 'wget', 'iwr', 'invoke-webrequest', 'irm', 'invoke-restmethod']);
@@ -266,6 +269,11 @@ function expandVars(raw, env) {
   return out;
 }
 
+// Rodzic-symlink: `rm -rf build` kasuje sam link, a `rm -rf build/cache` idzie za nim (security-review 2026-10-14 F4).
+function isSymlinkDir(p) {
+  try { return fs.lstatSync(p).isSymbolicLink(); } catch (e) { return false; } // brak sciezki = nic do sledzenia
+}
+
 function isSafeRmTarget(rawTarget, ctx) {
   const raw = expandVars(rawTarget, ctx.env);
   if (/\$\(|`/.test(raw)) return false; // cel z podstawieniem = nie wiemy, co skasujemy
@@ -276,6 +284,16 @@ function isSafeRmTarget(rawTarget, ctx) {
   const segs = norm.split('/').filter(Boolean);
   if (!segs.length) return false;
   const last = segs[segs.length - 1];
+  // Plan v3 L3 (2026-10-14): `<bezpieczny>/cache` i `<bezpieczny>/cache/*` (np. .next/cache) — rodzic i tak wolno skasowac.
+  // Samo `cache` bez bezpiecznego rodzica dalej blokuje.
+  const cacheAt = last === '*' ? segs.length - 2 : segs.length - 1;
+  // Ani rodzic, ani sam `cache` nie moga byc dowiazaniem (forma `X/cache/*` kasuje zawartosc celu linku — code-review 2026-10-14).
+  // lstat ma sens tylko na prawdziwej sciezce: po `cd "$P"` / `pushd` cwd jest nieznany -> cel wzgledny blokowany (security etap1e F1).
+  // lstat nie widzi dowiazania, ktorego jeszcze nie ma: wyjatek tylko w lancuchu bez komend mogacych je stworzyc
+  // (ln, mv, python -c os.symlink, tar, git clone... — security+code etap1f/1g). Cel absolutny nie zalezy od cwd.
+  const pathKnown = ctx.rmOnlyChain !== false && (/^(\/|~(\/|$))/.test(raw) || ctx.cwdKnown !== false);
+  if (pathKnown && cacheAt >= 1 && /^cache$/i.test(segs[cacheAt]) && SAFE_DIRS.test(segs[cacheAt - 1])
+    && !isSymlinkDir('/' + segs.slice(0, cacheAt).join('/')) && !isSymlinkDir('/' + segs.slice(0, cacheAt + 1).join('/'))) return true;
   if (last === '*' && segs.length > 1) return SAFE_DIRS.test(segs[segs.length - 2]);
   return SAFE_DIRS.test(last);
 }
@@ -530,7 +548,7 @@ const RULES = [
     why: 'Destrukcyjny SQL (DROP/TRUNCATE/DELETE/UPDATE bez WHERE/ALTER COLUMN TYPE, pg_restore --clean, dropdb, supabase db reset|query --linked, prisma migrate reset, prisma db push --accept-data-loss) albo SQL niewidoczny (plik, stdin, heredoc) na bazie ZDALNEJ = ryzyko nieodwracalnej utraty danych. Dozwolone bez frazy: odczyt `psql "$URL" -c "select ..."`, migracje `supabase db push` (oslona = recenzja migracji T3), baza lokalna (localhost / docker exec), backup-drill.py. Destrukcja na zdalnej: najpierw backup (bin/backup-drill.py), dzialaj na kopii/branchu; potem decyzja uzytkownika.',
     parsed: (cmd, ctx) => sqlRisk(cmd, ctx, '', 0) },
   { id: 'rm-rf', esc: 'ALLOW_RM', mode: 'enforce',
-    why: 'rm -r poza katalogami build/cache (node_modules, dist, .output, /tmp...) = nieodwracalne. Przenies do _to_delete/ albo trash.',
+    why: 'rm -r poza katalogami build/cache (node_modules, dist, .output, <build>/cache, /tmp...) = nieodwracalne. Wyjatek <build>/cache dziala tylko w lancuchu z samych rm/cd/echo/ls/pwd: inna komenda w tym samym poleceniu -> rozdziel na dwa osobne wywolania. Przenies do _to_delete/ albo trash. Cel w tmp/scratchpadzie podany przez zmienna albo po `cd` -> podaj literalna sciezke absolutna (warstwa regex nie rozwija zmiennych).',
     legacy: (raw) => {
       // Cele = tokeny do konca TEJ komendy; blizna 2026-09-12 (cala linia brana za cele -> FP na /tmp).
       const matches = [...raw.matchAll(/(^|[;&|]\s*|\s)rm\s+(-[a-zA-Z]*r[a-zA-Z]*|--recursive)\b([^;&|\n]*)/gm)];
@@ -1052,6 +1070,7 @@ function evaluate(raw, ctx) {
     const piped = pipeSeen.has(pkey); pipeSeen.add(pkey);
     return { cmd, cwd: snapshot.cwd, known: snapshot.known, piped, env: Object.assign(snapshot.env, cmd.values || {}, exportedValues(cmd)) };
   });
+  const rmOnlyChain = parsed.commands.every((x) => RM_CHAIN_SAFE_PROGS.has(x.prog)); // wyjatek cache w isSafeRmTarget
   const byPipeline = new Map();
   for (const { cmd } of withCwd) { if (!byPipeline.has(cmd.pipeline)) byPipeline.set(cmd.pipeline, []); byPipeline.get(cmd.pipeline).push(cmd); }
   for (const rule of RULES) {
@@ -1060,7 +1079,7 @@ function evaluate(raw, ctx) {
     const legacyHit = !!(rule.legacy && rule.legacy(rule.fullText ? text : code, nq, { cwd: vcwd }));
     let parsedHit = false;
     if (!parsed.overflow) {
-      if (rule.parsed) parsedHit = withCwd.some(({ cmd, cwd, known, piped, env: vars }) => rule.parsed(cmd, Object.assign({}, c, { cwd, cwdKnown: known, piped, env: vars })));
+      if (rule.parsed) parsedHit = withCwd.some(({ cmd, cwd, known, piped, env: vars }) => rule.parsed(cmd, Object.assign({}, c, { cwd, cwdKnown: known, piped, env: vars, rmOnlyChain })));
       if (!parsedHit && rule.pipeline) parsedHit = [...byPipeline.values()].some((cmds) => cmds.length > 1 && rule.pipeline(cmds, Object.assign({}, c, { cwd: vcwd, env })));
     }
     if (legacyHit) blocks.push({ id: rule.id, esc: rule.esc, why: rule.why, layer: 'legacy' });

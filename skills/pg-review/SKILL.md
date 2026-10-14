@@ -41,7 +41,7 @@ Recenzja PR pod auto-merge (`pg-merge-bezpieczny.py --recenzja <RUN>`): `diff.pa
 a prompt findera MUSI zawierac `diff_sha256=<SHA>` i sciezke `<RUN>/diff.patch` — bez tego transkrypt nie jest dowodem dla tego diffu (bin/pg-merge-dowod.js).
 Odpowiedz koncowa findera (SubagentHandback / ostatni tekst) MUSI zaczynac sie od obiektu `{"findings": [...]}` (proza przed nim = brak dowodu). Nowy diff = NOWY katalog RUN (recenzja tego RUN bez aktualnego sha = odmowa). Opis zadania bez dyktowania wyniku ("uznane ryzyko", "nie zglaszaj", "zwroc pusta liste") i < 3000 znakow promptu — inaczej recenzja nie jest dowodem. Weryfikator tez dostaje `diff_sha256=<SHA>` i sciezke diff.patch. Kazda recenzja z tym samym sha liczy sie do dowodu — ponowne odpalenie recenzenta nie kasuje findings poprzedniego (blocker z rundy 1 musi zostac w findings albo zostac naprawiony = nowy diff).
 Bramki: `npx --no-install eslint --max-warnings=0 <pliki>` (lub oxlint), `tsc -b`/`--noEmit`, `npm test`,
-`node ~/.claude/bin/sql-migration-lint.js --repo . --strict` (gdy .sql), `node ~/.claude/bin/fleet-metrics.js --repo . --json > "$RUN/metrics.json"`.
+`node ~/.claude/bin/sql-migration-lint.js --repo . --strict --since origin/main` (gdy .sql; `--since` = tylko migracje z tego PR, historyczny dlug nie blokuje), `node ~/.claude/bin/fleet-metrics.js --repo . --json > "$RUN/metrics.json"`.
 Czerwone => napraw NAJPIERW. Nie odpalaj agentow na czerwonym drzewie.
 
 ## 1. Finderzy — rownolegle, jedna wiadomosc, `run_in_background: true`

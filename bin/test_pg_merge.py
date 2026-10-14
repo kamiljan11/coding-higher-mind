@@ -19,6 +19,9 @@ spec = importlib.util.spec_from_file_location('pgm', Path(__file__).with_name('p
 assert spec and spec.loader
 pgm: Any = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pgm)
+# Cala bateria pisze do wlasnego logu w tmp (code-review etap1c: scenariusz stronicuj() dopisywal fixture do gates.jsonl).
+_LOG_DIR = tempfile.TemporaryDirectory(prefix='pg-merge-test-')
+pgm.GATE_LOG = Path(_LOG_DIR.name) / 'gates.jsonl'
 
 REPO = '<github-owner>/shop-app'
 PR = {'state': 'open', 'merged': False, 'mergeable_state': 'clean', 'head': {'sha': 'abc', 'repo': {'full_name': REPO}}}

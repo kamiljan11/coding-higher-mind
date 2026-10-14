@@ -41,7 +41,7 @@ drop table public.old_stuff;
 drop table public.suppressed_drop;
 
 -- R7: ADD COLUMN NOT NULL without DEFAULT.
-alter table public.widgets add column urgent boolean not null;
+-- R7: patrz 20260101000003_add_urgent.sql (tabela musi juz istniec — NOT NULL na pustej, swiezo utworzonej tabeli jest bezpieczne)
 
 -- R8: FK-shaped column with no matching CREATE INDEX anywhere in the set.
 create table public.invoices (

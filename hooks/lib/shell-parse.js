@@ -127,6 +127,25 @@ function tokenize(src, notes, dialect) {
         const em = endRx.exec(rest);
         const body = em ? rest.slice(0, em.index) : rest;
         cur.heredocs.push({ delim: m[2], body });
+        // Ogranicznik bez cudzyslowu: bash wykonuje $(...) i `...` z tresci (security etap1h: `true <<EOF` + `$(ln -s ..)`).
+        if (!m[1]) {
+          // bash: w tresci \<newline> znika, \$ i \` sa doslowne (security etap1j: `$\<NL>(cmd)`).
+          let b = '';
+          for (let j = 0; j < body.length; j++) {
+            if (body[j] === '\\' && body[j + 1] === '\n') { j++; continue; }
+            b += body[j];
+            if (body[j] === '\\' && j + 1 < body.length) b += body[++j];
+          }
+          for (let j = 0; j < b.length; j++) {
+            if (b[j] === '\\') { j++; continue; }
+            const open = b[j] === '$' && b[j + 1] === '(' ? 2 : posix && b[j] === '`' ? 1 : 0;
+            if (!open) continue;
+            const r = readSubstitution(b, j + open, open === 2 ? ')' : '`');
+            // `#` (komentarz) albo `case` (wzorzec `a)`): ')' moze nie zamykac -> fail-closed, reszta tresci jako kod (security etap1j)
+            if (/#|\bcase\b/.test(r.inner)) { cur.subst.push(b.slice(j + open)); break; }
+            cur.subst.push(r.inner); j = r.end - 1;
+          }
+        }
         const afterBody = em ? bodyStart + em.index + em[0].length : s.length;
         // Reszta linii z `<<EOF` (np. `| sh`, `> plik`) nadal nalezy do komendy: wycinamy sam operator i tresc heredoca,
         // a parsowanie idzie dalej od reszty linii.

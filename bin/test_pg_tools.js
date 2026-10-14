@@ -152,5 +152,29 @@ check('R7: MIT + oss = 5/5; MIT + mas-saas = niespojne', r7({ LICENSE: 'MIT Lice
 check('R7: brak pg.ownership = 3/5 z powodem', (() => { const r = r7({ LICENSE: 'All rights reserved the company' }); return r.points === 3 && /pg\.ownership/.test(r.why); })());
 check('R7: brak LICENSE = 0', r7({ 'CLAUDE.md': '- `pg.ownership: mas-saas`' }).points === 0);
 
+// ---------- repo-readiness R5 (CHANGELOG przy release, plan v3 N1) — 2026-10-14 ----------
+// Repo git z feat-commitem nowszym niz CHANGELOG; opcjonalny tag. Brak wydania = pelne punkty; tag bez sekcji = kara.
+const r5 = (changelog, tag) => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-r5-'));
+  const g = (...a) => execFileSync('git', ['-C', fixture, '-c', 'user.email=t@t', '-c', 'user.name=t', '-c', 'core.hooksPath=/dev/null', ...a], { stdio: 'ignore' });
+  try {
+    g('init', '-q');
+    fs.writeFileSync(path.join(fixture, 'CHANGELOG.md'), changelog);
+    g('add', '-A'); g('commit', '-q', '-m', 'docs: changelog');
+    fs.mkdirSync(path.join(fixture, 'src'));
+    fs.writeFileSync(path.join(fixture, 'src', 'a.ts'), 'export const a = 1;\n');
+    g('add', '-A'); g('commit', '-q', '-m', 'feat: a');
+    if (tag) g('tag', tag);
+    const report = JSON.parse(execFileSync('node', [READINESS, '--repo', fixture, '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 60000 }));
+    return report.results.find((r) => r.id === 'R5');
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+};
+check('R5: [Unreleased], feat nowszy, brak tagow = 6/6 (brak wydania to nie kara)', r5('# Changelog\n\n## [Unreleased]\n').points === 6);
+check('R5: tag v1.2.0 z sekcja w CHANGELOG = 6/6', r5('# Changelog\n\n## [1.2.0] - 2026-10-14\n- feat: a\n', 'v1.2.0').points === 6);
+check('R5: tag v1.2.0 bez sekcji = 4/6 z powodem', (() => { const r = r5('# Changelog\n\n## [Unreleased]\n', 'v1.2.0'); return r.points === 4 && /v1\.2\.0/.test(r.why); })());
+check('R5: "1.2.0" tylko w tresci (zaleznosc 11.2.0) to nie sekcja = 4/6', r5('# Changelog\n\n## [Unreleased]\n- bump lib 11.2.0\n', 'v1.2.0').points === 4);
+check('R5: tag v1.2.0-rc.1 z sekcja ## v1.2.0 = 6/6', r5('# Changelog\n\n## v1.2.0 - 2026-10-14\n', 'v1.2.0-rc.1').points === 6);
+check('R5: tag bez "v" (1.3.0) bez sekcji = 4/6', r5('# Changelog\n\n## [1.2.0]\n', '1.3.0').points === 4);
+
 console.log(failures ? `TESTY: ${failures} FAIL` : 'TESTY: wszystkie OK');
 process.exit(failures ? 1 : 0);

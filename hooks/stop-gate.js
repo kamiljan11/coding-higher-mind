@@ -28,7 +28,7 @@ try { ({ VERDICT } = require(path.join(__dirname, '..', 'bin', 'pg-aggregate.js'
 }
 const { classify, modelFor, T3_PATH_RX, contentEscalation, stripFences } = require('./lib/risk-tier');
 const { isTempPath } = require('./lib/protected-paths');
-const { parseUnifiedDiff, archSignals, hasAdr } = require('./lib/arch-signals');
+const { parseUnifiedDiff, archSignals, hasAdr, ADR_RX } = require('./lib/arch-signals');
 
 const HOOK = 'stop-gate';
 const MAX_REPOS = 4;
@@ -750,6 +750,12 @@ function archRequirement(root, changedOwned, changedAll, shas, transcript) {
   const reasons = archSignals(files);
   if (!reasons.length) return null;
   if (hasAdr(files)) { log({ hook: HOOK, event: 'ran', reason: `arch: ADR w diffie (${reasons.length} sygnalow)`, target: root }); return null; }
+  // ADR jest, ale odrzucony (nowy bez odrzuconej alternatywy/kosztu): slad w gate-log + powod w komunikacie (ops-review 2026-10-11)
+  const weak = Object.keys(files).filter((p) => ADR_RX.test(p.replace(/\\/g, '/')));
+  if (weak.length) {
+    log({ hook: HOOK, event: 'blocked', reason: `arch: ADR bez trade-offu (${weak.slice(0, 3).join(', ')})`, target: root });
+    return [...reasons, `ADR w diffie (${weak.slice(0, 3).join(', ')}) nie nazywa odrzuconej alternatywy i kosztu/konsekwencji z trescia`];
+  }
   return reasons;
 }
 
@@ -876,7 +882,7 @@ async function main() {
     if (archNeed && !alreadyBlocked('arch', root)) {
       const arch = archRequirement(root, changed, changedAll, committed.shas, transcript);
       if (arch) block('arch', root,
-        `Zmiana ${archNeed.tier} jest ARCHITEKTONICZNA (${arch.join('; ')}), a w diffie tej sesji nie ma ADR z trescia (>= 5 linii). ` +
+        `Zmiana ${archNeed.tier} jest ARCHITEKTONICZNA (${arch.join('; ')}), a w diffie tej sesji nie ma ADR z trescia (>= 5 linii) i trade-offem (nowy ADR: odrzucona alternatywa + koszt/konsekwencje — „wszystko to trade-off”). ` +
         'Dodaj ADR w docs/adr/NNNN-tytul.md (repo ~/.claude: pg/adr/; szablon ~/.claude/templates/repo/docs/adr/: decyzja, odrzucona alternatywa, konsekwencje). ' +
         'Przed decyzja: skill architecture-advisor (trade-offy); przy sporze/T3: skill pg-council (narada -> adr-draft.md -> docs/adr). Decyzja uzytkownika 2026-10-04: twardo przy T2+.');
     }

@@ -43,11 +43,11 @@ Rubryka to jednocześnie odpowiedź na „co ma mieć apka za tyle" i paliwo pę
       kompilacji („ładnie się kompiluje, ale nie działa" to najczęstszy fałsz);
    c) **adwersarialny review** — 2–3 sceptyków próbuje OBALIĆ zmianę
       (correctness + „czy to realnie działa dla użytkownika"), zanim wejdzie.
-4. **SHIP** — wdróż (front→hosting, DB/edge→przez most/CI), wpis do CHANGELOG.
+4. **SHIP** — wdróż (front→hosting, DB/edge→przez most/CI); tytuł PR w Conventional Commits (CHANGELOG tylko przy release, 2026-10-14).
    Nienadzorowany prod: wdrażaj TYLKO co przeszło a+b+c; ryzykownych gambli na
    prod-schemacie/auth bez człowieka NIE rób — one idą do blockerów.
 5. **SCORE** — zaktualizuj wynik wymiaru w rubryce + datę. To durable trail:
-   jak łańcuch padnie (restart procesu), rubryka + CHANGELOG mówią gdzie stanął.
+   jak łańcuch padnie (restart procesu), rubryka + historia PR/commitów mówią gdzie stanął.
 6. **LOOP** — wróć do 1.
 
 ## Terminacja (żeby nie kręcić w kółko udając robotę)
@@ -83,5 +83,5 @@ ScheduleWakeup jako fallback-heartbeat na wypadek zgubionej notyfikacji).
 ## Uruchomienie
 uzytkownik mówi raz np. „jedź ultra wg ULTRA-SPEC aż do blockera". Ty: (0) upewnij
 się że rubryka istnieje i jest uczciwa → (1..6) kręć cykle → zatrzymaj na
-terminacji z jedną paczką decyzji. Zostawiasz durable trail (rubryka+CHANGELOG),
+terminacji z jedną paczką decyzji. Zostawiasz durable trail (rubryka + historia PR),
 żeby dało się podjąć w kolejnej sesji od miejsca zatrzymania.

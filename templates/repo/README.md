@@ -67,7 +67,7 @@ docs/quality/BACKLOG.md # rejestr dlugu (skrot = wpis z odsetkami)
 ## Deploy i wersjonowanie
 - Flow: feature branch -> PR -> zielone CI + review -> merge do main -> deploy
 - Wersje: SemVer, tag `vX.Y.Z` tworzy GitHub Release (auto-notes)
-- Zmiany: `CHANGELOG.md` (Keep a Changelog) — aktualizuj sekcje [Unreleased] w kazdym PR
+- Zmiany: `CHANGELOG.md` (Keep a Changelog) — sekcja wersji przy kazdym release, zebrana z tytulow PR (zwykly PR nie edytuje pliku)
 
 ## Wlasciciel
 the company / <owner> — you@example.com
