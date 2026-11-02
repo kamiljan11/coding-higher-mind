@@ -608,7 +608,7 @@ check('post-bash-edit-check: komenda bez zapisu => 0', runHook('post-bash-edit-c
 {
   const nl = require(path.join(HOOKS, 'lib', 'name-lang.js'));
   const hit = (command) => nl.polishNames('Bash', { command }).map((h) => h.name);
-  check('name-lang: gh repo create przez menedzer sekretow (np. Infisical CLI) => repo', hit("python3 infisical run --env=dev -- bash -c 'gh repo create <github-owner>/montazownia --public'").includes('montazownia'));
+  check('name-lang: gh repo create przez menedzer sekretow (np. Infisical CLI) => repo', hit("python3 infisical run --env=dev -- bash -c 'gh repo create acme/montazownia --public'").includes('montazownia'));
   check('name-lang: mkdir STARE-KOPIE => katalog', hit('mkdir -p ~/STARE-KOPIE-2026-10-24').includes('STARE-KOPIE-2026-10-24'));
   check('name-lang: nowa galaz i nazwa repo przez API', hit('git switch -c fix/poprawka').length === 1 && hit('gh api -X POST user/repos -f name=nagrania-backup').length === 1);
   check('name-lang: angielskie nazwy, mv do istniejacego katalogu, tresc commita, Obsidian, /tmp => cisza',
