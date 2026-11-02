@@ -182,6 +182,8 @@ check('evaluate r5: przerwany recenzent (bez wyniku i rule_id) starszy niz 2 h n
   transcripts: [...tr, T('security', { sid: 'S0', bound: false, findingsJson: false, completed: false, ruleIds: [], reviewedAt: NOW - 3 * 3600000 })] }).sid === 'S1');
 check('evaluate r6: blocker proza (wynik bez JSON) starszy niz 2 h nadal blokuje', /JSON/.test(why({
   transcripts: [...tr, T('security', { sid: 'S0', bound: false, findingsJson: false, completed: true, ruleIds: [], reviewedAt: NOW - 3 * 3600000 })] })));
+check('findingKey A3: "Minor" z transkryptu == "minor" po walidacji pg-aggregate (brak falszywej podmiany)',
+  findingKey({ rule_id: 'R', file: 'x.sql', severity: ' Minor', claim: 'c' }) === findingKey({ rule_id: 'R', file: 'x.sql', severity: 'minor', claim: 'c' }));
 check('findingKey r6: obnizona severity / inna tresc = inny klucz', findingKey({ rule_id: 'R', file: 'x.sql', severity: 'blocker', claim: 'c' })
   !== findingKey({ rule_id: 'R', file: 'x.sql', severity: 'minor', claim: 'c' }) && findingKey({ rule_id: 'R', file: 'x.sql', claim: 'a' }) !== findingKey({ rule_id: 'R', file: 'x.sql', claim: 'b' }));
 check('evaluate r5: stary recenzent bez JSON, ale z czesciowymi rule_id => odmowa', /JSON/.test(why({

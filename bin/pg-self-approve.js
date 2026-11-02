@@ -204,7 +204,8 @@ function agentOverridden(raw, agentType) {
  */
 // + severity i skrot claim/evidence (data-review r6 FINDINGS-BINDING-CONTENT-NOT-BOUND: obnizenie severity albo
 // przepisanie tresci blockera po recenzji przy tym samym rule_id|plik).
-const findingKey = (f) => [String((f && f.rule_id) || ''), String((f && f.severity) || ''), path.basename(String((f && f.file) || '')),
+// severity znormalizowana jak w pg-aggregate validateRoleFile ('Minor' w transkrypcie == 'minor' w pliku; A3 security minor).
+const findingKey = (f) => [String((f && f.rule_id) || ''), String((f && f.severity) || '').trim().toLowerCase(), path.basename(String((f && f.file) || '')),
   sha256(`${String((f && f.claim) || '')}\0${String((f && f.evidence) || '')}`).slice(0, 12)].join('|');
 const ruleOfKey = (k) => String(k).split('|')[0];
 

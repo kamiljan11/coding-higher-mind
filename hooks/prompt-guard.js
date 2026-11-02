@@ -160,6 +160,9 @@ if (isCode && isFinish) L.push(T.r7u);
 
 // === SKILL-ROUTER: deterministyczne dopasowanie skilli (nazwy narzedzi sa wspolne dla obu jezykow) ===
 const ROUTES = [
+  // 2026-10-19 (uzytkownik: „zbuduj system pracy z samym PG, zeby nie produkowac krzakow"): praca nad warstwa kontrolna -> procedura + pg-self-check.
+  // Bez „bramka"/„pre-commit" (r6 ops: bramka platnicza/SMS i hook w repo klienta to nie praca nad PG); `PG` wielkimi literami, nie pg_dump.
+  [/\bPG\b(?!\s*([Dd]ump|[Rr]estore|[Ss][Qq][Ll]|\d|[Dd]atabase|[Dd][Bb]\b|:|[Aa]dmin\b|[Pp]ool|[Bb]ouncer|\([Pp]ostgre|w \.env))(?!-(?:[Pp]ool|[Aa]dmin\b|[Bb]ouncer|\d))|\b(rubryk\w* recenzent\w*|warstw\w* kontroln\w*|system\w* jakosci PG|pg-review|pg-self-check|stop-gate|bash-guard|guard_health)|~\/\.claude\/(bin|hooks|git-hooks|agents|pg)\b/, 'pg-maintain (praca nad samym PG: pg/INDEX.md -> wlasciciel -> bin/pg-self-check.py -> pg-review -> pieczec)'],
   [/\b(bug|blad|bledy|error|crash|nie dziala|wykrzacza|failing|stack trace|regresj|regression|does not work|broken)/i, 'systematic-debugging (4-fazowy root-cause, NIE lataj objawow / 4-phase root cause, never patch symptoms)'],
   [/\b(przetestuj|e2e|smoke|playwright|kliknij po stronie|sprawdz czy strona dziala|UI test|click through)/i, 'webapp-testing (E2E Playwright + with_server.py) | sciezki krytyczne / critical paths: node ~/.claude/bin/qa-matrix.js --repo . --base-url <url> (docs/CRITICAL-PATHS.md)'],
   [/\b(qa\b|q&a testy|matryc[aey]|person[aey]\b|instancj\w*|jako (mechanik|klient|biuro|admin|gosc)|na kilku (przegladark|urzadzen|kontach)|rownolegl\w* test|regresj\w* (ui|klik)|as a (customer|admin|guest|user))/i, 'dzial qa-reviewer (~/.claude/agents/qa-reviewer.md) + node ~/.claude/bin/qa-matrix.js (rownolegle izolowane instancje persona x viewport x locale; raport 3-info + screenshoty) — na zadanie, nie automatycznie'],

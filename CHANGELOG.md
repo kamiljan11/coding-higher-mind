@@ -3,6 +3,48 @@
 All notable changes to the public PG export. Dates are the export dates; the private system moves faster and is squashed
 into these releases.
 
+## [Unreleased]
+
+**Measuring the gates, planning before code, and a session index that survives compaction (2026-11-01/02).**
+
+- **Gates measure themselves.** Git hooks log every named block with where it came from; `hooks/gate_effectiveness.py`
+  sets those blocks against `ALLOW_` bypasses, `bin/pg-outcome.js` records each review finding as fixed or dropped, and
+  `bin/pg-escapes.py` counts `fix:` commits that touch the same files within a few days. All of it is observe mode: numbers, not new blocks.
+- **Stricter review aggregation.** The verifier's verdicts are taken from an allowlist of fields, every member of the
+  strongest group needs a verdict, `cannot_run` on a blocker counts as unverified, dropping a finding needs evidence, and
+  overlapping findings from different roles go to the verifier.
+- **Plan first for T2+.** A design file template (`templates/repo/docs/designs/TEMPLATE.md`), a plan rubric
+  (`pg/plan-rubric.md`) and `bin/plan-refs-check.js`, which reports files and functions a plan names that do not exist.
+  It reports, it does not block.
+- **Session index before compaction.** `hooks/precompact-snapshot.js` keeps every prompt, the edited files and the
+  pasted text of the session, redacted before it is clipped. A paste is kept only when it stands before any injected
+  tag in its block (fail-closed); `bin/precompact-paste-scan.js` measures what that rule drops.
+- **The public export takes only committed files.** Uncommitted files in the private tree, such as another session's
+  routine, no longer reach this repository; a tracked file with uncommitted changes stops the export.
+
+Languages beyond TypeScript and Python, and a first measure of code written "just in case". Reviewed in 12 rounds by AI
+reviewers (code, security, data and operations each round); most security rounds found a new way for a foreign repository
+to get its code executed, and each one is closed below and recorded as a scar.
+
+- **Checkers for more languages after every edit.** Go (gofmt + `go vet`), Rust (`cargo clippy`), Java (`javac`), C/C++
+  (gcc/g++ `-fsyntax-only`), C# (`dotnet build`), PHP (`php -l`), Shell (shellcheck) and Deno (`deno check`) run on the
+  edited file when the tool is installed. One module owns the language-to-tool list (`hooks/lib/lang-checkers.js`).
+- **No silent pass for an unchecked language.** An edit in a language without a checker (Kotlin, Swift, Ruby…) logs
+  `skipped: no checker for .ext`, tells the agent once per session, and the weekly health check counts these gaps and
+  missing tools. `pg/design.md` F.10 says what to do before writing code in a new language.
+- **Running a repository's code needs trust.** Tools that execute the repository's own code (cargo build scripts, MSBuild,
+  cgo, gcc headers, deno imports, javac) run only when the repository root is in `pg/trusted-roots.txt` with no symlinks
+  in its path, every git remote is on the owner's account (or there is none), and every parent repository passes the same
+  test. A foreign clone gets only checks that read the edited file, under a memory limit, with output limited to that file.
+  Closed on the way: a foreign clone under a trusted folder, an embedded bare repository, a remote not named `origin`,
+  the owner's submodule inside a foreign repository, and a symlink from a foreign clone into the owner's repository.
+- **Unused new exports are measured.** Pre-push lists new exports and Python definitions that nothing in the repository
+  uses (observe mode: logged, never blocks). Decorated functions, framework conventions, tests and a package's public
+  entry points are skipped. Product review (gold-plating) is offered from tier T2.
+- **Polyglot CI job in the template.** New repositories get one job for Python, Go, Rust, C#, PHP, Java and Shell;
+  `bin/mas_branch_protect.py` adds it to the required checks and keeps the ones already set. The RUNBOOK says how to remove
+  a required job without blocking every pull request.
+
 ## [1.8.0] — 2026-10-14
 
 Proportionality: a quality system that blocks only where a real incident justified it. Reviewed in several rounds by AI

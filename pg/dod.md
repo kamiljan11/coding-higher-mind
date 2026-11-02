@@ -36,14 +36,14 @@ Dzial **qa-reviewer** (`optional_reviewers` w `risk-tier.js`, gdy diff dotyka UI
 
 ## Rubryka wspolna recenzentow (Google „What to look for" + Ousterhout), <= 8 punktow na role
 Kazdy punkt ma `how_to_check`; finding bez wykonanej komendy w `evidence` nie istnieje.
-1. **Design**: czy zmiana pasuje do granic modulow; change amplification (1 zmiana -> >3 katalogow)? `git diff --stat`
+1. **Design**: czy zmiana pasuje do granic modulow; change amplification (1 zmiana -> > 3 moduly wg `module-boundaries.js --report`)? czy nowy kod zna cudzy sekret (`.from("<cudza tabela>")`, SDK dostawcy poza adapterem = silna connascence ponad granica)? `git diff --stat`; `git diff -U0 | rg "^\+.*(\.from\(|from ['\"](stripe|twilio|resend|openai))"`
 2. **Functionality**: robi to, co PRD; edge: null/empty/0/1/n+1, timeout, partial failure, brak uprawnien. `rg` po sciezkach bledow
 3. **Complexity**: funkcja > 60 linii, zlozonosc > 10, glebokosc > 3 -> podzial. `fleet-metrics --repo`
-4. **Tests**: nowa logika ma test asertujacy ZACHOWANIE; bug ma failing test przed fixem; brak mockowania modulu pod testem. `git diff --name-only \| rg test`
+4. **Tests**: nowa logika ma test asertujacy ZACHOWANIE; nowy zapis z efektem / wywolanie zewnetrzne / webhook ma tez test sciezki bledu (`docs/architecture/failure-modes.md`); bug ma failing test przed fixem; brak mockowania modulu pod testem. `git diff --name-only \| rg test`
 5. **Naming/comments**: nazwy z domeny z jednostka; komentarz opisujacy CO -> usun; DLACZEGO -> zostaje. `rg "//\s*(set|get|return|loop|increment)"`
 6. **Errors/observability**: kazdy `catch` loguje z kontekstem lub rethrow; user widzi sensowny komunikat. `rg -n "catch \(" -A3`
 7. **Consistency**: konwencje sasiednich plikow > preferencje autora; brak nowego wzorca bez ADR. `ls` katalogu, porownaj
-8. **Docs**: README gdy zmiana setup/env/komend; ADR gdy architektura; CHANGELOG tylko w PR wydania (release). `git diff --name-only \| rg "README\|CHANGELOG\|docs/"`
+8. **Docs**: README gdy zmiana setup/env/komend; ADR gdy architektura; CHANGELOG tylko w PR wydania (release). `git diff --name-only | rg "README|CHANGELOG|docs/"`
 
 ## Definition of Done — deklaracja koncowa (w raporcie, z dowodem)
 - Komendy + exit code: lint, tsc, testy (nie „przeszlo").

@@ -81,6 +81,39 @@ function archSignals(files) {
   return reasons;
 }
 
+// OBSERVE (2026-10-24, sciezka ADR-0008: pomiar przed blokada): integracje bez nowej zaleznosci, ktore audyt floty znalazl bez ADR
+// (piksel reklamowy, logowanie Google, cron kursow, Auth przez dostawce e-mail — pg/known-limits.md › 2026-10-04). Stop-gate tylko
+// loguje `would_block`; awans do blokady = incydent w pg/cases.md + nowy ADR. Heurystyka: nowa edge function, nowy cron w vercel.json,
+// nowa domena zewnetrzna w fetch(...) / <script src> (domena nieobecna w usunietych liniach tego pliku = przeniesienie nie liczy sie).
+const EDGE_FN_RX = /(^|\/)supabase\/functions\/([^/_][^/]*)\/index\.[jt]sx?$/i;
+const VERCEL_CRON_RX = /"schedule"\s*:/;
+const CODE_RX = /\.(?:[cm]?[jt]sx?|py|html?|svelte|vue|astro)$/i;
+// Testy/mocki/fixture'y: stub fetch to nie integracja (pg-review 1024 code).
+const TEST_PATH_RX = /(^|\/)(__tests__|__mocks__|tests?|e2e|fixtures?|mocks?)\/|\.(test|spec)\.[^/]+$/i;
+// [^>]{0,300} + limit dlugosci linii: bez ograniczenia `<script` x 60k na jednej linii = 12 s w Stop hooku (pg-review 1024 ops).
+const EXT_HOST_RX = /(?:\bfetch\(\s*|<script\b[^>]{0,300}\bsrc\s*=\s*)[`'"]https?:\/\/([a-z0-9.-]+\.[a-z]{2,})/gi;
+const OBSERVE_MAX_LINE = 4000;
+const LOCAL_HOST_RX = /^(localhost|127\.|0\.0\.0\.0)|(^|\.)example\.(com|org|net)$/i;
+const hostsIn = (lines) => new Set(lines.filter((l) => l.length <= OBSERVE_MAX_LINE).flatMap((l) => [...l.matchAll(EXT_HOST_RX)].map((m) => m[1].toLowerCase())));
+function archObserveSignals(files) {
+  const out = [];
+  for (const [p, f] of Object.entries(files || {})) {
+    const rel = p.replace(/\\/g, '/');
+    const fn = EDGE_FN_RX.exec(rel);
+    if (fn && f.isNew) out.push(`nowa edge function: ${fn[2]}`);
+    // Wiecej linii "schedule" dodanych niz usunietych = nowy cron; przeformatowanie istniejacego nie liczy sie (pg-review 1024 r2 code).
+    const crons = (lines) => (lines || []).filter((l) => VERCEL_CRON_RX.test(l)).length;
+    if (/(^|\/)vercel\.json$/i.test(rel) && crons(f.added) > crons(f.removed)) out.push(`nowy cron w ${rel}`);
+    if (CODE_RX.test(rel) && !TEST_PATH_RX.test(rel)) {
+      const before = hostsIn(f.removed || []);
+      const fresh = [...hostsIn(f.added)].filter((h) => !before.has(h) && !LOCAL_HOST_RX.test(h));
+      // Domena przed sciezka i 1 wpis na domene: guard_health tnie powod do 60 znakow (pg-review 1024 r3 ops).
+      fresh.slice(0, 3).forEach((h) => out.push(`nowa domena zewnetrzna: ${h} (${rel})`));
+    }
+  }
+  return out;
+}
+
 // „Wszystko to trade-off” (uzytkownik 2026-10-11): NOWY ADR musi nazwac odrzucona alternatywe i koszt/konsekwencje — sama
 // tresc >= 5 linii przepuszczala decyzje bez kompromisu (flota: 4/53 ADR bez alternatyw). Aktualizacja istniejacego ADR:
 // wystarczy tresc (dopisek „Aktualizacja” nie musi powtarzac alternatyw).
@@ -107,4 +140,4 @@ const hasAdr = (files) => Object.entries(files || {}).some(([p, f]) => {
   return body.length >= ADR_MIN_LINES && (!f.isNew || adrHasTradeoff(body));
 });
 
-module.exports = { parseUnifiedDiff, archSignals, hasAdr, adrHasTradeoff, ADR_RX };
+module.exports = { parseUnifiedDiff, archSignals, archObserveSignals, hasAdr, adrHasTradeoff, ADR_RX };

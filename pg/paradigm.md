@@ -66,16 +66,30 @@ Deterministycznie: `bin/sql-migration-lint.js --strict`.
 | Decorators | NIE w TS | brak frameworka, standard w ruchu |
 | Immutability | TAK | mniej bugow ze stanu, latwe porownania w React |
 
+## Kryterium podzialu na moduly i ocena granic (2026-10-18)
+
+**Wysoka spojnosc w srodku + luzne powiazanie na zewnatrz.** Modulowosc = wlasciwosc (czesc zmienia sie osobno), nie styl; mikroserwisy to modulowosc z granica sieciowa (siec nie naprawia zlych granic).
+Pomiar: `node ~/.claude/bin/module-boundaries.js --repo . --report` (tabele -> moduly, moduly domenowe vs techniczne, SDK poza adapterem, change amplification); w diffie pre-push zglasza `SEKRET (ostrzezenie)` i liczy je w `logs/gates.jsonl` (observe; blok dopiero po incydencie).
+Pelna karta (tez slownik 7 poziomow spojnosci dla recenzji) z wariantami, granicami stosowalnosci i komendami: `skills/architecture-advisor/references/sd/01-fundamenty.md` › Dekompozycja wewnatrz monolitu.
+
+| Zasada | Regula | how_to_check |
+|---|---|---|
+| **Po czym dzielic (Parnas 1972)** | modul ukrywa decyzje, ktora prawdopodobnie sie zmieni (jego „sekret": schemat tabeli, dostawca, format, algorytm), nie krok przetwarzania ani warstwe techniczna | `docs/ARCHITECTURE.md` › Moduly ma kolumne „Sekret" wypelniona dla kazdego modulu |
+| **Szkielet = pojecia biznesowe** | vertical slice `src/features/<pojecie z GLOSSARY>` (`orders`, `invoices`, `returns`), nie typ techniczny (`services/`, `hooks/`, `helpers/`) — podzial techniczny sam nie daje architektury, sprawa biznesowa rozsypuje sie po folderach; dostep do tabel slice'a w jednym `api.ts`; inni przez `index.ts`; to samo slowo w dwoch znaczeniach = dwie nazwy (lekki bounded context) | `--report`: `!` przy tabeli = uzyta poza wlascicielem (`owners`) albo bez wlasciciela w > 2 modulach; linia „Moduly znajace tabele”: modul techniczny z tabelami = finding |
+| **Dostawcy** | SDK (platnosci, SMS, mail, LLM) tylko w adapterze `src/integrations/<dostawca>` | `--report`: „SDK dostawcy poza adapterem: 0" |
+| **Przekrojowe** | `org_id`, auth, i18n, logi = konwencja + bramka, nie modul | RLS + trigger `%same_org%` + test negatywny |
+| **Ocena: connascence** (Page-Jones) | zmiana A wymusza zmiane B = konascencja. Silna (algorytm, kolejnosc, wartosc, czas) tylko wewnatrz modulu; miedzy modulami tylko slaba (nazwa, typ). Cohesion i coupling to dwie strony tej miary | review: „ile plikow musi wiedziec to samo?"; RLS vs TS = test negatywny pgTAP |
+| **Kiedy NIE dzielic** | prototyp, pre-PMF, Lovable, skrypt: kod latwy do usuniecia > latwy do rozszerzenia; granica przy 2. realnej zmianie tej samej decyzji | `pg.phase` w CLAUDE.md repo |
+
 ## Kiedy zmienic projekt systemu (sygnaly refaktoru — mierzone, nie odczuwane)
 
-Pomiar (2026-10-11: change amplification NIE ma jeszcze skryptu — liczysz ta komenda, nie na oko): ile katalogow najwyzszego
-poziomu dotyka kazdy z ostatnich 30 commitow funkcjonalnych:
-`git log -30 --no-merges --format=%x00 --name-only | awk 'BEGIN{RS="\0"} NF{delete d; n=0; for(i=1;i<=NF;i++){split($i,p,"/"); if(!(p[1] in d)){d[p[1]]=1;n++}} print n}' | sort -n | uniq -c`
-— wiele commitow z > 3 katalogami = zmiana jest trudna -> refaktor przygotowawczy (design.md B.1b) przed kolejna funkcja.
+Pomiar (skrypt od 2026-10-18, wczesniej komenda awk): ilu modulow (`src/features/<x>`, `supabase/functions/<fn>`, `src/<katalog>`)
+dotyka kazdy z ostatnich 30 commitow z kodem (bez testow i docs): `node ~/.claude/bin/module-boundaries.js --repo . --report`
+-> linia „Change amplification" — wiele commitow z > 3 modulami = zmiana jest trudna -> refaktor przygotowawczy (design.md B.1b) przed kolejna funkcja.
 
 | Sygnal | Prog | Reakcja |
 |---|---|---|
-| change amplification | 1 zmiana biznesowa dotyka > 3 plikow w roznych katalogach | wydziel modul z jednym wejsciem (ADR) |
+| change amplification | 1 zmiana biznesowa dotyka > 3 modulow (`--report`: histogram modulow na commit) | wydziel modul z jednym wejsciem (ADR) |
 | rozmiar | plik > 400 linii, funkcja > 60, komponent > 300 | podzial wg odpowiedzialnosci, nie wg technologii |
 | ten sam bug w 2 miejscach | 2 | duplikacja logiki -> jeden util (grep-first) |
 | test wymaga > 5 mockow | 5 | logika zlepiona z I/O -> functional core |

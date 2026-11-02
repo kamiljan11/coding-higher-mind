@@ -42,6 +42,10 @@ try {
   write('supabase/migrations/20261006_x.sql', ['alter table t drop column legacy;', 'create function f() returns void language sql security definer as $$ select 1 $$;']);
   write('docs/adr/0003.md', ['# ADR', 'Klucz: sk_live_abcdefghijklmnop']);
   write('.github/workflows/ci.yml', ['      - run: npm run lint --if-present']);
+  const silent = ["load().catch(() => {});", "load().catch(() => null);", "load().catch((e) => { log.error(\"load\", { e }); });", "for (let attempt = 0; attempt < 3; attempt++) {", "  await call();", "}", "  retries: process.env.CI ? 2 : 0,", "for (const a of attempts) {", "}", "p.catch(() => { /* ignore */ });", "p.catch(async () => { return null; });", "p.catch(() => ({}));", "for (const x of items) { // retry later"];
+  const retryOk = ["for (let attempt = 0; attempt < 3; attempt++) {", "  try { return await call(); } catch (e) { await sleep(2 ** attempt * 100); }", "}"];
+  write('src/server/radar/silent.ts', silent);
+  write('src/server/radar/retry-ok.ts', retryOk);
   const diff = 'preambula\n'
     + fileDiff('src/server/radar/list.ts', server, [3, 4, 5, 6, 7, 8, 9, 10])
     + fileDiff('src/server/radar/timed.ts', ['export const r = await fetch(url, { signal: AbortSignal.timeout(5000) });'], [1])
@@ -49,6 +53,8 @@ try {
     + fileDiff('supabase/migrations/20261006_x.sql', ['alter table t drop column legacy;', 'create function f() returns void language sql security definer as $$ select 1 $$;'], [1, 2])
     + fileDiff('docs/adr/0003.md', ['# ADR', 'Klucz: sk_live_abcdefghijklmnop'], [2])
     + fileDiff('.github/workflows/ci.yml', ['      - run: npm run lint --if-present'], [1])
+    + fileDiff('src/server/radar/silent.ts', silent, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
+    + fileDiff('src/server/radar/retry-ok.ts', retryOk, [1, 2, 3])
     + 'diff --git a/src/gone.ts b/src/gone.ts\ndeleted file mode 100644\n--- a/src/gone.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-console.log(1)\n';
   const chain = [
     'const ok = await supabase',        // 1
@@ -95,6 +101,11 @@ try {
   check('DEFINER-NO-SEARCH-PATH -> security', hit('security', 'DEFINER-NO-SEARCH-PATH', 'supabase/migrations/20261006_x.sql', 2));
   check('SECRET-LITERAL w docs -> ops (fallback: pierwsza rola reguly)', hit('ops', 'SECRET-LITERAL', 'docs/adr/0003.md', 2));
   check('CI-SILENT-SKIP -> ops', hit('ops', 'CI-SILENT-SKIP', '.github/workflows/ci.yml', 1));
+  const SL = 'src/server/radar/silent.ts';
+  check('EMPTY-CATCH: .catch(() => {}) i .catch(() => null) trafione, catch z logiem nie', (hit('code', 'EMPTY-CATCH', SL, 1) || hit('ops', 'EMPTY-CATCH', SL, 1)) && (hit('code', 'EMPTY-CATCH', SL, 2) || hit('ops', 'EMPTY-CATCH', SL, 2)) && !Object.values(res).flat().some((h) => h.rule === 'EMPTY-CATCH' && h.file === SL && h.line === 3));
+  check('RETRY-NO-BACKOFF: petla prob bez opoznienia trafiona, z backoffem nie', (hit('ops', 'RETRY-NO-BACKOFF', SL, 4) || hit('code', 'RETRY-NO-BACKOFF', SL, 4)) && !Object.values(res).flat().some((h) => h.rule === 'RETRY-NO-BACKOFF' && h.file === 'src/server/radar/retry-ok.ts'));
+  check('RETRY-NO-BACKOFF: konfiguracja retries (Playwright) i petla po kolekcji attempts => brak trafienia', !Object.values(res).flat().some((h) => h.rule === 'RETRY-NO-BACKOFF' && h.file === SL && (h.line === 7 || h.line === 8 || h.line === 13)));
+  check('EMPTY-CATCH: komentarz-zamiast-obslugi, return null w async, ({}) => trafione', [10, 11, 12].every((n) => hit('code', 'EMPTY-CATCH', SL, n) || hit('ops', 'EMPTY-CATCH', SL, n)));
   check('kazde trafienie ma rule/file/line/text/source', Object.values(res).flat().every((h) => h.rule && h.file && h.line > 0 && typeof h.text === 'string' && h.source));
   check('kazda regula ma odnosnik do rubryki', RULES.every((r) => /agents\/|checklist|audyt/.test(r.source)), RULES.filter((r) => !/agents\//.test(r.source)).map((r) => r.id).join());
 
@@ -143,6 +154,16 @@ try {
   check('DANGEROUS-SINK w src/lib (poza wycinkiem security) -> security', resSink.security.some((h) => h.rule === 'DANGEROUS-SINK' && h.file === 'src/lib/render.tsx'), JSON.stringify(resSink.security));
   check('DANGEROUS-SINK w src/lib -> code tez', resSink.code.some((h) => h.rule === 'DANGEROUS-SINK' && h.file === 'src/lib/render.tsx'));
   check('bin/test_*.js = plik testowy (bez DANGEROUS-SINK)', !Object.values(resSink).flat().some((h) => h.file === 'bin/test_tool.js'), JSON.stringify(resSink));
+  // ---------- jezyk kodu: tylko repo z deklaracja pg.code_lang: en; i18n/locales pominiete ----------
+  write('src/lib/price.ts', ['// oblicz cenę brutto', 'export const brutto = (n: number) => n;']);
+  const langDiff2 = fileDiff('src/lib/price.ts', ['// oblicz cenę brutto', 'export const brutto = (n: number) => n;'], [1, 2]);
+  write('src/locales/pl.ts', ["export const pl = { save: 'Zapisz źródło' };"]);
+  const langDiff3 = langDiff2 + fileDiff('src/locales/pl.ts', ["export const pl = { save: 'Zapisz źródło' };"], [1]);
+  check('CODE-LANG: repo bez deklaracji = cisza (stare repo)', !prechecks(langDiff3, repo).code.some((h) => h.rule === 'CODE-LANG'));
+  write('CLAUDE.md', ['- `pg.code_lang: en`']);
+  const resLang = prechecks(langDiff3, repo);
+  check('CODE-LANG: repo z pg.code_lang: en -> polski komentarz = kandydat', resLang.code.some((h) => h.rule === 'CODE-LANG' && h.file === 'src/lib/price.ts' && h.line === 1), JSON.stringify(resLang.code));
+  check('CODE-LANG: locales/ pominiete', !resLang.code.some((h) => h.rule === 'CODE-LANG' && h.file === 'src/locales/pl.ts'));
 } finally {
   fs.rmSync(repo, { recursive: true, force: true });
   fs.rmSync(runDir, { recursive: true, force: true });

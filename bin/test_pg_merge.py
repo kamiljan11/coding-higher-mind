@@ -173,7 +173,9 @@ sprawdz('T0 .mdx/.svg -> T1', [] if pgm.tier_efektywny({'tier': 'T0'}, ['docs/a.
 sprawdz('T0 same .md/.txt zostaje T0', [] if pgm.tier_efektywny({'tier': 'T0'}, ['docs/a.md', 'NOTES.txt']) == 'T0' else ['podniesione'], False)
 for nazwa in ['CLAUDE.md', 'sub/AGENTS.md', '.claude/settings.json', '.cursorrules', '.github/copilot-instructions.md']:
     sprawdz(f'{nazwa} = zawsze fraza', ocen([plik(nazwa)], tier={'tier': 'T0', 'reasons': []}), True)
-sprawdz('SUPABASE_SERVICE_ROLE_KEY lapany lokalnie', [] if pgm.tresc_lokalna('+const k = process.env.SUPABASE_SERVICE_ROLE_KEY') else ['przeoczone'], False)
+# Regula zyje w risk-tier.js (wlasciciel) — sprawdzamy prawdziwa sciezke merge: tresc_eskalacja -> node -> contentEscalation.
+sprawdz('SUPABASE_SERVICE_ROLE_KEY eskalowany przez risk-tier', [] if pgm.tresc_eskalacja('+const k = process.env.SUPABASE_SERVICE_ROLE_KEY') else ['przeoczone'], False)
+sprawdz('service-role (myslnik) eskalowany przez risk-tier', [] if pgm.tresc_eskalacja('+const r = "service-role"') else ['przeoczone'], False)
 sprawdz('gitleaks:allow w dodanej linii = fraza', [] if pgm.tresc_lokalna('+k = "abc"  # gitleaks:allow') else ['przeoczone'], False)
 sprawdz('zwykla linia bez znacznika = brak eskalacji', [] if pgm.tresc_lokalna('+const x = 1') is None else ['falszywy alarm'], False)
 sprawdz('plik binarny changes=0 bez patcha = odmowa', ocen([{**plik('public/a.png', patch=''), 'changes': 0}]), True, 'bez patcha')

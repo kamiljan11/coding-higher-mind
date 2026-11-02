@@ -140,8 +140,10 @@ function renderCouncil(decision, verdict, positions, catfish) {
 
 function renderAdr(decision, verdict, positions) {
   const opt = (id) => (decision.options.find((o) => o.id === id) || {}).summary || id;
-  return [`# ADR-NNNN — ${decision.question}`, '', `Data: ${new Date().toISOString().slice(0, 10)} | Status: ${verdict.needsHuman ? 'proponowane (czeka na uzytkownika)' : 'przyjete'} | Narada: ${decision.id} (${verdict.status})`, '',
-    `**Kontekst:** ${decision.context || '(uzupelnij)'}`, '', `**Decyzja:** ${verdict.leading ? `${verdict.leading} — ${opt(verdict.leading)}` : '(brak stanowisk)'}`, '',
+  // Naglowek i pola = szablon templates/repo/docs/adr/0000-template.md (wlasciciel cyklu zycia i formy decyzji).
+  return [`# ADR-NNNN — ${decision.question}`, '', `Data: ${new Date().toISOString().slice(0, 10)} | Status: ${verdict.needsHuman ? 'proponowane (czeka na uzytkownika)' : 'przyjete'} | Zastepuje: (brak / ADR-YYYY) | Drzwi: ${decision.irreversible ? 'jednokierunkowe' : 'dwukierunkowe'} | Przeglad: (uzupelnij) | Narada: ${decision.id} (${verdict.status})`, '',
+    `**Kontekst:** ${decision.context || '(uzupelnij)'}`, 'Kontekst powstania: (uzupelnij: faza · zespol · ruch · priorytet)', '',
+    `**Decyzja:** ${verdict.leading ? `${verdict.leading} — ${opt(verdict.leading)} (przed zapisem do docs/adr: 1 zdanie „Uzywamy X do Y”)` : '(brak stanowisk)'}`, '',
     '**Rozwazone alternatywy:** ' + decision.options.filter((o) => o.id !== verdict.leading).map((o) => `${o.id} (${o.summary})`).join('; '), '',
     '**Stanowiska dzialow:** ' + positions.map((p) => `${p.role}: ${p.preferred} (${p.confidence})`).join('; '), '',
     `**Sprzeciw + disagree-and-commit:** ${verdict.dissent.length ? verdict.dissent.map((d) => `${d.role} — ${d.why || d.preferred}`).join('; ') : 'brak sprzeciwu'}${verdict.strongest_objection ? ` · catfish: ${verdict.strongest_objection}` : ''}`, '',

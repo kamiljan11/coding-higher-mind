@@ -16,9 +16,20 @@ for pg_var in ALLOW_MAIN ALLOW_LARGE_DIFF ALLOW_BOUNDARIES ALLOW_FOREIGN_BRANCH 
     node "$HOME/.claude/hooks/lib/gate-log.js" pre-push bypass "$pg_var=$pg_val" "$(pwd)" 2>/dev/null || true
   fi
 done
+# Fala 0 (pg/designs/2026-11-01-fala-0-pomiar.md §11.1): kazde wyjscie != 0 zostawia w gates.jsonl `blocked` z nazwa bramki
+# (pg_gate ustawiany tuz przed `exit 1`; nowe wyjscie bez nazwy = UNKNOWN, widoczne). Wczesniej 0 wpisow `blocked` z git-hookow
+# na 24 567 (2026-10-21..11-01): bramka, ktora zatrzymala commit, byla w telemetrii niewidoczna. Status wyjscia bez zmian.
+pg_on_exit() {
+  pg_rc=$?
+  if [ "$pg_rc" != "0" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/hooks/lib/gate-log.js" ]; then
+    node "$HOME/.claude/hooks/lib/gate-log.js" pre-push blocked "rc=$pg_rc" "$(pwd)" "${pg_gate:-UNKNOWN}" 2>/dev/null || true
+  fi
+}
+pg_gate=
+trap pg_on_exit EXIT
 if [ "${ALLOW_FOREIGN_BRANCH:-0}" != "1" ] && [ -n "$PUSH_REFS" ]; then
   my_email=$(git config user.email 2>/dev/null)
-  while read -r local_ref local_sha remote_ref remote_sha; do
+  while read -r _local_ref local_sha remote_ref remote_sha; do
     [ -z "$remote_ref" ] && continue
     case "$remote_sha" in 0000000000000000000000000000000000000000) continue;; esac
     branch="${remote_ref#refs/heads/}"
@@ -36,16 +47,17 @@ fi
 # merge-commit spoza remote'ow — linie dodane w kazdym rodzicu musza byc w wyniku, CSS zbilansowany.
 # Swiadome odrzucenie strony konfliktu: ALLOW_MERGE_INTEGRITY=1 (poziom A).
 if [ "${ALLOW_MERGE_INTEGRITY:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/merge-integrity.js" ]; then
-  while read -r local_ref local_sha remote_ref remote_sha; do
+  while read -r _local_ref local_sha remote_ref remote_sha; do
     [ -z "$local_sha" ] && continue
     case "$local_sha" in 0000000000000000000000000000000000000000) continue;; esac
     node "$HOME/.claude/bin/merge-integrity.js" --repo . --merges-of "$local_sha" >&2
     pg_mi_rc=$?
     # 1 = CSS rozbity w scaleniu nadal w pushu -> blokada; 2 = blad narzedzia/gita -> tylko ostrzezenie (nie zatrzymuje pracy).
-    if [ "$pg_mi_rc" = "1" ]; then echo "[pre-push] merge-integrity: scalenie rozbilo CSS i nadal jest rozbity (wyzej). | BLOCKED: a merge left unbalanced CSS. Swiadomie: ALLOW_MERGE_INTEGRITY=1." >&2; exit 1; fi
-    if [ "$pg_mi_rc" = "2" ]; then
-      echo "[pre-push] merge-integrity: nie udalo sie sprawdzic scalen (blad narzedzia) — push idzie dalej." >&2
-      [ -f "$HOME/.claude/hooks/lib/gate-log.js" ] && node "$HOME/.claude/hooks/lib/gate-log.js" pre-push skipped "merge-integrity: blad narzedzia (exit 2)" "$(pwd)" 2>/dev/null
+    if [ "$pg_mi_rc" = "1" ]; then echo "[pre-push] merge-integrity: scalenie rozbilo CSS i nadal jest rozbity (wyzej). | BLOCKED: a merge left unbalanced CSS. Swiadomie: ALLOW_MERGE_INTEGRITY=1." >&2; pg_gate=MERGE_INTEGRITY; exit 1; fi
+    # kazde rc poza 0/1 (2 = blad narzedzia, >= 128 = smierc procesu) = ostrzezenie + slad (ADR-0008)
+    if [ "$pg_mi_rc" != "0" ] && [ "$pg_mi_rc" != "1" ]; then
+      echo "[pre-push] merge-integrity: nie udalo sie sprawdzic scalen (blad narzedzia, rc=$pg_mi_rc) — push idzie dalej." >&2
+      [ -f "$HOME/.claude/hooks/lib/gate-log.js" ] && node "$HOME/.claude/hooks/lib/gate-log.js" pre-push skipped "merge-integrity: blad narzedzia (exit $pg_mi_rc)" "$(pwd)" 2>/dev/null
     fi
   done <<PG_MI_REFS
 $PUSH_REFS
@@ -81,7 +93,7 @@ fi
 
 # Blizna PREPUSH-STDIN-CONSUMED-DEAD-GATE (2026-09-12): ta petla czytala GOLY stdin, ktory `PUSH_REFS="$(cat)"` wyzej
 # juz zjadl -> 0 iteracji -> push na main przechodzil (empirycznie rc=0) przez 6 dni. Refy ZAWSZE z $PUSH_REFS.
-while read -r local_ref local_sha remote_ref remote_sha; do
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
   case "$remote_ref" in
     refs/heads/main|refs/heads/master)
       if [ "$pg_main_ok" = "1" ]; then
@@ -94,7 +106,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
       echo "[pre-push] ZABLOKOWANE: bezposredni push na main (standard flow: branch -> PR -> merge). | BLOCKED: direct push to main." >&2
       echo "[pre-push] Zrob / Do:  git checkout -b feature/nazwa && git push -u origin feature/nazwa" >&2
       echo "[pre-push] Awaryjny wyjatek / emergency escape (hotfix):  ALLOW_MAIN=1 git push" >&2
-      exit 1
+      pg_gate=MAIN; exit 1
       ;;
   esac
 done <<PG_REFS
@@ -107,7 +119,7 @@ PG_REFS
 # a regula „ten sam temat = ta sama galaz/PR" naturalnie powieksza PR-y. Komunikat nie kaze dzielic jednego tematu.
 if [ "${ALLOW_LARGE_DIFF:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/diff-size-gate.js" ]; then
   if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
-    node "$HOME/.claude/bin/diff-size-gate.js" --base origin/main --max 1500 || { echo "[pre-push] diff-size-gate: > 1500 linii zrodlowych vs origin/main — taki diff jest nie do zrecenzowania. Kilka niezaleznych tematow -> rozdziel; jeden temat (migracja, wygenerowany kod, duzy feature) -> ALLOW_LARGE_DIFF=1. | BLOCKED: > 1500 source lines vs origin/main; split only independent topics, one topic: ALLOW_LARGE_DIFF=1." >&2; exit 1; }
+    node "$HOME/.claude/bin/diff-size-gate.js" --base origin/main --max 1500 || { echo "[pre-push] diff-size-gate: > 1500 linii zrodlowych vs origin/main — taki diff jest nie do zrecenzowania. Kilka niezaleznych tematow -> rozdziel; jeden temat (migracja, wygenerowany kod, duzy feature) -> ALLOW_LARGE_DIFF=1. | BLOCKED: > 1500 source lines vs origin/main; split only independent topics, one topic: ALLOW_LARGE_DIFF=1." >&2; pg_gate=LARGE_DIFF; exit 1; }
   fi
 fi
 
@@ -115,7 +127,40 @@ fi
 # z bloku json w docs/ARCHITECTURE.md = blok; stare cykle tylko ostrzegaja (dlugu nie sprzatamy z automatu). Wyjatek: ALLOW_BOUNDARIES=1.
 if [ "${ALLOW_BOUNDARIES:-0}" != "1" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/module-boundaries.js" ]; then
   if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
-    node "$HOME/.claude/bin/module-boundaries.js" --base origin/main || { echo "[pre-push] module-boundaries: nowy cykl importow albo naruszenie warstw (docs/ARCHITECTURE.md). | BLOCKED: new import cycle or import against declared layers. Wyjatek z powodem w ADR: ALLOW_BOUNDARIES=1." >&2; exit 1; }
+    # exit 1 = werdykt (nowy cykl / warstwy) -> blok; exit 2 = blad narzedzia -> ostrzezenie (zalogowane jako skipped), nie blok
+    mb_rc=0; node "$HOME/.claude/bin/module-boundaries.js" --base origin/main --from pre-push || mb_rc=$?
+    if [ "$mb_rc" = "1" ]; then echo "[pre-push] module-boundaries: nowy cykl importow albo naruszenie warstw (docs/ARCHITECTURE.md). | BLOCKED: new import cycle or import against declared layers. Wyjatek z powodem w ADR: ALLOW_BOUNDARIES=1." >&2; pg_gate=BOUNDARIES; exit 1; fi
+    # slad pisze HOOK (nie skrypt): pokrywa tez OOM/SIGKILL/timeout, gdy node nie zdazy nic zapisac (review r3 2026-10-18)
+    if [ "$mb_rc" != "0" ]; then
+      echo "[pre-push] module-boundaries: blad narzedzia (rc=$mb_rc) — granice NIE sprawdzone, push przepuszczony; slad w gates.jsonl (skipped). | WARNING: tool error, boundaries not checked." >&2
+      [ -f "$HOME/.claude/hooks/lib/gate-log.js" ] && node "$HOME/.claude/hooks/lib/gate-log.js" pre-push skipped "module-boundaries: blad narzedzia (exit $mb_rc)" "$(pwd)" 2>/dev/null
+    fi
+  fi
+fi
+
+# Kod „na zapas" (2026-10-26, pytanie uzytkownika o niepotrzebny kod): NOWY eksport TS/JS albo def/class Pythona bez zadnego
+# uzycia w repo. OBSERVE (ADR-0008): ostrzezenie + `would_block` w gates.jsonl, push przechodzi. Blokada po incydencie.
+if command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/bin/unused-export-gate.js" ]; then
+  # Baza = galaz domyslna origin (origin/HEAD), potem main/master — repo z `master` tez jest mierzone (pg-review data r2).
+  ue_base=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)
+  for _b in "$ue_base" origin/main origin/master; do
+    if [ -n "$_b" ] && git rev-parse --verify -q "$_b" >/dev/null 2>&1; then ue_base=$_b; break; fi
+    ue_base=""
+  done
+  ue_log() { [ -f "$HOME/.claude/hooks/lib/gate-log.js" ] && node "$HOME/.claude/hooks/lib/gate-log.js" pre-push skipped "$1" "$(pwd)" 2>/dev/null; }
+  if [ -n "$ue_base" ]; then
+    ue_rc=0; ue_out=$(node "$HOME/.claude/bin/unused-export-gate.js" --base "$ue_base" --from pre-push 2>&1) || ue_rc=$?
+    if [ "$ue_rc" = "1" ]; then
+      echo "[pre-push] unused-export-gate (observe): nowe definicje bez uzycia — usun albo uzyj (YAGNI). Push przepuszczony. | WARNING: new unused definitions:" >&2
+      printf '%s\n' "$ue_out" | head -20 >&2
+    elif [ "$ue_rc" != "0" ]; then
+      echo "[pre-push] unused-export-gate: blad narzedzia (rc=$ue_rc), nie sprawdzono. | WARNING: tool error." >&2
+      # Slad tez z hooka: OOM/SIGKILL/timeout nie zdaza zalogowac z narzedzia (jak module-boundaries wyzej; pg-review ops r2).
+      [ "$ue_rc" != "2" ] && ue_log "unused-export-gate: blad narzedzia (exit $ue_rc)"
+    fi
+  else
+    # Brak bazy = observe nic nie mierzy — slad w telemetrii, zeby guard_health to widzial (pg-review 2026-10-26 ops).
+    ue_log "unused-export-gate: brak galezi domyslnej origin"
   fi
 fi
 

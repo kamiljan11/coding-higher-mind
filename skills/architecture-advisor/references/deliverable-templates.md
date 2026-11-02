@@ -18,7 +18,8 @@ One ADR per significant decision. Short, plain, honest about what's being given 
 ```markdown
 # ADR-<NNN>: <short decision title>
 
-- **Status:** Proposed | Accepted | Superseded by ADR-XXX
+- **Status:** Proposed | Accepted | Rejected | Deprecated | Superseded [partially] by ADR-XXX
+- **Supersedes:** ADR-YYY [› part] (optional; link both ways — lifecycle owner: `~/.claude/templates/repo/docs/adr/0000-template.md`)
 - **Date:** <YYYY-MM-DD>
 - **Context tags:** <team size · scale · certainty · criticality — the forces that decided this>
 
@@ -49,6 +50,8 @@ out-of-date simplicity later.>
 ---
 
 ## B. Trade-off scorecard
+
+> In a repo the scorecard lives INSIDE the ADR (`~/.claude/templates/repo/docs/adr/0000-template.md`, section "Macierz": weights in % per context profile, a reason in every cell); this English form is for chat answers and non-repo work.
 
 For SELECT (comparing options) and AUDIT (rating findings). Weight criteria by the **real
 constraints** from the context interview — an honest scorecard is weighted by *this* project's

@@ -38,6 +38,25 @@ mixed = [x for x in exp.scan("<owner>: shop-app i ~/x", "f") if not exp.deny_all
 check("wyjatek denylisty po tokenie: uzytkownik w linii nie przepuszcza klienta ani sciezki", len(mixed) >= 2, repr(mixed))
 check("denylista: lapie linuksowa sciezke domowa", bool(exp.scan("~/x", "f")), "brak trafienia")
 check("denylista: fikstura /home/user/ przechodzi", not exp.scan("rm -rf /home/user/x", "f"))
+
+# pg/INDEX.md w eksporcie (r11 code/security): tylko linie, ktorych sciezki `...` sa w eksporcie — fail-closed takze dla prozy.
+idx = ("# PG\nNarzedzia: `bin/README.md`.\n| Plik | Wlasciciel |\n|---|---|\n| `pg/GLOSSARY.md` | slownik |\n"
+       "| `pg/ref-meta.md` | prywatne |\nProza o `pg/reflect-guard.md` tez.\nBez sciezki zostaje.\n")
+pub = exp.public_index(idx, {"pg/GLOSSARY.md"})
+check("public_index: wiersz pliku z eksportu zostaje", "`pg/GLOSSARY.md`" in pub, pub)
+check("public_index: wiersz i proza z plikiem prywatnym odpadaja", "ref-meta" not in pub and "reflect-guard" not in pub, pub)
+pub2 = exp.public_index("a `~/.claude/pg/ref-meta.md` b\nc `/home/user/.claude/pg/GLOSSARY.md` d\ngoly ref-infisical tutaj\n`/etc/passwd`\n", {"pg/GLOSSARY.md"})
+check("public_index: ~/ i /home/ normalizowane, goly rdzen pliku prywatnego i obca sciezka absolutna odpadaja (r12 security)",
+      pub2 == "c `/home/user/.claude/pg/GLOSSARY.md` d\n", repr(pub2))
+check("public_index: martwy odsylacz (bin/README.md spoza eksportu) odpada, tekst bez sciezki zostaje",
+      "bin/README.md" not in pub and "Bez sciezki zostaje." in pub and "| Plik |" in pub, pub)
+with open(os.path.join(exp.ROOT, "pg", "INDEX.md"), encoding="utf-8") as _fh:
+    real = exp.public_index(_fh.read(), set(exp.allowlist()))
+check("public_index: realny INDEX bez plikow prywatnych", not any(x in real for x in ("ref-meta", "ref-infisical", "reflect-guard", "ref-skills")), "")
+t_b, _ = exp.substitute("`infisical run --env=dev -- node bin/pg-sync.js push`")
+check("substytucja: komenda mostu w calosci (bez resztek cd/python3 przed nazwa narzedzia)", t_b == "`infisical run --env=dev -- node bin/pg-sync.js push`", t_b)
+t_b2, _ = exp.substitute("infisical run --env=dev -- python3 x.py")
+check("substytucja: komenda mostu ze sciezka absolutna (r11 ops)", t_b2 == "infisical run --env=dev -- python3 x.py", t_b2)
 check("SECRET: token Meta EAA", any("SECRET" in p for p in exp.scan("EAAG" + "a1" * 40, "f")))
 check("scan: kazde trafienie w linii osobno", len(exp.scan("uzytkownik i shop-app", "f")) >= 2, repr(exp.scan("uzytkownik i shop-app", "f")))
 # security etap1f: klient spoza tablicy przeszedl eksport z „problemy: 0" (ADR-0007, fleet-cve-watch) — podmiana + denylista.
@@ -108,13 +127,35 @@ with tempfile.TemporaryDirectory() as vd:
         fh.write("| ID | x |\n| A-ONE | y |\n| B-TWO | z |\n")
     with open(os.path.join(vd, "pg", ".github", "w.yml"), "w", encoding="utf-8") as fh:
         fh.write("x\n")
+    def _read(rel="README.md"):
+        with open(os.path.join(vd, rel), encoding="utf-8") as fh:
+            return fh.read()
     _readme("# T\n5 files, 3 scars, 26 template files\n")
-    check("count_problems: zgodne liczniki (5 plikow z .github, 3 blizny) = OK", exp.count_problems(vd) == [], repr(exp.count_problems(vd)))
-    _readme("# T\n99 files, 3 scars\n")
-    check("count_problems: reczny licznik plikow != eksport = problem", len(exp.count_problems(vd)) == 1, repr(exp.count_problems(vd)))
+    check("fill_counters: zgodne liczniki (5 plikow z .github, 3 blizny) = bez zmian", exp.fill_counters(vd) == ([], []), repr(exp.fill_counters(vd)))
+    _readme("# T\n99 files, 3 scars, 26 template files\n")
+    fc = exp.fill_counters(vd)
+    check("fill_counters: reczny licznik != eksport -> eksport wpisuje policzony (wiedza raz, r11)",
+          fc[0] == [] and "5 files" in _read() and "99" not in _read() and "26 template files" in _read(), repr(fc) + _read())
     os.makedirs(os.path.join(vd, "scheduled-tasks", "a"))
     _readme("# T\n5 files, 3 scars, 2 Claude Code routines\n")
-    check("count_problems: licznik rutyn != katalogi scheduled-tasks = problem", any("routines" in x for x in exp.count_problems(vd)), repr(exp.count_problems(vd)))
+    fc = exp.fill_counters(vd)
+    check("fill_counters: licznik rutyn = liczba katalogow scheduled-tasks", "1 Claude Code routines" in _read() and any("routines" in x for x in fc[1]), repr(fc) + _read())
+    os.makedirs(os.path.join(vd, "skills", "s1"))
+    with open(os.path.join(vd, "skills", "s1", "SKILL.md"), "w", encoding="utf-8") as fh:
+        fh.write("x\n")
+    os.makedirs(os.path.join(vd, "plugins", "p", "skills"))  # plugin bez skilli = 0 (r13 code: plugin != wszystkie skille)
+    _readme("# T\n18 skills, listed; 18 working skills as a plugin\n")
+    with open(os.path.join(vd, "README.pl.md"), "w", encoding="utf-8") as fh:
+        fh.write("# T\n18 skilli w eksporcie; 18 skilli roboczych jako plugin\n")
+    exp.fill_counters(vd)
+    check("fill_counters: skille = skills/*/SKILL.md, 'working skills' = skille pluginu (EN)",
+          "1 skills, listed" in _read() and "0 working skills" in _read(), _read())
+    check("fill_counters: to samo w README.pl.md (skilli vs skilli roboczych)",
+          "1 skilli w eksporcie" in _read("README.pl.md") and "0 skilli roboczych" in _read("README.pl.md"), _read("README.pl.md"))
+    os.remove(os.path.join(vd, "pg", "cases.md"))
+    _readme("# T\n5 files, 3 scars\n")
+    fc = exp.fill_counters(vd)
+    check("fill_counters: brak cases.md = problem (nie wpisuje -1)", len(fc[0]) == 1 and "-1" not in _read(), repr(fc) + _read())
 
 def _shebang(p):
     with open(p, "rb") as fh:
@@ -178,6 +219,97 @@ check("denylista lapie tender-app, gdyby substytucja zawiodla", bool(exp.scan("p
 t_s, _ = exp.substitute('| payment-gateway | Islandia | Hostowany checkout | ["payment-provider","Europejska bramka"] |')
 check("katalog stacku: dostawcy wycieci jak wszedzie", not exp.scan(t_s, "skills/architecture-advisor/references/stack-catalog.md")
       and "payment-gateway" not in t_s and "payment-provider" not in t_s, t_s)
+
+# 2026-11-02 (EXPORT-UNTRACKED-PRIVATE, A12): do eksportu tylko pliki z HEAD; staged bez commita, nieśledzone (DIRS, skille,
+# bin, bin/lib) odpadaja; sledzony plik z niezacommitowana zmiana = odmowa; blad gita (takze brak binarki) = exit 2.
+def _w(root: str, rel: str, text: str = "") -> None:
+    text = text or {".py": "VALUE = 1\n", ".js": "module.exports = {};\n"}.get(os.path.splitext(rel)[1], "# x\n")
+    os.makedirs(os.path.dirname(os.path.join(root, rel)), exist_ok=True)
+    with open(os.path.join(root, rel), "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def _git(root: str, *a: str) -> None:
+    subprocess.run(["git", "-C", root, "-c", "user.name=t", "-c", "user.email=t@t", *a], check=True, capture_output=True)
+
+
+SK = exp.SKILLS[0]
+with tempfile.TemporaryDirectory() as td:
+    pub = ["scheduled-tasks/publiczna/SKILL.md", f"skills/{SK}/SKILL.md", "bin/pub.py", "bin/lib/pub.js", "pg/public/README.md"]
+    priv = ["scheduled-tasks/prywatna-sesji/SKILL.md", f"skills/{SK}/private.md", "bin/private_fleet.py", "bin/lib/private.js",
+            "scheduled-tasks/staged-bez-commita/SKILL.md", "pg/public/notatki-sesji.md"]
+    for rel in pub + priv:
+        _w(td, rel)
+    subprocess.run(["git", "init", "-q", td], check=True)
+    _git(td, "add", *pub)
+    _git(td, "commit", "-q", "-m", "chore: fixture")
+    _git(td, "add", "scheduled-tasks/staged-bez-commita/SKILL.md")
+    old_root = exp.ROOT
+    old_pub = exp.PUBLIC_SRC
+    vars(exp)["ROOT"] = td  # modul ladowany przez importlib: pyright nie zna atrybutu, ruff B010 zabrania setattr
+    vars(exp)["PUBLIC_SRC"] = os.path.join(td, "pg", "public")
+    try:
+        al = set(exp.allowlist())
+        ps = exp.public_src_files()
+        check("pg/public: tylko pliki z HEAD (security A13)", ps == ["pg/public/README.md"], repr(ps))
+        check("allowlista: tylko pliki z HEAD (DIRS, skille, bin, bin/lib; staged bez commita odpada)",
+              all(p in al for p in pub if not p.startswith("pg/public/")) and not any(p in al for p in priv), repr(sorted(al)))
+        _w(td, "bin/pub.py", "prywatna zmiana\n")
+        try:
+            exp.allowlist()
+            check("allowlista: sledzony plik z niezacommitowana zmiana = RuntimeError", False, "brak wyjatku")
+        except RuntimeError as e:
+            check("allowlista: sledzony plik z niezacommitowana zmiana = RuntimeError", "bin/pub.py" in str(e), str(e))
+        # Odmowa PRZED kasowaniem --out (code/ops A14): bez --check-only, --out = klon publiczny z plikiem-wartownikiem.
+        # Mutant z allowlist() za rmtree przechodzil wszystkie testy (oba wczesniejsze exit 2 chodza z --check-only).
+        pclone = os.path.join(td, "pubclone")
+        subprocess.run(["git", "init", "-q", pclone], check=True)
+        subprocess.run(["git", "-C", pclone, "remote", "add", "origin", f"https://github.com/{exp.PUBLIC_REPO}.git"], check=True)
+        _w(pclone, "wartownik.md")
+        drv = ("import importlib.util, sys\n"
+               "s = importlib.util.spec_from_file_location('e', sys.argv[1]); m = importlib.util.module_from_spec(s)\n"
+               "s.loader.exec_module(m); m.ROOT = sys.argv[2]; m.PUBLIC_SRC = sys.argv[2] + '/pg/public'\n"
+               "sys.argv = ['x', '--out', sys.argv[3]]; sys.exit(m.main())\n")
+        r = subprocess.run([sys.executable, "-c", drv, os.path.join(HERE, "pg-export-public.py"), td, pclone],
+                           capture_output=True, text=True, check=False)
+        check("odmowa (dirty) bez --check-only = exit 2 i --out nietkniety", r.returncode == 2 and "niezacommitowane" in r.stdout
+              and os.path.isfile(os.path.join(pclone, "wartownik.md")),
+              f"rc={r.returncode} {r.stdout[-200:]}{r.stderr[-200:]}")
+        _git(td, "checkout", "--", "bin/pub.py")
+        _w(td, "pg/public/README.md", "# prywatna zmiana\n")
+        try:
+            exp.public_src_files()
+            check("pg/public: sledzony plik z niezacommitowana zmiana = RuntimeError", False, "brak wyjatku")
+        except RuntimeError as e:
+            check("pg/public: sledzony plik z niezacommitowana zmiana = RuntimeError", "pg/public/README.md" in str(e), str(e))
+        _git(td, "checkout", "--", "pg/public/README.md")
+        _w(td, "CLAUDE.md", "# x\n")
+        _git(td, "add", "CLAUDE.md")
+        _git(td, "commit", "-q", "-m", "chore: fixture")
+        _w(td, "CLAUDE.md", "# prywatna zmiana\n")
+        try:
+            exp.allowlist()
+            check("allowlista: zmieniony CLAUDE.md (plik pochodny) = RuntimeError", False, "brak wyjatku")
+        except RuntimeError as e:
+            check("allowlista: zmieniony CLAUDE.md (plik pochodny) = RuntimeError", "CLAUDE.md" in str(e), str(e))
+        vars(exp)["ROOT"] = os.path.join(td, "brak")
+        try:
+            exp.tracked_files()
+            check("tracked_files: brak repo = RuntimeError", False, "brak wyjatku")
+        except RuntimeError:
+            check("tracked_files: brak repo = RuntimeError", True)
+    finally:
+        vars(exp)["ROOT"] = old_root
+        vars(exp)["PUBLIC_SRC"] = old_pub
+    nogit = os.path.join(td, "nogit")
+    os.makedirs(nogit)
+    r = subprocess.run([sys.executable, os.path.join(HERE, "pg-export-public.py"), "--out", os.path.join(td, "out"), "--check-only"],
+                       capture_output=True, text=True, check=False, env={**os.environ, "PATH": nogit})
+    check("brak binarki git = exit 2 (blad narzedzia, nie denylista)", r.returncode == 2, f"rc={r.returncode} {r.stdout[-200:]}{r.stderr[-200:]}")
+    _w(td, "out2/plik.txt")  # niepusty --out: is_public_clone tez wola gita (code A13)
+    r2 = subprocess.run([sys.executable, os.path.join(HERE, "pg-export-public.py"), "--out", os.path.join(td, "out2"), "--check-only"],
+                        capture_output=True, text=True, check=False, env={**os.environ, "PATH": nogit})
+    check("brak binarki git + niepusty --out = exit 2", r2.returncode == 2, f"rc={r2.returncode} {r2.stdout[-200:]}{r2.stderr[-200:]}")
 
 print("TESTY: " + ("wszystkie OK" if not FAILS else f"{len(FAILS)} FAIL"))
 sys.exit(1 if FAILS else 0)

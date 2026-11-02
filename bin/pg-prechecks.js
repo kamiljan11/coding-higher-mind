@@ -23,11 +23,19 @@ const ANY_TEXT = /./;
 
 // rx/near: skladnia wspolna dla rg (Rust regex) i JS — bez lookaround/backreferencji.
 // near = { rx, before, after }: trafienie liczy sie TYLKO, gdy w oknie linii [line-before, line+after] NIE ma `near.rx`.
+// Deklaracja repo w CLAUDE.md (np. `pg.code_lang: en`): regula `when` dziala tylko tam — stare repo bez deklaracji = cisza (ZAKRES).
+const repoDeclares = (repo, rx) => { try { return rx.test(fs.readFileSync(path.join(repo, 'CLAUDE.md'), 'utf8')); } catch (e) { return false; } };
+
 const RULES = [
+  // Jezyk kodu (uzytkownik 2026-10-13, NOWE repo): identyfikatory i komentarze po angielsku. Kandydat = polski znak w linii kodu; recenzent
+  // odroznia tekst UI bez i18n (inny finding) od nazwy/komentarza. Observe: tylko dowod dla recenzenta, zadnej blokady.
+  { id: 'CODE-LANG', rx: '[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]', files: CODE_FILES, skip: { test: (f) => TEST_FILES.test(f) || /(^|\/)(__mocks__|locales?|i18n|translations?)\//i.test(f) }, when: (repo) => repoDeclares(repo, /pg\.code_lang:\s*`?en\b/), roles: ['code'], source: 'CLAUDE.md › Jezyk kodu; agents/code-reviewer.md#5' },
   { id: 'SUPPRESSION', rx: 'eslint-disable|@ts-ignore|@ts-expect-error|# *noqa|\\bnoqa\\b', files: /./, skip: null, roles: ['code'], source: 'agents/code-reviewer.md#7 SUPPRESSION-AS-FIX' },
   { id: 'ANY-TYPE', rx: ':\\s*any\\b|\\bas any\\b|<any>', files: CODE_FILES, skip: TEST_FILES, roles: ['code', 'ux'], source: 'agents/code-reviewer.md#7, agents/ux-reviewer.md#8' },
   { id: 'CONSOLE-LOG', rx: 'console\\.log\\(', files: CODE_FILES, skip: /(^|\/)scripts?\/|(^|\/)bin\/|\.(test|spec)\./i, roles: ['code', 'ops'], source: 'agents/code-reviewer.md#6' },
-  { id: 'EMPTY-CATCH', rx: 'catch\\s*(\\(\\s*\\w*\\s*\\))?\\s*\\{\\s*\\}', files: CODE_FILES, skip: null, roles: ['code', 'ops'], source: 'agents/code-reviewer.md#6' },
+  // Takze .catch(() => {}) / null / { /* ignore */ } / { return null } / async / ({}) (audyt failure-modes 2026-10-16: stary regex 1 trafienie
+  // tam, gdzie recenzent znalazl 245 cichych catchy). Catch z logowaniem albo inna trescia = recenzent, nie regex.
+  { id: 'EMPTY-CATCH', rx: 'catch\\s*(\\(\\s*\\w*\\s*\\))?\\s*\\{\\s*(/\\*[^*]*\\*/\\s*)?\\}|\\.catch\\(\\s*(async\\s+)?(\\(\\s*\\w*\\s*\\)|\\w+)\\s*=>\\s*(\\{\\s*(/\\*[^*]*\\*/\\s*)?(return\\s*(null|undefined|false)?\\s*;?\\s*)?\\}|null|undefined|void 0|false|\\[\\]|\\(\\{\\}\\))\\s*\\)', files: CODE_FILES, skip: null, roles: ['code', 'ops'], source: 'agents/code-reviewer.md#6' },
   { id: 'LOG-NO-CONTEXT', rx: '(logger|log|console)\\.(warn|error)\\(\\s*[\'"`][^\'"`]*[\'"`]\\s*\\)', files: CODE_FILES, skip: TEST_FILES, roles: ['ops', 'code'], source: 'agents/ops-reviewer.md#4 (audyt #10: LOG-WITHOUT-CONTEXT)' },
   { id: 'PII-IN-LOG', rx: 'console\\.(log|error|warn)\\(.*(email|phone|token|kennitala|password)', i: true, files: CODE_FILES, skip: TEST_FILES, roles: ['ops', 'security'], source: 'agents/ops-reviewer.md#4' },
   { id: 'SERVICE-ROLE', rx: 'service_role|SERVICE_ROLE', files: ANY_TEXT, skip: /\.env[\w.-]*\.(example|sample|template|dist)$/i, roles: ['security', 'data'], source: 'agents/security-reviewer.md#1, review-checklists.md (security)' },
@@ -35,6 +43,7 @@ const RULES = [
   { id: 'DANGEROUS-SINK', rx: 'dangerouslySetInnerHTML|execSync\\(|\\beval\\(|new Function\\(|child_process', files: CODE_FILES, skip: TEST_FILES, roles: ['security', 'code'], source: 'agents/security-reviewer.md#6' },
   { id: 'REQ-JSON-NO-PARSE', rx: '(req|request)\\.json\\(\\)', near: { rx: 'safeParse|\\.parse\\(', before: 2, after: 6 }, files: CODE_FILES, skip: TEST_FILES, roles: ['security'], source: 'agents/security-reviewer.md#3' },
   { id: 'FETCH-NO-TIMEOUT', rx: '\\bfetch\\(', near: { rx: 'signal|timeout|AbortSignal', before: 2, after: 6 }, files: CODE_FILES, skip: TEST_FILES, roles: ['ops', 'security'], source: 'agents/ops-reviewer.md#3, agents/security-reviewer.md#8, review-checklists.md (niezawodnosc)' },
+  { id: 'RETRY-NO-BACKOFF', rx: '\\bfor\\s*\\(\\s*(let|var)\\s+\\w*(attempt|retr)\\w*\\s*=|\\bwhile\\b.*\\b(retry|retries|attempts?)\\b', i: true, near: { rx: 'backoff|sleep|delay|setTimeout|\\*\\*|Math\\.pow|jitter|wait\\(', before: 0, after: 8 }, files: CODE_FILES, skip: TEST_FILES, roles: ['ops', 'code'], source: 'agents/ops-reviewer.md#3 (retry tylko z backoffem i dla idempotentnych; audyt failure-modes 2026-10-16)' },
   { id: 'LIMIT-WITHOUT-ORDER', rx: '\\.limit\\(', near: { rx: '\\.order\\(|order by', before: 12, after: 4, statement: true, start: '\\.from\\(|\\bselect\\b' }, files: CODE_FILES, skip: TEST_FILES, roles: ['data', 'code'], source: 'agents/data-reviewer.md#5, audyt #10 (keyset/stronicowanie)' },
   { id: 'SINGLE-ROW', rx: '\\.single\\(\\)', files: CODE_FILES, skip: TEST_FILES, roles: ['data'], source: 'agents/data-reviewer.md#5, agents/code-reviewer.md#2' },
   { id: 'SELECT-STAR', rx: '\\.select\\(\\s*[\'"`]\\*[\'"`]', files: CODE_FILES, skip: TEST_FILES, roles: ['data'], source: 'agents/data-reviewer.md#5' },
@@ -167,6 +176,7 @@ function prechecks(diffText, repo) {
   const stale = withAdded.filter((f) => !present.includes(f));
   const postLines = (f) => { const p = byFile[f].post; const arr = []; for (const [n, t] of p) arr[n - 1] = t; return Array.from(arr, (t) => t || ''); };
   for (const rule of RULES) {
+    if (rule.when && !rule.when(repo)) continue;
     const applies = (f) => rule.files.test(f) && !(rule.skip && rule.skip.test(f));
     const files = present.filter(applies);
     const perFile = {};

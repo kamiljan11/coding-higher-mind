@@ -49,9 +49,16 @@ Setup jednorazowy (bez niego bramki sa SKIPPED albo tylko alarmuja — sprawdz c
       Odpowiedz `{"ok":true,"db":"ok"}` albo 503 `{"ok":false,"db":"down"}`;
       bez danych i sekretow w odpowiedzi; krotki cache `Cache-Control: s-maxage=5` (zalew endpointu nie wyczerpie puli polaczen bazy).
       Sonda sprawdza pola JSON, nie podciag, i jest `dependency: true` — awaria bazy = alarm, nie rollback aplikacji.
-- [ ] Branch protection: wymagany status `pg/preview` (obok CI). UWAGA: `mas_branch_protect.py` / `mas_branch_protection.py` robia PUT z pelna lista
-      i ZDEJMUJA `pg/preview` — po ich uzyciu dodaj go ponownie. Chroniony podglad (401) daje zielone `pg/preview` bez sond (opis statusu to mowi).
+- [ ] Branch protection: wymagany status `pg/preview` (obok CI). UWAGA: `mas_branch_protection.py` robi PUT z pelna lista
+      i ZDEJMUJE `pg/preview` — po jego uzyciu dodaj go ponownie (`mas_branch_protect.py` od 2026-10-26 zachowuje istniejace checki). Chroniony podglad (401) daje zielone `pg/preview` bez sond (opis statusu to mowi).
       Sprawdz liste wymaganych statusow: `gh api repos/<o>/<r>/branches/main/protection --jq '.required_status_checks.contexts'`.
+- [ ] Job `Polyglot (Python/Go/Rust/CSharp/PHP/Java/Shell)` (ADR-0010 PG) jest wymagany, gdy quality.yml go ma. Falszywa czerwien: popraw krok. Usuniecie joba — kolejnosc,
+      inaczej PR stoi na „Waiting for status": (1) zdejmij check z ochrony: `gh api --method PATCH
+      repos/<o>/<r>/branches/main/protection/required_status_checks -F strict=<OBECNA wartosc true/false> -f 'contexts[]=<kazdy check OPROCZ Polyglot>'`
+      (`-F` = boolean, nie tekst; aktualna lista i strict: komenda wyzej), (2) merge PR usuwajacego job, (3) ponownie skrypt,
+      ktory ustawil ochrone: `mas_branch_protect.py` (strict=false, enforce_admins=false) albo `mas_branch_protection.py` (strict=true) —
+      inny skrypt nadpisze polityke repo. `::warning::` z kroku „Pokrycie" = kod NIESPRAWDZONY (luka), nie zielen —
+      monorepo: dopisz krok jezyka z `working-directory: <katalog>`.
 - Playwright na podgladzie: NIE w deploy-gate (kod PR w kontekscie galezi domyslnej = ryzyko zatrucia cache). E2E smoke biegnie w `quality.yml` (pull_request).
 - [ ] Domena za Cloudflare/WAF: przepusc User-Agent `pg-deploy-probe` albo IP runnerow GitHuba; inaczej 403/429 = bramka niesprawna (bez rollbacku, ale BAKE stoi).
 - [ ] NAJPIERW projekt staging, dopiero potem produkcja (bramka nieprzecwiczona moze zatrzymac kazdy deploy).

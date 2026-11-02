@@ -21,8 +21,8 @@ cd <repo>
 node ~/.claude/bin/pg-self-approve.js --diff . > "$RUN/diff.patch" && [ -s "$RUN/diff.patch" ] || { echo "diff.patch pusty/blad — STOP"; exit 1; }
 git status --porcelain > "$RUN/status.txt"   # kanoniczny diff (HEAD + nieśledzone) — pg-self-approve porownuje go bajt w bajt
 FILES=$(git diff --name-only HEAD; git ls-files --others --exclude-standard)
-LINES=$(git diff --numstat HEAD | awk '{s+=$1+$2} END {print s+0}')
-node ~/.claude/hooks/lib/risk-tier.js "$(pwd)" $FILES --lines $LINES > "$RUN/tier.json"; cat "$RUN/tier.json"
+node ~/.claude/hooks/lib/risk-tier.js "$(pwd)" $FILES --lines auto > "$RUN/tier.json"; cat "$RUN/tier.json"   # auto = sledzone + nieśledzone, jak git po commicie (hooks/lib/changed-lines.js, ten sam licznik co stop-gate)
+# zbior plikow != stop-gate: tu wszystkie zmienione (takze md/json), stop-gate tylko kod+SQL (stop-gate.js changedCode) -> tutaj tier moze wyjsc wyzszy; kierunek bezpieczny, zamierzony
 sha256sum "$RUN/diff.patch"   # -> <SHA> do promptu kazdego findera (diff_sha256=<SHA>)
 node ~/.claude/bin/pg-slice.js --run "$RUN" --repo .       # -> diff.<rola>.patch (code/security/data/ops/ux/product/qa) + slice.json, tabela rozmiarow
 node ~/.claude/bin/pg-prechecks.js --run "$RUN" --repo .   # -> prechecks.json {rola: [{rule, file, line, text, source}]} (rg z rubryk, tylko linie dodane)
@@ -45,7 +45,7 @@ Bramki: `npx --no-install eslint --max-warnings=0 <pliki>` (lub oxlint), `tsc -b
 Czerwone => napraw NAJPIERW. Nie odpalaj agentow na czerwonym drzewie.
 
 ## 1. Finderzy — rownolegle, jedna wiadomosc, `run_in_background: true`
-Z `tier.json.reviewers` (+ `product-reviewer` na T3, na zadanie, ORAZ zawsze gdy diff dotyka `docs/`, `README*`, publicznego API/konfiguracji — routes, `.env.example`, eksporty pakietu, sygnatury edge fn — bo wtedy docs musza sie zgadzac z kodem w tym samym PR; how_to_check: `git diff --name-only origin/main...HEAD | rg "^docs/|README|\.env\.example|routes|supabase/functions"`; `slice.json.roles.product.file_count > 0` = to samo). Model z `tier.json.models` (T3: security = opus; data = opus tylko gdy diff ma .sql/migracje/polityki RLS, inaczej sonnet).
+Z `tier.json.reviewers` (+ `product-reviewer` na T2 i T3 — na T2 przychodzi w `optional_reviewers` i odpalasz go ZAWSZE (rubryka 9: kod na zapas; koszt 1 agenta sonnet swiadomy, ADR-0010; stop-gate go nie wymusza, wiec pominiecie niczego nie blokuje) — na zadanie, ORAZ zawsze gdy diff dotyka `docs/`, `README*`, publicznego API/konfiguracji — routes, `.env.example`, eksporty pakietu, sygnatury edge fn — bo wtedy docs musza sie zgadzac z kodem w tym samym PR; how_to_check: `git diff --name-only origin/main...HEAD | rg "^docs/|README|\.env\.example|routes|supabase/functions"`; `slice.json.roles.product.file_count > 0` = to samo). Model z `tier.json.models` (T3: security = opus; data = opus tylko gdy diff ma .sql/migracje/polityki RLS, inaczej sonnet).
 Prompt KAZDEGO findera (krotki; rola ma pelna rubryke w `~/.claude/agents/<rola>.md`; `<rola>` = nazwa agenta bez `-reviewer`):
 ```
 Repo: <sciezka>. Tier: <T>. Twoj wycinek: <RUN>/diff.<rola>.patch (czytaj CALY). Pelny diff (kontekst, gdy potrzebny): <RUN>/diff.patch diff_sha256=<SHA>.
@@ -89,12 +89,15 @@ NIE jest zrobiona — dopuszczasz brakujacy dzial, nie „naprawiasz" werdyktu (
 ## 3. Weryfikator (tylko gdy `needs_verification` niepuste lub tier T3)
 Agent `verifier` (T3: model opus), prompt:
 ```
-Repo: <sciezka>. Tier: <T>. Wejscie: <RUN>/aggregated.json (sprawdzaj TYLKO needs_verification).
+Repo: <sciezka>. Tier: <T>. Wejscie: <RUN>/aggregated.json (sprawdzaj TYLKO needs_verification; id moze byc czlonkiem grupy —
+claim/repro_cmd szukaj w findings[].members[] po id).
 Wykonaj repro_cmd kazdego, verdict reproduced/not_reproduced/cannot_run. Zapisz <RUN>/verdicts.json. Nie edytuj repo.
 ```
 Potem ponownie: `node ~/.claude/bin/pg-aggregate.js "<RUN>" --repo "<repo>" --tier <T> --final --verdicts "<RUN>/verdicts.json"`
 (`--repo`: stop-gate przypisuje agregacje do repo — bez tego przy 2 repo w jednej sesji ostatnia agregacja jednego blokowala drugie)
-(`--final`: finding wymagajacy weryfikacji bez werdyktu = INCOMPLETE; werdykt z nieznanym/zduplikowanym id = INCOMPLETE).
+(`--final`: finding wymagajacy weryfikacji bez werdyktu = INCOMPLETE; werdykt z nieznanym/zduplikowanym id = INCOMPLETE;
+`cannot_run` na blockerze = brak werdyktu -> INCOMPLETE: zbuduj fixture w `<RUN>/` (weryfikator jest read-only) i pusc weryfikatora ponownie
+ze sciezka fixture w prompcie albo napraw blocker — pg/cases.md CANNOT-RUN-BLOCKER-AS-NOTE, READONLY-AGENT-NO-FIXTURE).
 Bez weryfikatora (pusta `needs_verification`, tier < T3) krok 2 uruchom od razu z `--final`.
 Recenzenci i weryfikator sa READ-ONLY takze mechanicznie (bash-guard, `agent_type`): zapis tylko do `<RUN>/findings.*.json`,
 `verdicts.json` albo %TEMP%; `git stash/checkout/commit`, `npm install` = blokada.
@@ -102,6 +105,15 @@ Recenzenci i weryfikator sa READ-ONLY takze mechanicznie (bash-guard, `agent_typ
 ## 4. Fixer = sesja glowna
 Napraw `blocker` i `must_fix` (nie `note`, chyba ze trywialne). Kazdy fix przechodzi bramki (hooki same to zrobia).
 `dropped` i `note` wypisz w raporcie z jednym zdaniem dlaczego nie naprawiasz. Nie „naprawiaj" przez suppression.
+**Dyscyplina odrzucania (P5, EGM `egm-resolve`, 2026-11-01):** odrzucenie `blocker`/`must_fix` (`dropped:*`) tylko z dowodem, ktory
+recenzent moze sprawdzic sam (`plik:linia` albo komenda + jej wynik) — samo zdanie nie wystarcza. Fixer NIE obniza severity (to robi
+tylko weryfikator). „Nie rozumiem tego fragmentu" / „recenzent nie zrozumial kodu" = poprawka czytelnosci (komentarz, nazwa, test),
+nigdy `dropped`: obcy senior tez nie zrozumie. Dowod odrzucenia idzie do RAPORTU (krok 5, linia „odrzucone: dlaczego” z `plik:linia`
+albo komenda + wynik) — tam sprawdza go uzytkownik / kolejny recenzent; `pg-outcome` zapisuje tylko enum powodu (prywatnosc: bez tresci).
+Blocker, ktorego nie da sie odtworzyc (brak srodowiska) ani naprawic -> pytanie do uzytkownika; `accepted_risk` na blockerze = tylko jego decyzja.
+Miara: udzial `dropped:*` per dzial w G4 (`guard_health`, przeglad 2026-11-12).
+Po decyzjach zapisz wyniki (rejestr do kalibracji dzialow, Fala 0): `node ~/.claude/bin/pg-outcome.js --run "<RUN>" --repo "<repo>" --decide <id>=fixed <id>=dropped:false_positive ...`
+(`<id>` = pole `id` z `aggregated.json.findings[]`; powody: false_positive|out_of_scope|accepted_risk|duplicate|preexisting; `kept_note` = notatka bez akcji; exit 1 = brakuje decyzji dla grupy).
 Po fixach: `git diff --stat` + ponowne bramki. Jesli fixy > POST_REVIEW_EDIT_BUDGET (8 edycji) -> powtorz krok 1 tylko dla rol, ktorych findings naprawiles.
 
 ## 5. Raport (CAVEMAN)

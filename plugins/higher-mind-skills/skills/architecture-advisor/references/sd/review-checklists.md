@@ -145,8 +145,8 @@ Reguły:
    `rg -n "catch\s*(\([^)]*\))?\s*\{\s*\}" <pliki>`
 9. Klient real-time: reconnect z odświeżeniem stanu, sprzątanie subskrypcji → 04 › Real-time
    `rg -n "\.channel\(|removeChannel|unsubscribe" <pliki>`
-10. Granice modułów: brak importów w głąb cudzego modułu, brak cykli; wywołania między usługami z timeoutem → 07 › Monolit modularny vs usługi
-    `node ~/.claude/bin/module-boundaries.js --help`; `rg -n "functions\.invoke" supabase/functions`
+10. Granice modułów: brak importów w głąb cudzego modułu, brak cykli; wywołania między usługami z timeoutem; diff nie zna cudzego sekretu (tabela innego slice'a, SDK dostawcy poza adapterem); nowy plik nie jest workiem (spójność 1–3) → 07 › Monolit modularny vs usługi, 01 › Dekompozycja wewnątrz monolitu
+    `node ~/.claude/bin/module-boundaries.js --repo . --base <base>` (linie `NOWY CYKL`, `WARSTWY`, `SEKRET`); `rg -n "functions\.invoke" supabase/functions`
 11. Transakcje krótkie, bez wywołań sieciowych w środku; blokady w stałej kolejności → 05 › Współbieżność
     `rg -n -B6 "await fetch\(|\.invoke\(" <pliki> | rg -i "transaction|for update"`
 12. Worker kolejki: konsument idempotentny, limit prób, obsługa „zatrutej" wiadomości → 04 › Zadania w tle

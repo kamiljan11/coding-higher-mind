@@ -46,6 +46,9 @@ const CONTENT_REVIEWERS = [
 // (pg-review krok 1b) decyduje, czy jest sens. Zglaszane, gdy diff dotyka UI / route / edge fn przy T2+.
 const OPTIONAL_REVIEWERS = [
   { rx: /\.(tsx|jsx|vue|svelte)$|[\/\\](routes?|pages|app)[\/\\]|supabase[\/\\]functions/i, reviewer: 'qa-reviewer', minTier: 'T2', why: 'UI/route/edge fn — sciezki krytyczne na instancjach (docs/CRITICAL-PATHS.md), na zadanie' },
+  // 2026-10-26 (uzytkownik: „zabezpieczenie przed niepotrzebnym kodem"): rubryka 9 product-reviewera (gold-plating, abstrakcja
+  // na zapas, refaktor bez powodu) od T2. OBSERVE: optional = pg-review go odpala, stop-gate nie blokuje bez niego (ADR-0008).
+  { rx: /./, reviewer: 'product-reviewer', minTier: 'T2', why: 'koszt vs wartosc / gold-plating (rubryka 9), observe' },
 ];
 
 const maxTier = (a, b) => (TIER_ORDER.indexOf(a) >= TIER_ORDER.indexOf(b) ? a : b);
@@ -141,7 +144,11 @@ function classify(files, changedLines, root) {
 // N1 (landscape, tryb OBSERVE w stop-gate): tier z TRESCI dodanych linii. `src/lib/pay.ts` z wywolaniem platnosci nie
 // pasuje do T3_PATH_RX i przy 700 liniach + pg.phase prototype schodzilo do T1 (krytyk R1). Bez `createClient(` —
 // jest w kazdym froncie Supabase i zrobiloby T3 z kazdej zmiany UI. Zwraca pierwsze trafienie albo null.
-const T3_CONTENT_RX = /\bservice_role\b|\bstripe\.(charges|paymentIntents|refunds|checkout|subscriptions)\b|\bpayment-gateway\b|\bDROP\s+(TABLE|COLUMN|SCHEMA|POLICY)\b|^\+\s*(GRANT|REVOKE)\s|\bSECURITY\s+DEFINER\b|\bauth\.admin\./im;
+// `service[_-]?role` (nie `\bservice_role\b`): lapie tez SUPABASE_SERVICE_ROLE_KEY / service-role — wczesniej luka byla latana
+// kopia w pg-merge-bezpieczny.py (konsument), regula zyje tu (wlasciciel; 2026-10-19). Bez granicy slowa ani lookbehindu:
+// `supabaseServiceRoleKey` (camelCase) musi eskalowac (r7 code: lookbehind go gubil). `microservice_roles` = T3 tez —
+// swiadomie, przy kluczach bezpieczniej za wysoko niz za nisko.
+const T3_CONTENT_RX = /service[_-]?role|\bstripe\.(charges|paymentIntents|refunds|checkout|subscriptions)\b|\bpayment-gateway\b|\bDROP\s+(TABLE|COLUMN|SCHEMA|POLICY)\b|^\+\s*(GRANT|REVOKE)\s|\bSECURITY\s+DEFINER\b|\bauth\.admin\./im;
 function contentEscalation(addedText) {
   const m = T3_CONTENT_RX.exec(String(addedText || ''));
   return m ? m[0].replace(/^\+\s*/, '').slice(0, 40) : null;
@@ -164,15 +171,28 @@ function modelFor(reviewer, tier, files, root) {
 
 module.exports = { classify, modelFor, isDataHeavy, phaseOf, qaGateReady, stripFences, contentEscalation, T3_PATH_RX, REVIEWERS_BY_TIER, TIER_ORDER, PHASES, PROTOTYPE_PHASES, T2_LINE_THRESHOLD, T3_LINE_THRESHOLD };
 
-// CLI: node risk-tier.js <root> <plik>... [--lines N]
+// CLI: node risk-tier.js <root> <plik>... [--lines N|auto]
+// `--lines auto` = niezacommitowane linie podanych plikow liczone jak `git numstat` po commicie (lib/changed-lines.js,
+// ten sam licznik co stop-gate; pg-review krok 0). Pliki wzgledne rozwiazywane wzgledem root.
 if (require.main === module) {
   const args = process.argv.slice(2);
   const linesIdx = args.indexOf('--lines');
-  const lines = linesIdx >= 0 ? Number(args[linesIdx + 1]) : 0;
+  const linesArg = linesIdx >= 0 ? args[linesIdx + 1] : '0';
   // linesIdx -1 => bez filtra po indeksie (wczesniej `i !== 0` wycinalo root, gdy brak --lines).
   const positional = args.filter((a, i) => a !== '--lines' && (linesIdx < 0 || i !== linesIdx + 1));
   const [root, ...files] = positional;
+  // Literowka (`--lines atuo`) dawala cicho 0 linii i zanizony tier -> blad narzedzia, exit 2 (code-review 2026-10-27).
+  if (linesArg !== 'auto' && !/^\d+$/.test(String(linesArg))) {
+    process.stderr.write(`risk-tier: --lines oczekuje liczby albo "auto", dostal: ${linesArg}\n`);
+    process.exit(2);
+  }
+  const lines = linesArg === 'auto'
+    ? require('./changed-lines').uncommittedLines(root, files.map((f) => path.resolve(root, f)), {
+      onError: (what) => { process.stderr.write(`risk-tier: --lines auto: ${what}\n`); process.exit(2); },
+    })
+    : Number(linesArg);
   const result = classify(files, lines, root);
+  result.changedLines = lines;
   result.models = Object.fromEntries(result.reviewers.map((r) => [r, modelFor(r, result.tier, files, root)]));
   result.optional_models = Object.fromEntries(result.optional_reviewers.map((r) => [r, modelFor(r, result.tier, files, root)]));
   process.stdout.write(JSON.stringify(result, null, 2) + '\n');

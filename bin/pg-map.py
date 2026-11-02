@@ -5,11 +5,14 @@ Retro 2026-09-12 (pytanie uzytkownika o przekazanie systemu dalej): ~/.claude mi
 bez zadnego indeksu — maszyna sie w tym porusza, obcy senior nie. Regula: kazde narzedzie opisuje sie SAMO
 w pierwszym komentarzu/docstringu; ten skrypt tylko to zbiera. Brak opisu = wiersz "(BEZ OPISU)" — widoczny dlug.
 
-Uzycie: python ~/.claude/bin/pg-map.py [--check]   (--check: exit 1, gdy README sa nieaktualne — do guard_health)
+Generuje tez blok „Wiring” (diagram wpiec z settings.json + bin/ wolane z git-hooks) w pg/public/docs/ARCHITECTURE.md miedzy znacznikami.
+Uzycie: python ~/.claude/bin/pg-map.py [--check]   (--check: exit 1, gdy README/INDEX/Wiring sa nieaktualne — do guard_health)
+Exit: 0 = aktualne/zapisane; 1 = nieaktualne (--check) albo brak znacznikow Wiring; 2 = blad narzedzia (brak/zly settings.json, dokument).
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -39,6 +42,41 @@ ENTRY_POINTS = [
 ]
 
 
+SHORT = 160
+
+
+def short(text: str, n: int = SHORT) -> str:
+    """Opis do tabeli: calosc, gdy krotki; inaczej do konca zdania albo do granicy slowa + „…" (nie w pol slowa)."""
+    text = text.replace("|", "/").strip()
+    if len(text) <= n:
+        return text
+    cut = text[:n]
+    end = cut.rfind(". ")  # nie na „; ” — tam bywa komenda uruchomienia (r11 product: „odpalaj: node …” znikalo)
+    if end >= n // 2:
+        return cut[:end + 1]
+    space = cut.rfind(" ")
+    return (cut[:space] if space > 0 else cut).rstrip(" ,;:-—(") + " …"
+
+
+def continues(line: str) -> bool:
+    """Linia ciagnie poprzednie zdanie (mala litera, cudzyslow, nawias, strzalka); wielka litera = nowe zdanie, wtedy nie
+    doklejamy — inaczej short() tnal na „. ” i gubil komende uruchomienia z konca 1. linii (r12 product: test_sd_matrix_lint)."""
+    return not line[:1].isupper()
+
+
+def sentence(lines: list[str]) -> str:
+    """Linie opisu sklejone do konca pierwszego zdania (albo do pustej linii / limitu) — 1. linia bywa ucieta w pol zdania."""
+    parts: list[str] = []
+    for ln in lines:
+        ln = ln.strip()
+        if not ln or (parts and not continues(ln)):
+            break
+        parts.append(ln)
+        if re.search(r"[.!?]$", ln) or len(" ".join(parts)) > SHORT:
+            break
+    return " ".join(parts)
+
+
 def first_doc(path: str) -> str:
     """Pierwsze zdanie samoopisu: docstring (.py), komentarz naglowkowy (.js/.mjs/.sh/.ps1), frontmatter description (.md)."""
     try:
@@ -49,28 +87,42 @@ def first_doc(path: str) -> str:
     head = head.lstrip("﻿")  # BOM ze starych skryptow mas_*.py
     ext = os.path.splitext(path)[1].lower()
     if ext == ".py":
-        m = re.search(r'"""(.*?)(?:\n\n|""")', head, re.DOTALL)
+        # Tylko docstring MODULU (po shebangu/komentarzach): pierwszy """ w pliku bywa docstringiem funkcji (guard_health.py).
+        m = re.match(r'(?:[ \t]*(?:#[^\n]*)?\n)*[ \t]*(?:[rRuU]?)"""(.*?)(?:\n\n|""")', head, re.DOTALL)
         if m:
-            return m.group(1).strip().splitlines()[0].strip()
+            return sentence(m.group(1).strip().splitlines())
     if ext in (".js", ".mjs", ".cjs", ".ts"):
-        lines = [ln for ln in head.splitlines() if ln.strip()]
-        for ln in lines[:8]:
+        # Pierwszy blok komentarza sklejony do konca zdania: sama 1. linia bywala ucieta w pol zdania (r10 code: loop-monitor „->").
+        parts: list[str] = []
+        for ln in [ln for ln in head.splitlines() if ln.strip()][:12]:
             s = ln.strip()
-            if s.startswith(("//", "/*", "*")):
-                s = re.sub(r"^(//|/\*+|\*+)\s?", "", s).strip()
-                if s and not s.startswith("eslint") and len(s) > 8:
-                    return s
-        return ""
+            if not s.startswith(("//", "/*", "*")):
+                if parts:
+                    break
+                continue
+            s = re.sub(r"^(//|/\*+|\*+)\s?", "", s).replace("*/", "").strip()
+            if not parts and (not s or s.startswith("eslint") or len(s) <= 8):
+                continue
+            if not s or (parts and not continues(s)):
+                break
+            parts.append(s)
+            if re.search(r"[.!?]$", s) or len(" ".join(parts)) > SHORT:
+                break
+        return " ".join(parts)
     if ext in (".py", ".sh", ".ps1", ""):
-        for ln in head.splitlines()[:8]:
+        block: list[str] = []
+        for ln in head.splitlines()[:16]:
             s = ln.strip()
             if s.startswith("#") and not s.startswith("#!"):
                 s = s.lstrip("#").strip()
-                if len(s) > 8:
-                    return s
-        return ""
+                if block or len(s) > 8:
+                    block.append(s)
+            elif block:
+                break
+        return sentence(block)
     if ext == ".md":
-        m = re.search(r"^description:\s*\|?\s*(.+)$", head, re.MULTILINE)
+        m = (re.search(r"^description:\s*\|?\s*(.+)$", head, re.MULTILINE) or re.match(r"\s*<!--\s*(.+?)\s*-->", head)
+             or re.search(r"^#\s+(.+)$", head, re.MULTILINE))
         return m.group(1).strip() if m else ""
     return ""
 
@@ -83,8 +135,33 @@ def bin_index() -> str:
             continue
         kind = "test" if name.startswith("test_") else ("hook" if name.endswith(".ps1") else "tool")
         doc = first_doc(p) or "(BEZ OPISU — dopisz docstring/komentarz naglowkowy)"
-        rows.append(f"| `{name}` | {kind} | {doc[:140]} |")
+        rows.append(f"| `{name}` | {kind} | {short(doc)} |")
     return "\n".join(rows)
+
+
+# Indeks pojec (2026-10-19, „czy streszczenia nie gubia kontekstu"): WSKAZNIK, nie parafraza. Wiersz mowi, KTORY plik
+# jest wlascicielem tematu; regul, progow i liczb nie przepisujemy (kopia dryfuje) — czytaj plik przed decyzja.
+INDEX_DIRS = [("hooks", (".js", ".py")), ("hooks/lib", (".js", ".py")), ("git-hooks", ("",)), ("agents", (".md",)), ("pg", (".md",)), ("pg/adr", (".md",))]
+
+
+def concept_index() -> str:
+    out = ["# PG — indeks wlascicieli (generowany)", "",
+           "Generowane przez `bin/pg-map.py` z naglowkow plikow — nie edytuj recznie. To WSKAZNIKI: kto jest wlascicielem tematu.",
+           "Regul, progow i liczb tu nie ma (parafraza dryfuje) — przed decyzja otworz plik.\nNarzedzia: `bin/README.md`.", ""]
+    for d, exts in INDEX_DIRS:
+        full = os.path.join(ROOT, d)
+        if not os.path.isdir(full):
+            continue
+        rows = []
+        for name in sorted(os.listdir(full)):
+            p = os.path.join(full, name)
+            if not os.path.isfile(p) or name in ("README.md", "INDEX.md") or os.path.splitext(name)[1] not in exts:
+                continue
+            doc = first_doc(p) or "(BEZ OPISU — dopisz naglowek)"
+            rows.append(f"| `{d}/{name}` | {short(doc)} |")
+        if rows:
+            out += [f"## {d}/", "", "| Plik | Wlasciciel czego |", "|---|---|", *rows, ""]
+    return "\n".join(out)
 
 
 def render_root() -> str:
@@ -109,6 +186,51 @@ def render_root() -> str:
     return "\n".join(lines)
 
 
+# Diagram wpiec w publicznym ARCHITECTURE.md (audyt 2026-10-24: reczny diagram nie znal 4 hookow, 44 commity za kodem).
+# Zrodla: settings.json (zywe wpiecia; tylko laptop od 2026-10-04, notatki maszyn (prywatne) — migawka pg/settings-hooks.json z second-machinea nie zna
+# SessionEnd/auto-doc, pg-review 1024 ops) + wywolania bin/ w git-hooks/*. Do diagramu ida same nazwy plikow, bez sciezek.
+WIRING_DOC = os.path.join("pg", "public", "docs", "ARCHITECTURE.md")
+WIRING_START, WIRING_END = "<!-- pg-map:wiring start -->", "<!-- pg-map:wiring end -->"
+GIT_HOOKS = ("commit-msg", "pre-commit", "pre-push")
+TOOL_RX = re.compile(r"\.claude/bin/([\w-]+\.(?:js|py|sh))")
+HOOK_RX = re.compile(r"hooks/([\w.-]+\.(?:js|py))")
+
+
+def node_id(text: str) -> str:
+    return re.sub(r"\W", "_", text)
+
+
+def render_wiring(root: str | None = None) -> str:
+    root = root or ROOT
+    with open(os.path.join(root, "settings.json"), encoding="utf-8") as fh:
+        hooks = json.load(fh)["hooks"]
+    lines = ["```mermaid", "flowchart LR", "  subgraph CC[Claude Code events]"]
+    for ev, entries in hooks.items():
+        names = list(dict.fromkeys(m for e in entries for h in e.get("hooks", []) for m in HOOK_RX.findall(h.get("command", ""))))
+        # Komenda spoza hooks/<x>.js|py = widoczny wezel, nie cicha dziura w diagramie (pg-review 1024 r2 ops).
+        lines += [f"    {node_id(ev)}([{ev}]) --> {node_id(ev + '_' + n)}[{n}]" for n in names] or [f"    {node_id(ev)}([{ev}]) --> {node_id(ev)}_unknown[unrecognized hook command]"]
+    lines.append("  end")
+    lines.append("  subgraph GIT[git hooks, every repo]")
+    for gh in GIT_HOOKS:
+        path = os.path.join(root, "git-hooks", gh)
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            tools = list(dict.fromkeys(TOOL_RX.findall(fh.read())))
+        lines += [f"    {node_id(gh)}([{gh}]) --> {node_id(gh + '_' + t)}[{t}]" for t in tools] or [f"    {node_id(gh)}([{gh}])"]
+    lines += ["  end", "```"]
+    return (f"{WIRING_START}\n_Generated by `bin/pg-map.py` from `settings.json` (Claude Code hook wiring) and the `bin/` tools each git hook calls — do not edit by hand. Inline git-hook checks (secret scan, lint, types, workflow lint) are in the map above. Refresh: `python3 bin/pg-map.py`; `guard_health` runs `--check` and goes red on drift._\n\n"
+            + "\n".join(lines) + f"\n{WIRING_END}")
+
+
+def with_wiring(doc: str, block: str) -> str | None:
+    """Dokument z podmienionym blokiem miedzy znacznikami; None = brak znacznikow (wtedy --check czerwone)."""
+    i, j = doc.find(WIRING_START), doc.find(WIRING_END)
+    if i < 0 or j < i:
+        return None
+    return doc[:i] + block + doc[j + len(WIRING_END):]
+
+
 def render_bin() -> str:
     return ("# bin/ — indeks narzedzi PG\n\nGenerowane przez `pg-map.py` z pierwszego komentarza/docstringu kazdego pliku. "
             "Wiersz `(BEZ OPISU)` = dlug do splaty w naglowku pliku.\n\n| Plik | Typ | Co robi |\n|---|---|---|\n" + bin_index() + "\n")
@@ -118,8 +240,25 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--check", action="store_true")
     args = ap.parse_args()
-    targets = {os.path.join(ROOT, "README.md"): render_root(), os.path.join(ROOT, "bin", "README.md"): render_bin()}
+    # Wiring pierwszy: blad jego zrodla = exit 2, zanim reszta mapy cokolwiek przeczyta.
+    wiring_path = os.path.join(ROOT, WIRING_DOC)
+    try:
+        with open(wiring_path, encoding="utf-8") as fh:
+            wired = with_wiring(fh.read(), render_wiring())
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        # brak pliku albo zly ksztalt JSON = blad narzedzia, nie werdykt (ADR-0008); stdout, bo guard_health czyta ostatnia linie stdout
+        msg = f"pg-map: blad narzedzia (wiring): {type(e).__name__}: {e}"
+        print(msg)
+        print(msg, file=sys.stderr)  # pg-self-check bierze powod ToolError ze stderr
+        return 2
+    if wired is None:
+        # Takze bez --check: bez znacznikow diagram nie powstaje, wiec to nie jest „zapisano” (pg-review 1024 code).
+        print(f"pg-map: {WIRING_DOC} bez znacznikow {WIRING_START} / {WIRING_END} — diagram wpiec nie wygenerowany")
+        return 1
+    targets = {os.path.join(ROOT, "README.md"): render_root(), os.path.join(ROOT, "bin", "README.md"): render_bin(),
+               os.path.join(ROOT, "pg", "INDEX.md"): concept_index() + "\n"}
     stale = []
+    targets[wiring_path] = wired
     for path, content in targets.items():
         current = None
         if os.path.exists(path):
@@ -130,7 +269,7 @@ def main() -> int:
             if not args.check:
                 with open(path, "w", encoding="utf-8", newline="\n") as fh:
                     fh.write(content)
-    missing = bin_index().count("(BEZ OPISU")
+    missing = bin_index().count("(BEZ OPISU") + concept_index().count("(BEZ OPISU")
     if args.check:
         print(f"pg-map --check: {'NIEAKTUALNE: ' + ', '.join(stale) if stale else 'aktualne'} | narzedzi bez opisu: {missing}")
         return 1 if stale else 0

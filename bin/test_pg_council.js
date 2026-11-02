@@ -50,6 +50,7 @@ const md = renderCouncil(decision, majority, [pos('code', 'A', 0.9), pos('ops', 
 check('render: sprzeciw i catfish PRZED tabela opcji, DACI na koncu', md.indexOf('Najmocniejszy sprzeciw') < md.indexOf('## Opcje x dzialy') && /\*\*ux\*\* woli B/.test(md) && /Approver: orkiestrator/.test(md) && /ile trwa qa-matrix/.test(md));
 const adr = renderAdr(decision, majority, [pos('code', 'A', 0.9), pos('ux', 'B', 0.4)]);
 check('render ADR: decyzja, alternatywy, sprzeciw', /\*\*Decyzja:\*\* A/.test(adr) && /B \(status quo/.test(adr) && /ux — /.test(adr));
+check('render ADR: naglowek wg szablonu (Zastepuje, Drzwi, Przeglad, kontekst powstania)', /\| Zastepuje: /.test(adr) && /\| Drzwi: (jedno|dwu)kierunkowe \|/.test(adr) && /\| Przeglad: /.test(adr) && /^Kontekst powstania: /m.test(adr), adr.slice(0, 400));
 
 // CLI end-to-end
 const run = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-council-'));

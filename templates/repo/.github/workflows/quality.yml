@@ -72,6 +72,92 @@ jobs:
         continue-on-error: true
         run: npx --yes knip --no-exit-code --reporter compact || true
 
+  # Jezyki poza npm (2026-10-26, ADR-0010, pg/design.md › F.10). Kazdy krok odpala sie tylko, gdy repo ma manifest jezyka.
+  # Te same narzedzia co hooki lokalne (hooks/lib/lang-checkers.js); narzedzia z obrazu ubuntu-latest, bez akcji zewnetrznych.
+  # `name:` = wymagany check w bin/mas_branch_protect.py (POLYGLOT_CONTEXT) — zmiana nazwy tylko w obu miejscach naraz.
+  # Swiadome luki: C/C++ (brak wspolnego systemu budowania — dodaj krok cmake/make w repo), Deno edge fn (deno nie ma
+  # na obrazie; sprawdza hook lokalny), Java bez wrappera mvnw/gradlew (bez classpath javac daje szum).
+  polyglot:
+    name: Polyglot (Python/Go/Rust/CSharp/PHP/Java/Shell)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Python — ruff + pyright + pytest
+        if: hashFiles('pyproject.toml', 'requirements.txt') != ''
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv" && . "$RUNNER_TEMP/venv/bin/activate"
+          # wersje przypiete jak akcje po SHA (nowe wydanie ruff/pyright = nowe reguly = czerwone CI bez zmiany kodu)
+          pip install -q ruff==0.16.10 pytest==9.0.2
+          if [ -f requirements.txt ]; then pip install -q -r requirements.txt; fi
+          # pyproject bez [build-system] (sam ruff/pytest config) nie jest instalowalny — wtedy nic nie instalujemy, reszta dalej sprawdza
+          deps=0; [ -f requirements.txt ] && deps=1
+          if [ -f pyproject.toml ] && grep -q '^\[build-system\]' pyproject.toml; then
+            deps=1
+            if grep -qE '^dev *=|optional-dependencies' pyproject.toml; then pip install -q -e ".[dev]"; else pip install -q -e .; fi
+          fi
+          ruff check --extend-select B006,B008 .
+          # Bez zainstalowanych zaleznosci (poetry/uv bez [build-system]) pyright daje reportMissingImports = falszywa czerwien (ops r4)
+          if [ "$deps" -eq 1 ] || ! grep -qE '^dependencies *=|^\[tool\.poetry\.dependencies\]' pyproject.toml 2>/dev/null; then
+            npx --yes pyright@1.1.414
+          else echo "::warning::pyright pominiety: zaleznosci projektu nieinstalowalne (dodaj [build-system] albo requirements.txt)"; fi
+          # pytest exit 5 = brak testow (nie blad); kazdy inny != 0 = czerwone
+          rc=0; pytest -q || rc=$?
+          if [ "$rc" -eq 5 ]; then echo "::warning::pytest: brak testow (exit 5) — kod Pythona bez testu"; elif [ "$rc" -ne 0 ]; then exit "$rc"; fi
+
+      - name: Go — gofmt + vet + test
+        if: hashFiles('go.mod') != ''
+        run: |
+          command -v go >/dev/null || PATH="$(ls -d /opt/hostedtoolcache/go/*/x64/bin | sort -V | tail -1):$PATH"
+          unformatted=$(gofmt -l .); if [ -n "$unformatted" ]; then echo "::error::gofmt: $unformatted"; exit 1; fi
+          go vet ./...
+          go test ./...
+
+      - name: Rust — clippy (-D warnings) + test
+        if: hashFiles('Cargo.toml') != ''
+        run: |
+          rustup component add clippy
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+      - name: C# — dotnet build (warnaserror) + test
+        if: hashFiles('**/*.csproj', '**/*.sln') != ''
+        run: |
+          # Bez .sln/.csproj w KORZENIU dotnet nie wie, co budowac (MSB1003) — ostrzezenie zamiast falszywej czerwieni wymaganego checka
+          if [ -z "$(ls ./*.sln ./*.csproj 2>/dev/null)" ]; then echo "::warning::C#: brak .sln/.csproj w korzeniu — dodaj .sln albo krok z working-directory"; exit 0; fi
+          dotnet build -warnaserror --nologo
+          dotnet test --no-build --nologo
+
+      - name: PHP — skladnia
+        if: hashFiles('composer.json', '**/*.php') != ''
+        run: git ls-files -z '*.php' | xargs -0 -r -n1 php -l
+
+      - name: Java — wrapper projektu (mvnw / gradlew)
+        if: hashFiles('mvnw', 'gradlew') != ''
+        run: |
+          if [ -f ./mvnw ]; then sh ./mvnw -B -q verify; else sh ./gradlew --no-daemon check; fi
+
+      - name: Shell — shellcheck
+        run: |
+          # -z/-0: nazwa ze spacja nie rozpada sie na 2 argumenty (ops r4). Shebang zsh pomijany jak w hooku PG
+          # (shellcheck go nie obsluguje, SC1071 = czerwien nie do naprawienia; ops r6).
+          git ls-files -z '*.sh' '*.bash' | while IFS= read -r -d '' f; do
+            if head -n1 -- "$f" | grep -q 'zsh'; then echo "::warning::$f: zsh — shellcheck nie obsluguje (niesprawdzony)"; else printf '%s\0' "$f"; fi
+          done | xargs -0 -r shellcheck -S warning
+
+      # Kroki wyzej odpalaja sie po manifescie w KORZENIU repo. Zrodla bez niego (monorepo backend/go.mod, luzne .py)
+      # = job zielony bez sprawdzenia — tu przynajmniej widoczne ostrzezenie (pg-review ops r2). Monorepo: dopisz krok z working-directory.
+      - name: Pokrycie — zrodla bez kroku jezyka
+        if: always()
+        run: |
+          gap() { if [ -n "$(git ls-files "$1" | head -1)" ] && [ ! -e "$2" ]; then echo "::warning::pliki $1 bez $2 w korzeniu — polyglot ich NIE sprawdzil"; fi; }
+          gap '*.go' go.mod; gap '*.rs' Cargo.toml
+          if [ -n "$(git ls-files '*.java' | head -1)" ] && [ ! -e mvnw ] && [ ! -e gradlew ]; then echo "::warning::pliki *.java bez mvnw/gradlew — polyglot ich NIE sprawdzil"; fi
+          if [ -n "$(git ls-files '*.py' | head -1)" ] && [ ! -e pyproject.toml ] && [ ! -e requirements.txt ]; then echo "::warning::pliki *.py bez pyproject.toml/requirements.txt — polyglot ich NIE sprawdzil"; fi
+          if [ -n "$(git ls-files '*.cs' | head -1)" ] && [ -z "$(git ls-files '*.csproj' '*.sln' | head -1)" ]; then echo "::warning::pliki *.cs bez .csproj — polyglot ich NIE sprawdzil"; fi
+          if [ -n "$(git ls-files '*.c' '*.cpp' '*.cc' | head -1)" ]; then echo "::warning::C/C++ — szablon nie ma kroku (system budowania repo); dopisz cmake/make"; fi
+
   secrets-scan:
     name: Gitleaks secrets scan
     runs-on: ubuntu-latest

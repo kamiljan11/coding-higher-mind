@@ -21,7 +21,7 @@ Zadanie jednorazowe zlecone przez uzytkownika 2026-09-21: napisz case study o sk
 KROK 0 — LOG: dopisz (append, NIE nadpisuj) "STARTED <data ISO>" do ~/Obsidian/MAIN/Claude Memory/Log/shop-app-case-study.md.
 
 KROK 1 — STAN NA DZIS (najpierw czytaj, potem pisz):
-- Sekrety tylko przez most: cd ~/infisical && python3 infisical run --env=dev -- <komenda>. Nigdy nie wypisuj tokena.
+- Sekrety tylko przez most: infisical run --env=dev -- <komenda>. Nigdy nie wypisuj tokena.
 - Repo prywatne <github-owner>/shop-app (lokalnie tez ~/Desktop/second-machine (<second-domain>)/shop-app). Zrob git fetch albo swiezy klon do ~/qa-sweep/shop-app-case. Przeczytaj README, CHANGELOG, docs/ (ARCHITECTURE, ADR), git log od 2026-09-01, strukture danych katalogu, testy.
 - Sklep: curl https://shop-app (musi byc 200) i obejrzyj go w przegladarce (render JS). Sprawdz, czy nadal dziala to, co bylo we wrzesniu: produkty w kolejnosci drukowanego katalogu (pole catalogRank), podpisy pod nazwa w 3 jezykach EN/IS/PL (cookie shop-app-locale), zero opublikowanych produktow bez kategorii (we wrzesniu z 51 w koszu "Other equipment" zeszlo do 0), straznik cen sprawdzajacy produkty po kazdym zapisie, filtr marki zachowany przy stronicowaniu i sortowaniu. Dla kazdego punktu zapisz dowod (plik:linia, komenda, wynik).
 - Kontekst we wrzesniowych notatkach: ~/Obsidian/MAIN/Claude Memory/RESUME.md (sekcja shop-app, 2026-09-20) i Projects.md. Traktuj je jako tropy do sprawdzenia.
@@ -44,7 +44,7 @@ KROK 3 — KOD I BRAMKI (repo ~/Desktop/second-machine (<second-domain>)/demo-si
 - PR przez GitHub REST API (przez most), opis z pliku: co, skad kazdy fakt (dowody z kroku 1), jak sprawdzone.
 
 KROK 4 — WYPUSZCZENIE NA PROD:
-- cd ~/infisical && python3 infisical run --env=dev -- python3 "~/.claude/bin/ship_pr_example.py" <numer PR>
+- infisical run --env=dev -- python3 "~/.claude/bin/ship_pr_example.py" <numer PR>
 - Exit ≠ 0 = NIE gotowe. `REFUSED`/`CONFLICT` -> PR zostaje otwarty, napraw albo zgłoś uzytkownikowi. `DEPLOY NOT CONFIRMED` -> PR już zmergowany, ale deploy nie potwierdzony: NIE pisz „opublikowane”, sprawdź stronę curlem i zgłoś uzytkownikowi (wycofanie: revert commita merge przez nowy PR albo `vercel promote` poprzedniego deployu — decyzja uzytkownika).
 - Skrypt czeka na wymagane checki CI i recenzje claude-review, merguje TYLKO przy APPROVE i czeka na deploy Vercela. Przy REQUEST CHANGES popraw findings (maks 2 rundy) i uruchom ponownie. Jesli nadal nie ma APPROVE, zostaw PR otwarty i zaloguj powod. Nigdy nie merguj recznie ani z pominieciem recenzji.
 - Po deployu sprawdz: curl https://kamiljan.com/case-studies?lang=pl zawiera tytul nowego case study, a strona odpowiada 200.

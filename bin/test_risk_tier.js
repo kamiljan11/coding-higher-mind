@@ -36,5 +36,19 @@ const noLines = cli([root, ...abs('supabase/migrations/1.sql')]);
 check('CLI bez --lines: root nie wypada z argumentow (T3 z migracji)', noLines.tier === 'T3' && noLines.models['data-reviewer'] === 'opus', JSON.stringify(noLines));
 check('classify bez zmian: migracja => T3 + data', classify(abs('supabase/migrations/1.sql'), 5, root).reviewers.includes('data-reviewer'));
 
+// Wlasciciel reguly tresci T3 (2026-10-19): SUPABASE_SERVICE_ROLE_KEY i service-role lapane tu, nie w kopii u konsumenta.
+const { contentEscalation } = require(path.join(__dirname, '..', 'hooks', 'lib', 'risk-tier.js'));
+check('contentEscalation: SUPABASE_SERVICE_ROLE_KEY = T3', !!contentEscalation('+const k = process.env.SUPABASE_SERVICE_ROLE_KEY'));
+check('contentEscalation: service-role (myslnik) = T3', !!contentEscalation('+const r = "service-role"'));
+check('contentEscalation: zwykla linia = null', contentEscalation('+const role = "admin"') === null);
+check('contentEscalation: serviceRoleKey (camelCase z SDK) = T3', !!contentEscalation('+const { serviceRoleKey } = cfg'));
+check('contentEscalation: supabaseServiceRoleKey (camelCase w srodku) = T3 (r7: lookbehind gubil)', !!contentEscalation('+createClient(url, supabaseServiceRoleKey)'));
+
+// 2026-10-26: product-reviewer (rubryka 9, gold-plating) od T2 jako OPTIONAL (observe) — nie wymagany przez stop-gate, nie na T1.
+const t2lib = classify(abs('src/lib/a.ts'), 10, root);
+check('product-reviewer: T2 => optional, nie wymagany', t2lib.tier === 'T2' && t2lib.optional_reviewers.includes('product-reviewer') && !t2lib.reviewers.includes('product-reviewer'), JSON.stringify(t2lib));
+const t1comp = classify(abs('src/components/A.tsx'), 10, root);
+check('product-reviewer: T1 => brak', t1comp.tier === 'T1' && !t1comp.optional_reviewers.includes('product-reviewer'), JSON.stringify(t1comp));
+
 console.log(failures ? `\n${failures} FAIL` : '\nwszystkie OK');
 process.exit(failures ? 1 : 0);

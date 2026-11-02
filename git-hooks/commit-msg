@@ -9,11 +9,22 @@ for pg_var in ALLOW_MSG ALLOW_SECRET; do  # audyt obejsc (landscape #5)
     node "$HOME/.claude/hooks/lib/gate-log.js" commit-msg bypass "$pg_var=$pg_val" "$(pwd)" 2>/dev/null || true
   fi
 done
+# Fala 0 (pg/designs/2026-11-01-fala-0-pomiar.md §11.1): kazde wyjscie != 0 zostawia w gates.jsonl `blocked` z nazwa bramki
+# (pg_gate ustawiany tuz przed `exit 1`; nowe wyjscie bez nazwy = UNKNOWN, widoczne). Wczesniej 0 wpisow `blocked` z git-hookow
+# na 24 567 (2026-10-21..11-01): bramka, ktora zatrzymala commit, byla w telemetrii niewidoczna. Status wyjscia bez zmian.
+pg_on_exit() {
+  pg_rc=$?
+  if [ "$pg_rc" != "0" ] && command -v node >/dev/null 2>&1 && [ -f "$HOME/.claude/hooks/lib/gate-log.js" ]; then
+    node "$HOME/.claude/hooks/lib/gate-log.js" commit-msg blocked "rc=$pg_rc" "$(pwd)" "${pg_gate:-UNKNOWN}" 2>/dev/null || true
+  fi
+}
+pg_gate=
+trap pg_on_exit EXIT
 [ "$ALLOW_MSG" = "1" ] && exit 0
 # Sekret w TRESCI commita (nie w diffie) omijal pre-commit — ta sama lista wzorcow co w pre-commit (dogfood 2026-09-05).
 if [ "$ALLOW_SECRET" != "1" ] && grep -qE 'ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gho_[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|sbp_[A-Za-z0-9]{20,}|xox[bpars]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----' "$1"; then
   echo "[commit-msg] ZABLOKOWANE: sekret w tresci commita (trafi do historii i na GitHub). Usun; wyjatek ALLOW_SECRET=1. | BLOCKED: secret in the commit message." >&2
-  exit 1
+  pg_gate=SECRET; exit 1
 fi
 msg=$(head -n1 "$1")
 case "$msg" in
@@ -23,6 +34,6 @@ if ! printf '%s' "$msg" | grep -qE '^(feat|fix|chore|docs|refactor|test|perf|ci|
   echo "[commit-msg] ZABLOKOWANE: \"$msg\"" >&2
   echo "[commit-msg] Format: type(scope)?: opis (3-100 znakow). type = feat|fix|chore|docs|refactor|test|perf|ci|build|style|revert  | BLOCKED: Conventional Commits subject, 3-100 chars" >&2
   echo "[commit-msg] Przyklad / example: fix(billing): rabat 100% nie zerowal VAT   |   wyjatek / escape: ALLOW_MSG=1 git commit -m ..." >&2
-  exit 1
+  pg_gate=MSG; exit 1
 fi
 exit 0

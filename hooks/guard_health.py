@@ -27,6 +27,7 @@ LOG_DIR = next((d for d in (_OWNER_LOG_DIR, _LINUX_LOG_DIR) if d.exists()), CLAU
 LOG = LOG_DIR / ("guard-health.md" if os.name == "nt" else f"guard-health-{platform.node() or 'linux'}.md")
 GATES_LOG = CLAUDE / "logs" / "gates.jsonl"
 GATES_WINDOW_DAYS = 7
+TOOL_ERROR_RED = 3  # bledow narzedzia jednej bramki w oknie -> RED (bramka fail-open martwa)
 MIN_HOOK_TIMEOUT_S = 120  # post-edit tsc -b ma budzet 90 s; domyslne 60 s harnessu ucinalo hook w ciszy
 red = []
 ok = []
@@ -132,7 +133,9 @@ check("session-context.js widzi Notes for Claude", "Notes for Claude.md: BRAK" n
 # Progi = stan po odchudzeniu + ~10 % zapasu. Podniesienie progu to swiadoma decyzja (commit z uzasadnieniem).
 # 2026-10-10: SessionStart liczony w ZNAKACH wzgledem limitu Claude Code (10 000 znakow na wyjscie hooka; powyzej model
 # dostaje 2 000 znakow podgladu). Stary prog 27 500 B przepuszczal wyjscie, ktore w praktyce nie trafialo do modelu.
-TOKEN_BUDGET = {"session_context": 9800, "prompt_guard_first": 5500, "prompt_guard_repeat": 1500, "claude_md": 23000}
+# 2026-10-20 (uzytkownik: „zwieksz sobie limit, bedziemy rozbudowywac"): claude_md 23 000 -> 26 000 B. Stan 23 185 B (RED juz przed
+# sesja 2026-10-18: 23 010 B) + ~2,8 KB zapasu (~850 tokenow/zapytanie); to prog alarmu PG, nie limit harnessu.
+TOKEN_BUDGET = {"session_context": 9800, "prompt_guard_first": 5500, "prompt_guard_repeat": 1500, "claude_md": 26000}
 check(f"budzet: SessionStart <= {TOKEN_BUDGET['session_context']} znakow (limit hooka CC 10 000)", len(out) <= TOKEN_BUDGET["session_context"],
       f"{len(out)} znakow — przytnij limity w session-context.js FILES/OUT_MAX")
 _sid = "guardhealth-budget"
@@ -168,11 +171,31 @@ ruff_ok = shutil.which("ruff") is not None or sh([sys.executable, "-m", "ruff", 
 check("ruff dostepny (PATH albo python -m ruff)", ruff_ok, "pip install ruff")
 check("pyright dostepny na PATH", shutil.which("pyright") is not None, "npm i -g pyright")
 
+# 2e2. sprawdzacze jezykow spoza TS/JS/Python (2026-10-26): lista narzedzi zyje w hooks/lib/lang-checkers.js (TOOLS).
+# Brak narzedzia = info (jezyk moze byc nieuzywany); RED dopiero, gdy w oknie byl skip „tool missing" dla tego narzedzia (sekcja 2f).
+LANG_TOOLS = {}
+UNCHECKED_EXTS = None  # rozszerzenia nadal bez sprawdzacza (NO_CHECKER_EXTS); None = nie wiadomo -> kazde z okna liczy sie jako luka
+_rc, _out = sh(["node", "-e", "const m=require(process.argv[1]);process.stdout.write(JSON.stringify({tools:m.TOOLS,unchecked:[...m.NO_CHECKER_EXTS]}))",
+                str(CLAUDE / "hooks" / "lib" / "lang-checkers.js")], timeout=30)
+try:
+    _lc = json.loads(_out)
+    LANG_TOOLS = _lc["tools"]
+    UNCHECKED_EXTS = set(_lc["unchecked"])
+except (ValueError, KeyError, TypeError):
+    check("lang-checkers.js laduje sie (TOOLS)", False, (_out or "")[:200])
+_missing_langs = sorted(lang for lang, tools in LANG_TOOLS.items() if not all(shutil.which(t) for t in tools))
+if LANG_TOOLS:
+    info.append(f"sprawdzacze jezykow: {len(LANG_TOOLS) - len(_missing_langs)}/{len(LANG_TOOLS)} gotowe"
+                f"{'; brak narzedzi: ' + ', '.join(_missing_langs) if _missing_langs else ''}")
+
 # 2f. telemetria bramek: skipy z ostatnich N dni (v3). Skip bez powodu = RED; reszta = info do logu.
 counts: Counter = Counter()  # (hook, event) -> n; czytane tez nizej (obejscia ALLOW_* z pre-commit)
+window_events: list = []  # zdarzenia z okna (bez redirected) dla lang_gap_health (ADR-0010) i sekcji G3; puste, gdy brak gates.jsonl
 if GATES_LOG.exists():
     since = datetime.now(timezone.utc) - timedelta(days=GATES_WINDOW_DAYS)
     counts = Counter()
+    # narzedzie -> {(repo, minuta): powod}: jeden push z kilkoma refami = jeden incydent (ops r5); konwencja: skipped "<narzedzie>: blad narzedzia (exit N)"
+    tool_errors: dict = {}
     empty_reason = 0
     malformed = 0
     # Po rotacji (5 MB) czesc okna 7 dni jest w gates.1.jsonl — bez niego obejscia z poczatku tygodnia znikaly z raportu.
@@ -193,17 +216,37 @@ if GATES_LOG.exists():
                     counts[("bypass-redirected-reason", (e.get("reason") or "")[:60])] += 1
                 continue
             counts[(e.get("hook"), e.get("event"))] += 1
+            window_events.append(e)
             if e.get("event") in ("bypass", "would_block"):
                 counts[(e.get("event") + "-reason", (e.get("reason") or "")[:60])] += 1
             if e.get("event") == "skipped":
                 counts[("skip-reason", (e.get("reason") or "")[:40])] += 1
                 if not e.get("reason"):
                     empty_reason += 1
+                if ": blad narzedzia" in (e.get("reason") or ""):
+                    tool_errors.setdefault(e["reason"].split(":", 1)[0].strip(), {})[(e.get("target") or "?", e["ts"][:16])] = e["reason"]
         except (ValueError, KeyError, TypeError):
             malformed += 1  # uszkodzona linia = info, nie RED (log jest append-only, moze byc uciety przy rotacji)
     if malformed:
         info.append(f"gates.jsonl: {malformed} nieczytelnych linii")
     check("gates.jsonl: kazdy skip ma powod", empty_reason == 0, f"{empty_reason} skipow bez powodu")
+    # Kod, ktorego nic nie sprawdzilo (2026-10-26, ADR-0010): progi i kontrakty tekstow w hooks/lang_gap_health.py (test: bin/test_lang_gap_health.py).
+    # Naprawa: pg/design.md › F.10 „Nowy jezyk" (narzedzie + wpis w hooks/lib/lang-checkers.js + CI szablonu).
+    sys.path.insert(0, str(CLAUDE / "hooks"))
+    import lang_gap_health
+    _lg_checks, _lg_infos = lang_gap_health.evaluate(window_events, LANG_TOOLS, shutil.which, GATES_WINDOW_DAYS, UNCHECKED_EXTS)
+    for _name, _ok, _detail in _lg_checks:
+        check(_name, _ok, _detail)
+    info.extend(_lg_infos)
+    # Bramka fail-open (blad narzedzia = push idzie dalej) padajaca seryjnie jest martwa — nic nie sprawdza, a wyglada na zywa
+    # (review r3 module-boundaries 2026-10-18). Jedno potkniecie = info; >= TOOL_ERROR_RED w oknie = RED, dla kazdej bramki z konwencja.
+    for tool, hits in sorted(tool_errors.items()):
+        last = max(hits, key=lambda k: k[1])
+        repos = sorted({k[0] for k in hits})
+        check(f"bramka {tool}: bledy narzedzia < {TOOL_ERROR_RED} w {GATES_WINDOW_DAYS} dni", len(hits) < TOOL_ERROR_RED,
+              f"{len(hits)} pushy z bledem narzedzia (ostatni {last[1]}Z, {hits[last]}); repo: {', '.join(repos[:3])}"
+              f"{' ...' if len(repos) > 3 else ''} — bramka fail-open nic nie sprawdza. Repro: w tym repo komenda bramki z git-hooks/pre-push;"
+              f" po naprawie RED znika, gdy wpisy wyjda z okna {GATES_WINDOW_DAYS} dni")
     for (hook, ev), n in sorted(counts.items(), key=lambda kv: -kv[1])[:12]:
         info.append(f"{hook}/{ev}: {n}")
     # Merge bez frazy (pg-merge-bezpieczny v2, ops-review 2026-10-01): rozklad zawsze widoczny; start bez wyniku albo wynik
@@ -250,6 +293,15 @@ check("test_dup_literals: 8 przypadkow", _rc_out(_r)[0] == 0, (_rc_out(_r)[1].st
 # Nieaktualne = ktos dodal/zmienil narzedzie bez `python bin/pg-map.py`; narzedzie bez opisu = obcy senior nie wie, co to robi.
 _r = sh([sys.executable, str(CLAUDE / "bin" / "pg-map.py"), "--check"], timeout=60)
 check("pg-map: README.md + bin/README.md aktualne, kazde narzedzie w bin/ ma samoopis", _rc_out(_r)[0] == 0 and "bez opisu: 0" in _rc_out(_r)[1], (_rc_out(_r)[1].strip().splitlines() or ["brak wyniku"])[-1])
+# 2g2. Liczby w recznych streszczeniach (CLAUDE.md, pg/ref-*.md) z kotwica (src: ...) = zgodne ze zrodlem (2026-10-19,
+# CLAUDE.md:71 gubil „200 uzyc"). Linie bez kotwicy tylko liczone (pokrycie), nie RED.
+_c = sh([sys.executable, str(CLAUDE / "bin" / "claims-check.py"), "--min-anchors", "3"], timeout=60)  # 3 = kotwice w CLAUDE.md 2026-10-19; podnos przy dokladaniu
+check("claims-check: liczby w streszczeniach PG zgodne ze zrodlem", _rc_out(_c)[0] == 0, (_rc_out(_c)[1].strip().splitlines() or ["brak wyniku"])[-1])
+# + Fala 0 pomiaru (2026-11-01, pg-review p345f): G3/G4, rejestr wynikow recenzji, wskaznik ucieczek.
+for _t in ("test_claims_check.py", "test_pg_self_check.py", "test_pg_map.py", "test_pg_export.py",  # narzedzia pracy nad PG (2026-10-19) + export = straznik prywatnosci (r12 ops)
+           "test_gate_effectiveness.py", "test_pg_escapes.py", "test_pg_outcome.js"):  # test_gate_log_fala0.js poza lista: gate-log kopiuje bypass do prod gates.jsonl (p345h code-1)
+    _r = sh(["node" if _t.endswith(".js") else sys.executable, str(CLAUDE / "bin" / _t)], timeout=300)
+    check(f"{_t}: przypadki przechodza", _rc_out(_r)[0] == 0, (_rc_out(_r)[1].strip().splitlines() or ["brak wyniku"])[-1])
 
 # Wpiecia hookow tego komputera = migawka pg/settings-hooks.json (pg-wire.js, 2026-09-26). Rozjazd na second-machineu = laptop
 # dostanie stare wpiecia (brak --export); na laptopie = czesc bramek nie dziala (brak --apply). Widoczne tez w zadaniu bez sesji.
@@ -503,4 +555,23 @@ for r in red:
     print("RED:", r)
 for i in info[:12]:
     print("gates-7d:", i)
+
+# Fala 0 (design §11.3-11.4): G3 + G4 jako OSOBNE bloki po liscie info (info[:12] by je uciela); tylko informacja, status bez zmian.
+# Logika: hooks/gate_effectiveness.py (czyste funkcje, jak lang_gap_health; test: bin/test_gate_effectiveness.py).
+try:
+    if str(CLAUDE / "hooks") not in sys.path:
+        sys.path.insert(0, str(CLAUDE / "hooks"))
+    import gate_effectiveness as ge
+
+    _ge_stats = ge.gate_effectiveness(window_events)
+    _ge_sets = ge.gate_tier_sets(read(CLAUDE / "hooks" / "lib" / "overrides.js"))
+    _ge_kill = (CLAUDE / "pg" / "self-approval.off").exists()
+    print("\n".join(ge.gate_effectiveness_lines(_ge_stats, _ge_sets, _ge_kill)))
+    try:
+        ge.append_gate_snapshot(GATES_LOG.parent / "gate-effectiveness.jsonl", _ge_stats, datetime.now(timezone.utc).isoformat(), GATES_WINDOW_DAYS)
+    except (OSError, ValueError, TypeError) as e:
+        print(f"[warn] nie zapisano migawki gate-effectiveness.jsonl: {e}")
+    print("\n".join(ge.review_outcome_lines(ge.read_jsonl(read(GATES_LOG.parent / "review-outcomes.jsonl")))))
+except Exception as e:  # noqa: BLE001 — sekcje informacyjne: dowolna awaria pomiaru = [warn], nie zmienia RED/GREEN
+    print(f"[warn] sekcje skutecznosci bramek / wynikow recenzji: {type(e).__name__}: {e}")
 sys.exit(1 if red else 0)

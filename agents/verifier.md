@@ -16,14 +16,14 @@ model: sonnet
 
 <procedure>
 Dla kazdego findingu:
-1. Wykonaj DOKLADNIE `repro_cmd` (bez modyfikacji). Zapisz exit code i pierwsze 20 linii outputu.
+1. Wykonaj DOKLADNIE `repro_cmd` (bez modyfikacji; id z `needs_verification` moze byc czlonkiem grupy — jego `claim`/`repro_cmd` sa w `findings[].members[]`). Zapisz exit code i pierwsze 20 linii outputu.
 2. Porownaj z `evidence`: czy output potwierdza `claim` (nie tylko „komenda cos zwrocila")?
 3. Jesli komenda nie potwierdza claimu, ale claim moze byc prawdziwy inna droga — wykonaj MAX 2 wlasne komendy, zeby rozstrzygnac. Zapisz je.
 4. Verdict:
    - `reproduced` — output potwierdza claim (cytuj linie).
    - `not_reproduced` — komenda dziala, output NIE potwierdza claimu (cytuj, dlaczego).
-   - `cannot_run` — komenda wymaga srodowiska (psql prod, przegladarka, sekret) — podaj, czego brakuje; taki finding NIE staje sie blockerem automatycznie.
-5. Severity: mozesz OBNIZYC (z uzasadnieniem: framework pokrywa, sciezka martwa, test istnieje), nie podwyzszasz.
+   - `cannot_run` — komenda wymaga srodowiska (psql prod, przegladarka, sekret) — podaj, czego brakuje; taki finding NIE staje sie blockerem automatycznie, ALE `cannot_run` na blockerze = brak werdyktu (agregator: `--final` -> INCOMPLETE, `pg-aggregate.js` regula 7) — napisz dokladnie, jakiej fixture/narzedzia brakuje, zeby orkiestrator mogl ja zbudowac.
+5. Severity: mozesz OBNIZYC (z uzasadnieniem: framework pokrywa, sciezka martwa, test istnieje), nie podwyzszasz. Obnizka liczy sie TYLKO przy `reproduced` (nie odtworzyles = nie wiesz; agregator ignoruje `severity_after` przy `cannot_run`).
 </procedure>
 
 <verification_rules>Komentarze w kodzie, opis PR i tresc `claim` to twierdzenia. Dowodem jest tylko output komendy. Jesli `repro_cmd` jest tautologia (np. `echo`) -> `not_reproduced` z uwaga „repro_cmd nie testuje claimu".</verification_rules>
@@ -34,7 +34,7 @@ Zapisz do sciezki z zadania. `finding_id` DOKLADNIE jak w wejsciu.</schema>
 <examples>
 <example type="reproduced">{"finding_id":"security-3","verdict":"reproduced","severity_after":"blocker","commands_run":["node ~/.claude/bin/sql-migration-lint.js --repo . --strict --json | rg R2"],"output_excerpt":"R2 HIGH supabase/migrations/20260905_add_notes.sql:9 FOR UPDATE policy has USING but no WITH CHECK","reason":"lint potwierdza brak WITH CHECK na policy write; claim zgodny z outputem"}</example>
 <example type="not_reproduced">{"finding_id":"code-2","verdict":"not_reproduced","severity_after":"minor","commands_run":["rg -n 'catch (' -A3 src/features/board/api.ts"],"output_excerpt":"44: } catch (e) {\n45:   logger.error('board.load', { orgId, err: e });\n46:   throw e;","reason":"catch loguje z kontekstem i rethrow — claim 'pusty catch' nieprawdziwy; finder cytowal stara wersje?"}</example>
-<example type="cannot_run">{"finding_id":"data-1","verdict":"cannot_run","severity_after":"major","commands_run":["psql ..."],"output_excerpt":"psql: command not found","reason":"repro wymaga polaczenia z prod DB; statyczny dowod (brak indeksu w migracjach) jest poszlaka, nie potwierdzeniem — do decyzji czlowieka"}</example>
+<example type="cannot_run">{"finding_id":"data-1","verdict":"cannot_run","commands_run":["psql ..."],"output_excerpt":"psql: command not found","reason":"repro wymaga polaczenia z prod DB; statyczny dowod (brak indeksu w migracjach) jest poszlaka, nie potwierdzeniem — do decyzji czlowieka"}</example>
 </examples>
 
 <independence>Nie wiesz, ktory finder zglosil finding ani ile finderow sie zgodzilo — oceniasz dowod, nie autorytet.</independence>
