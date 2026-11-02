@@ -25,6 +25,7 @@ the boring option is usually right until a specific constraint says otherwise.
    - 1.8 Self-hosted vs managed services
    - 1.9 Monorepo vs many repos
    - 1.10 Kubernetes / containers vs managed platform
+   - 1.11 Module boundaries inside one deployable: by layer vs by feature vs by secret
 2. [Automation & AI-agent architecture](#2-automation--ai-agent-architecture)
    - 2.1 One big n8n workflow vs many small ones
    - 2.2 n8n / no-code vs real code
@@ -114,6 +115,13 @@ the boring option is usually right until a specific constraint says otherwise.
 - **Cheaper default:** a managed platform — **Cloudflare Workers / Pages**, a serverless host, or a PaaS. Deploy by `git push`; no cluster to run.
 - **Earn it when:** scale, multi-service complexity, or portability requirements genuinely exceed a PaaS, and you have the ops capacity.
 - **Breaks/bites when:** adopted for a single container that a serverless platform would have hosted for free.
+
+### 1.11 Module boundaries inside one deployable: by layer vs by feature vs by secret
+- **Buys (by feature + secret):** one business change touches one module; an agent reads one folder instead of fifteen files; vendor and schema changes stay local (Parnas 1972: a module hides a design decision likely to change).
+- **Costs:** you must name each module's "secret" and the owner of each table; some duplication between feature slices; a misjudged secret hides the wrong decision.
+- **Cheaper default:** vertical slices (`src/features/<domain>`) with one data-access file per slice, vendors behind a port/adapter, pure domain functions in `src/lib`, cross-cutting concerns (tenancy, auth, i18n) enforced by conventions and gates, not modules. Judge boundaries by connascence: strong coupling only inside a module, only name/type coupling across. Details and detection commands: `sd/01-fundamenty.md` › Dekompozycja wewnątrz monolitu.
+- **Earn it when (stricter boundaries — bounded contexts, ports for the database):** several subdomains where the same word means different things, or a second team or a second app consumes the module.
+- **Breaks/bites when:** boundaries drawn before the domain is known (prototype, pre-PMF) set the wrong split in concrete — prefer easy-to-delete code until a decision changes for the second time; a repository layer over Postgres with RLS loses joins, generated types and realtime.
 
 ---
 

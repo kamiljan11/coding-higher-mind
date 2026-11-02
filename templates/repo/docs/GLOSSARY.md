@@ -1,16 +1,20 @@
 # GLOSSARY — slownik domeny (PL / EN / IS)
 
-<!-- Nazwy w kodzie MUSZA pochodzic stad. Nowy termin w diffie = nowy wiersz tutaj (product-reviewer to sprawdza). -->
+<!-- Nazwy w kodzie MUSZA pochodzic stad. Nowy termin w diffie = nowy wiersz tutaj (product-reviewer to sprawdza).
+     Moduly (src/features/<x>) nazywamy tymi terminami — pojeciami biznesowymi, nie typami technicznymi (services/, helpers/).
+     Kontekst = modul, w ktorym termin ma TO znaczenie. To samo slowo w dwoch znaczeniach = dwa wiersze i dwie rozne nazwy w kodzie
+     (karta 01 › Dekompozycja wewnątrz monolitu, pkt 9: lekki bounded context). -->
 
-| Termin w kodzie (EN) | PL | IS | Znaczenie / regula biznesowa |
-|---|---|---|---|
-| `org` / `orgId` | organizacja | fyrirtæki | tenant; kazdy wiersz danych klienta ma `org_id` |
-| `job` | zlecenie | verk | jedno zlecenie warsztatowe; zrodlo prawdy dla wizyt, czesci, faktury |
-| `visit` | wizyta | heimsókn | termin w kalendarzu przypisany do zlecenia |
-| `customer` | klient | viðskiptavinur | osoba/firma; unikalny (org_id, email) |
-| `kennitala` | numer ID (IS) | kennitala | islandzki identyfikator osoby/firmy; format DDMMYY-NNNN |
-| `amountIsk` / `amountPln` | kwota | upphæð | integer w najmniejszej jednostce; ISK bez groszy, PLN w groszach |
-| `vat` | VAT | VSK | stawka z konfiguracji org, nie z kodu |
+| Termin w kodzie (EN) | Kontekst (modul) | PL | IS | Znaczenie / regula biznesowa |
+|---|---|---|---|---|
+| `org` / `orgId` | przekrojowy | organizacja | fyrirtæki | tenant; kazdy wiersz danych klienta ma `org_id` |
+| `job` | `features/jobs` | zlecenie | verk | jedno zlecenie warsztatowe; zrodlo prawdy dla wizyt, czesci, faktury |
+| `visit` | `features/calendar` | wizyta | heimsókn | termin w kalendarzu przypisany do zlecenia |
+| `customer` | `features/crm` | klient | viðskiptavinur | osoba/firma; unikalny (org_id, email) |
+| `kennitala` | przekrojowy | numer ID (IS) | kennitala | islandzki identyfikator osoby/firmy; format DDMMYY-NNNN |
+| `amountIsk` / `amountPln` | przekrojowy | kwota | upphæð | integer w najmniejszej jednostce; ISK bez groszy, PLN w groszach |
+| `vat` | `features/invoices` | VAT | VSK | stawka z konfiguracji org, nie z kodu |
+| `background_job` | techniczny (kolejka) | zadanie w tle | — | wiersz kolejki `background_jobs`; NIE `job` (to zlecenie) — jedno slowo, dwa znaczenia |
 
 ## Terminy procesu (PG / slownik software house'u) — nie w kodzie produktu, ale w docs, CLAUDE.md i naradach
 

@@ -202,10 +202,10 @@ Stare okna sprząta zadanie cykliczne (`delete from rate_limits where window_sta
 **Problem.** Rate limiting chroni przed klientem; backpressure chroni przed WŁASNYM wolniejszym ogniwem. Kampania (Meta, newsletter) wrzuca 5 tys. maili/SMS naraz, a dostawca przyjmuje ~kilka–kilkadziesiąt/s; pik zapytań do LLM czeka do limitu czasu funkcji i zjada współbieżność (i rachunek) całej aplikacji; 2FA czeka w kolejce za newsletterem. Sygnały w diffie: pętla `for … await send*`, `Promise.all` na liście odbiorców, nowa kampania/masowa wysyłka, nowy endpoint LLM bez limitu współbieżności, kolejka bez priorytetu.
 
 **Domyślnie u nas.**
-- **Masowa wysyłka w tempie dostawcy** = leaky bucket na kolejce: wiersze w tabeli `jobs` (→ 04 › Zadania w tle), worker co ~1 min pobiera N = limit dostawcy × 60 s × ~0,8 `[~]` (`select … for update skip locked limit N`), a 429 dostawcy przesuwa `run_at` o `Retry-After`. Limity czytaj z konta dostawcy, nie z pamięci (Resend/Twilio/SES `[NIEPEWNE: limity zależą od planu i weryfikacji nadawcy]`).
-- **Priorytety:** kolumna `priority` (0 = transakcyjne: 2FA, reset hasła, potwierdzenie płatności; 5 = powiadomienia; 9 = marketing) i `order by priority, run_at`; marketing ma osobny dzienny cap, żeby nie zjadł limitu dostawcy przed 2FA.
+- **Masowa wysyłka w tempie dostawcy** = leaky bucket na kolejce: wiersze w tabeli `background_jobs` (→ 04 › Zadania w tle), worker co ~1 min pobiera N = limit dostawcy × 60 s × ~0,8 `[~]` (`select … for update skip locked limit N`), a 429 dostawcy przesuwa `run_after` o `Retry-After`. Limity czytaj z konta dostawcy, nie z pamięci (Resend/Twilio/SES `[NIEPEWNE: limity zależą od planu i weryfikacji nadawcy]`).
+- **Priorytety:** kolumna `priority` (0 = transakcyjne: 2FA, reset hasła, potwierdzenie płatności; 5 = powiadomienia; 9 = marketing) i `order by priority, run_after`; marketing ma osobny dzienny cap, żeby nie zjadł limitu dostawcy przed 2FA.
 - **Szybka odmowa zamiast czekania:** endpoint drogi (LLM, eksport, PDF) ma limit współbieżności per org (np. ≤3 równoległe generacje `[~]`, licznik jak token bucket z kartą wyżej); nadwyżka dostaje od razu **429** (limit klienta) albo **503 + `Retry-After`** (my jesteśmy przeciążeni), nie wisi do timeoutu funkcji. Żądanie, którego wynik i tak nie zdąży (klient zerwał połączenie, `request.signal.aborted`), przerywamy i nie płacimy za tokeny.
-- **Producent zwalnia, gdy kolejka rośnie:** import/kampania nie dorzuca nowych zadań, gdy `count(*) where status='pending'` > próg — czeka albo odmawia z komunikatem „wysyłka w toku".
+- **Producent zwalnia, gdy kolejka rośnie:** import/kampania nie dorzuca nowych zadań, gdy `count(*) where status='queued'` > próg — czeka albo odmawia z komunikatem „wysyłka w toku".
 **Kiedy NIE:** wysyłki ~<100 wiadomości dziennie i pojedyncze wywołania LLM — wystarczy timeout + retry (→ 05 › Zależności zewnętrzne).
 
 | Wariant | Koszt operacyjny | Finansowy | Poznawczy |
@@ -218,9 +218,9 @@ Stare okna sprząta zadanie cykliczne (`delete from rate_limits where window_sta
 **Awarie i detekcja.**
 - *masowa wysyłka w pętli/`Promise.all` bez kolejki* — `rg -n -U "(for \(|\.map\(async|Promise\.all)[\s\S]{0,200}(send|sms|email|resend|twilio)" src supabase/functions`
 - *brak priorytetu w kolejce (2FA za newsletterem)* — `rg -n -i "priority" supabase/migrations | rg -i "job|queue|outbox"`
-- *429 dostawcy powoduje natychmiastowy retry (burza)* — `rg -n "429" src supabase/functions | rg -v -i "retry-after|run_at|backoff"`
+- *429 dostawcy powoduje natychmiastowy retry (burza)* — `rg -n "429" src supabase/functions | rg -v -i "retry-after|run_after|backoff"`
 - *drogi endpoint bez limitu współbieżności i szybkiej odmowy* — `rg -n -l -i "streamText|generateText|anthropic|openai" src/app/api supabase/functions` → w tych plikach `rg -n -i "concurren|inflight|503|429"`
-- *kolejka rośnie bez alertu* — `select priority, count(*), min(run_at) from jobs where status='pending' group by 1 order by 1;` (nazwa tabeli wg repo)
+- *kolejka rośnie bez alertu* — `select priority, count(*), min(run_after) from background_jobs where status='queued' group by 1 order by 1;` (nazwa tabeli wg repo)
 
 **Audyt „czy się trzymamy".**
 1. Czy masowa wysyłka idzie przez kolejkę w tempie limitu dostawcy? → pierwsza komenda + limit w kodzie workera zestawiony z panelem dostawcy.
@@ -273,13 +273,13 @@ Stare okna sprząta zadanie cykliczne (`delete from rate_limits where window_sta
 
 **Problem.** Skalowanie to drabina: każde piętro gasi jeden konkretny objaw i dokłada złożoność, więc wchodzi się o JEDNO piętro, gdy objaw da się zmierzyć, nie „na zapas". Piętra (za System Evolution, arjaythedev.com/scale): (1) jedna maszyna → (2) baza na osobnym hoście → (3) logi, metryki, alerty, analityka → (4) kilka bezstanowych instancji za load balancerem → (5) CDN + cache → (6) wolna praca w kolejce → (7) repliki odczytu, potem sharding. Pytanie projektowe brzmi „które piętro i jaki objaw każe wejść wyżej", nie „czy to się skaluje". Sygnały w diffie: Redis, replika, kolejka zewnętrzna, K8s, drugi region — bez zmierzonego objawu.
 
-**Domyślnie u nas.** Vercel + Supabase daje od pierwszego dnia piętra 2 (osobna, zarządzana baza z backupem), 4 (funkcje bezstanowe, deploy bez przestoju) i CDN z piętra 5. Realne kroki w naszych projektach: piętro 3 przed produkcją (Sentry, logi z `request_id`, alert na błędy i p95, analityka tylko z nazwaną metryką — `prr.md` P6, 05 › Obserwowalność i alerty), piętro 6 przy pierwszym wolnym lub zawodnym kroku (tabela `jobs`, 04 › Zadania w tle i kolejki), piętro 7a (widok zmaterializowany albo replika odczytu) dopiero gdy raporty i dashboardy obciążają bazę produkcyjną. Piętro wpisujemy w macierzy (`docs/architecture/obszary.md`, obszar `scaling`) jako DECYZJA z obecnym piętrem albo NIE TERAZ z sygnałem wejścia wyżej.
+**Domyślnie u nas.** Vercel + Supabase daje od pierwszego dnia piętra 2 (osobna, zarządzana baza z backupem), 4 (funkcje bezstanowe, deploy bez przestoju) i CDN z piętra 5. Realne kroki w naszych projektach: piętro 3 przed produkcją (Sentry, logi z `request_id`, alert na błędy i p95, analityka tylko z nazwaną metryką — `prr.md` P6, 05 › Obserwowalność i alerty), piętro 6 przy pierwszym wolnym lub zawodnym kroku (tabela `background_jobs`, 04 › Zadania w tle i kolejki), piętro 7a (widok zmaterializowany albo replika odczytu) dopiero gdy raporty i dashboardy obciążają bazę produkcyjną. Piętro wpisujemy w macierzy (`docs/architecture/obszary.md`, obszar `scaling`) jako DECYZJA z obecnym piętrem albo NIE TERAZ z sygnałem wejścia wyżej.
 **Kiedy NIE:** prototyp i projekt bez użytkowników — piętro 1-2 wystarczy, nawet bez alertów.
 
 | Wariant | Koszt operacyjny | Finansowy | Poznawczy |
 |---|---|---|---|
 | zostać na piętrze + pomiar sygnału | jeden alert/zapytanie | zero | niski |
-| piętro 6: tabela `jobs` + worker | worker, retencja | zero | niski |
+| piętro 6: tabela `background_jobs` + worker | worker, retencja | zero | niski |
 | piętro 7a: widok zmaterializowany / replika | odświeżanie, lag repliki | replika = osobna instancja `[NIEPEWNE: wg planu]` | średni |
 | piętro 5: cache przy bazie (Redis) | inwalidacja, drugi magazyn | abonament | wysoki |
 | piętro 7b: sharding | router, cross-shard, reshardowanie | wysoki | bardzo wysoki — nie przy tej skali |
@@ -301,6 +301,6 @@ Stare okna sprząta zadanie cykliczne (`delete from rate_limits where window_sta
 **Nie potrzebujesz jeszcze** (wariant → sygnał powrotu):
 - własna maszyna i load balancer (piętra 1 i 4 poza platformą) → koszt platformy ~>3× VPS przy stałym ruchu albo wymóg, którego platforma nie spełnia; z ADR.
 - Redis jako cache (piętro 5) → to samo zapytanie ~>100/s na gorącej ścieżce po indeksach i widoku zmaterializowanym (→ 02 › Cache i inwalidacja).
-- kolejka zewnętrzna zamiast tabeli `jobs` (piętro 6) → ~setki zadań/s albo fan-out do wielu konsumentów (→ 04 › Zadania w tle i kolejki).
+- kolejka zewnętrzna zamiast tabeli `background_jobs` (piętro 6) → ~setki zadań/s albo fan-out do wielu konsumentów (→ 04 › Zadania w tle i kolejki).
 - replika odczytu (piętro 7a) → zapytania raportowe ~>30 % czasu bazy w `pg_stat_statements` albo CPU bazy ~>70 % po naprawie zapytań i widokach zmaterializowanych.
 - sharding (piętro 7b) → zapisy ~>kilku tysięcy/s na największym planie; klucz podziału = tenant (`org_id`), zaprojektowany w modelu danych od początku (→ 02 › Multi-tenancy w danych).

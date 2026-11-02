@@ -27,8 +27,9 @@ try { ({ VERDICT } = require(path.join(__dirname, '..', 'bin', 'pg-aggregate.js'
   log({ hook: 'stop-gate', event: 'skipped', reason: `pg-aggregate.js nie laduje sie: ${aggLoadError}`, target: __dirname });
 }
 const { classify, modelFor, T3_PATH_RX, contentEscalation, stripFences } = require('./lib/risk-tier');
+const { uncommittedLines } = require('./lib/changed-lines');
 const { isTempPath } = require('./lib/protected-paths');
-const { parseUnifiedDiff, archSignals, hasAdr, ADR_RX } = require('./lib/arch-signals');
+const { parseUnifiedDiff, archSignals, archObserveSignals, hasAdr, ADR_RX } = require('./lib/arch-signals');
 
 const HOOK = 'stop-gate';
 const MAX_REPOS = 4;
@@ -82,6 +83,8 @@ if (!Array.isArray(state.reasons)) state.reasons = [];
 // v2 (pg-review 2026-10-01): znacznik w ~/.claude/logs (warstwa kontrolna — agent nie podrobi go bez frazy; %TEMP% mogl),
 // odcisk z TRESCI (diff + zawartosc nieśledzonych plikow), powody zapisane i przepuszczenie zglaszane uzytkownikowi.
 const WM_DIR = process.env.PG_STOP_WM_DIR || path.join(os.homedir(), '.claude', 'logs', 'stop-gate-wm');
+const observedArchPath = path.join(os.tmpdir(), 'claude-arch-observe-' + crypto.createHash('md5').update(cwd + '|' + String(input.session_id || '')).digest('hex'));
+const observedArch = new Set((() => { try { return JSON.parse(fs.readFileSync(observedArchPath, 'utf8')); } catch (e) { return []; } })());
 const watermarkPath = path.join(WM_DIR, crypto.createHash('sha256').update(String(input.session_id || cwd)).digest('hex').slice(0, 32) + '.json');
 function readWatermarks() {
   try {
@@ -203,22 +206,8 @@ function changedFiles(root) {
 }
 // Linie liczone TYLKO dla podanych plikow (2026-10-02): wczesniej argument byl ignorowany i do progu T3 wchodzily
 // niezacommitowane zmiany innych sesji w tym samym repo (~/.claude: 2753 linii cudzej pracy = petla blokad).
-function changedLineCount(root, files) {
-  let total = 0;
-  const want = new Set((files || []).map(normPath));
-  const numstat = sh('git -c core.quotePath=false diff --no-ext-diff --numstat HEAD', root, GIT_TIMEOUT_MS);
-  if (numstat.ok) for (const line of numstat.out.split('\n')) {
-    const m = line.match(/^(\d+)\s+(\d+)\s+(.+)$/);
-    if (m && want.has(normPath(path.join(root, m[3].trim())))) total += Number(m[1]) + Number(m[2]);
-  }
-  const untracked = sh('git ls-files --others --exclude-standard', root, GIT_TIMEOUT_MS);
-  if (untracked.ok) for (const rel of untracked.out.split('\n').filter(Boolean)) {
-    const abs = path.join(root, rel);
-    if (!isCodeFile(abs) || !want.has(normPath(abs))) continue;
-    try { total += fs.readFileSync(abs, 'utf8').split('\n').length; } catch (e) { /* zniknal */ }
-  }
-  return total;
-}
+// Licznik = lib/changed-lines.js (jedno zrodlo z pg-review krok 0; liczy jak `git numstat` po commicie).
+const changedLineCount = (root, files) => uncommittedLines(root, files || []);
 
 // --- transcript sesji: co edytowano, czy byl reviewer po ostatnich edycjach ---
 // Rola recenzenta z wywolania Agent: `subagent_type` (takze z prefiksem pluginu) albo — fallback pg-review dla rol
@@ -317,10 +306,13 @@ async function parseTranscript(transcriptPath) {
         if (WRITE_COMMAND_RX.test(withoutTempRedirects(command))) onEdit(null);
         if (TEST_CMD_RX.test(command)) result.testRunAfterEdit = true;
         const agg = AGGREGATE_DIR_RX.exec(command);
-        if (agg) result.aggregateRuns.push({ dir: agg[1] || agg[2] || agg[3], editsAfter: 0 });
+        if (agg) result.aggregateRuns.push({ dir: agg[1] || agg[2] || agg[3], editsAfter: 0, reviewersAfter: 0 });
       } else if (block.name === 'Agent') {
         const role = reviewerRoleOf(toolInput);
-        if (role) { result.reviewerRan = true; result.reviewersRan.add(role); result.editsAfterReview = 0; result.t3EditAfterReview = false; }
+        if (role) {
+          result.reviewerRan = true; result.reviewersRan.add(role); result.editsAfterReview = 0; result.t3EditAfterReview = false;
+          for (const run of result.aggregateRuns) run.reviewersAfter++; // finder/verifier PO agregacji = agregacja posrednia w toku
+        }
       } else if (block.name === 'Skill') {
         result.skillsRan.add(String(toolInput.skill || '').split(':').pop());
       }
@@ -748,6 +740,19 @@ function archRequirement(root, changedOwned, changedAll, shas, transcript) {
   }
   const files = parseUnifiedDiff(parts.join('\n'));
   const reasons = archSignals(files);
+  // OBSERVE (2026-10-24): integracje bez nowej zaleznosci — tylko slad `would_block`, nigdy blok (ADR-0008 krok 3).
+  // Raz na (sesja, repo, sygnal): kolejne Stopy tej samej sesji nie zawyzaja miary przed awansem (pg-review 1024: code+ops).
+  // Blad obserwacji nigdy nie zabija bramki arch (try/catch + budzet).
+  if (budgetLeft() >= 15000) {
+    try {
+      // Wpis na sygnal (nie sklejka 3): guard_health tnie powod do 60 znakow, a znacznik dostaje tylko to, co zalogowane (pg-review 1024 r2 ops).
+      const fresh = archObserveSignals(files).filter((o) => !observedArch.has(`${root}|${o}`)).slice(0, 5);
+      if (fresh.length && !hasAdr(files)) {
+        fresh.forEach((o) => { observedArch.add(`${root}|${o}`); log({ hook: HOOK, event: 'would_block', reason: `arch-observe: ${o}`, target: root }); });
+        try { fs.writeFileSync(observedArchPath, JSON.stringify([...observedArch])); } catch (e) { /* bez znacznika = najwyzej powtorny wpis */ }
+      }
+    } catch (e) { log({ hook: HOOK, event: 'skipped', reason: `arch-observe: blad obserwacji (${String((e && e.message) || e).slice(0, 80)})`, target: root }); }
+  }
   if (!reasons.length) return null;
   if (hasAdr(files)) { log({ hook: HOOK, event: 'ran', reason: `arch: ADR w diffie (${reasons.length} sygnalow)`, target: root }); return null; }
   // ADR jest, ale odrzucony (nowy bez odrzuconej alternatywy/kosztu): slad w gate-log + powod w komunikacie (ops-review 2026-10-11)
@@ -783,6 +788,17 @@ function aggregateProblem(transcript, requiredAgents, root) {
   const missingRoles = (requiredAgents || []).map((a) => String(a).replace(/-reviewer$/, '')).filter((r) => !roles.has(r));
   if (missingRoles.length) return `ostatnia agregacja (${run.dir}) nie zawiera rol wymaganych przez tier: ${missingRoles.join(', ')}`;
   if (agg.verdict === VERDICT.REQUEST_CHANGES && run.editsAfter === 0) return `ostatnia agregacja (${run.dir}) = REQUEST CHANGES, a po niej nie bylo zadnej poprawki (blocker ${agg.stats && agg.stats.blocker}, must_fix ${agg.stats && agg.stats.must_fix})`;
+  // OBSERVE (2026-10-27, near-miss pg-review r11 ADR-0010): agregacja bez --final daje samotnemu blockerowi `note` + verdict
+  // APPROVE. Blokada odpadla, bo 9/10 agregacji serii bylo posrednich przy zwyklym koncu tury; tu tylko would_block, gdy po
+  // agregacji nie bylo ani edycji, ani findera/weryfikatora. Kryterium przejscia na blokade: pg/known-limits.md.
+  const pending = Array.isArray(agg.needs_verification) ? agg.needs_verification.length : 0;
+  // Raz na (sesja, repo, RUN) — znacznik wspolny z arch-observe: kolejne Stopy nie zawyzaja miary (pg-review sg1: code+ops).
+  const seenKey = `${root}|nv:${run.dir}`;
+  if (pending && run.editsAfter === 0 && !run.reviewersAfter && !observedArch.has(seenKey)) {
+    log({ hook: HOOK, event: 'would_block', reason: 'review: agregacja posrednia bez werdyktu weryfikatora', count: pending, run: run.dir, target: root });
+    observedArch.add(seenKey);
+    try { fs.writeFileSync(observedArchPath, JSON.stringify([...observedArch])); } catch (e) { /* bez znacznika = najwyzej powtorny wpis */ }
+  }
   return null;
 }
 
@@ -848,7 +864,7 @@ async function main() {
     if (changedCode.length && !alreadyBlocked('lint', root)) {
       if (budgetLeft() < 20000) log({ hook: HOOK, event: 'skipped', reason: 'stop budget (lint)', target: root });
       else {
-        const lint = lintFiles(changedCode.filter(isCodeFile).slice(0, MAX_LINT_FILES), { hook: HOOK });
+        const lint = lintFiles(changedCode.filter(isCodeFile).slice(0, MAX_LINT_FILES), { hook: HOOK, budgetMs: budgetLeft() - 20000 }); // jezyki z lang-checkers dziela budzet stopu
         if (lint) block('lint', root, lint.header + '\n' + lint.out);
       }
     }

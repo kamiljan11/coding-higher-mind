@@ -41,6 +41,9 @@ elif grep -q 'pg\.tier_floor' "$REPO/CLAUDE.md"; then echo "[=] CLAUDE.md juz ma
 else echo "[!] CLAUDE.md istnieje, ale bez sekcji PG v3: dopisz recznie blok 'PG v3' z szablonu"; fi
 
 CREATE_ONLY=(docs/REVIEW-LEARNINGS.md docs/RUNBOOK.md docs/ARCHITECTURE.md docs/GLOSSARY.md CHANGELOG.md .github/pull_request_template.md)
+# Dokumenty decyzji architektury (pg/design.md E): czlowiek i agent czytaja je przed decyzja, zapisuja po (mapa: README.md w katalogu).
+CREATE_ONLY+=(docs/designs/TEMPLATE.md)  # plik designu T2+ (pg/design.md, P2+P9 2026-11-01)
+CREATE_ONLY+=(docs/architecture/README.md docs/architecture/quality-attributes.md docs/architecture/capacity.md docs/architecture/risks.md docs/architecture/roadmap.md docs/architecture/failure-modes.md)
 [ "$DEPLOY_GATE" = 1 ] && CREATE_ONLY+=(.github/deploy/probes.json)
 # Szablony Node tylko przy package.json (martwy e2e w statycznym repo, finding 2026-09-05).
 if [ -e "$REPO/package.json" ]; then CREATE_ONLY+=(e2e/smoke.spec.ts tsconfig.base.json)
@@ -58,7 +61,7 @@ if [ ! -e "$MATRIX" ]; then
     mkdir -p "$(dirname "$MATRIX")"
     { echo "# Macierz obszarow (pg/design.md G)"; echo
       echo "Kazdy wiersz: DECYZJA (+Dowod: plik/ADR/komenda) / NIE TERAZ (+Sygnal powrotu z liczba) / NIE DOTYCZY (+powod)."
-      echo "Warstwy stack-*: Stack Picker (https://claude.ai/artifact/CaWzJDJ4iikuxtnh2FZooD; kopia ~/.claude/skills/architecture-advisor/assets/stack-picker.html) -> „Kopiuj wiersze do obszary.md”. Sprawdzenie: node ~/.claude/bin/sd-matrix-lint.js --repo ."; echo
+      echo "Warstwy stack-*: Stack Picker (https://claude.ai/artifact/CaWzJDJ4iikuxtnh2FZooD; kopia ~/.claude/skills/architecture-advisor/assets/stack-picker.html) -> 'Kopiuj wiersze do obszary.md'. Sprawdzenie: node ~/.claude/bin/sd-matrix-lint.js --repo ."; echo
       printf '%s\n' "$TABLE"; } > "$MATRIX" && echo "[+] docs/architecture/obszary.md dodany (pusty szablon macierzy)"
   else
     echo "[!] docs/architecture/obszary.md NIE utworzony (brak node albo blad sd-matrix-lint) — po instalacji node uruchom init ponownie"

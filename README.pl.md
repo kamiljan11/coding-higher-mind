@@ -21,7 +21,7 @@ To repozytorium jest tym systemem, wyeksportowanym i zsanityzowanym, żeby dało
 | Warstwa | Odpala się na | Co robi | Gdzie |
 |---|---|---|---|
 | **Utwardzanie promptu** | każdy niebanalny prompt (`UserPromptSubmit`) | wstrzykuje PG-core: niejasność → pytania, nie wykonanie; read-before-assert; „gotowe" tylko z dowodem (exit code / diff / HTTP); status `VERIFIED / UNVERIFIED / FAILED`; raport dla sponsora, nie „dobrze" | `hooks/prompt-guard.js` |
-| **Bramka edycji** | każda edycja pliku, także przez Bash (`PostToolUse`) | eslint / oxlint / `tsc -b` / ruff / pyright na zmienionym pliku; błędy wracają prosto do agenta | `hooks/post-edit-check.js`, `hooks/post-bash-edit-check.js` |
+| **Bramka edycji** | każda edycja pliku, także przez Bash (`PostToolUse`) | eslint / oxlint / `tsc -b` / ruff / pyright na zmienionym pliku, a dla innych języków to, co jest zainstalowane: gofmt + `go vet`, `cargo clippy`, `javac`, gcc/g++ `-fsyntax-only`, `dotnet build`, `php -l`, shellcheck, `deno check`; błędy wracają prosto do agenta. Język bez sprawdzacza (Kotlin, Swift, Ruby…) loguje `skipped: no checker for .ext` i raz na sesję mówi o tym agentowi, zamiast cicho przepuszczać. Narzędzia uruchamiające kod samego repo (cargo, dotnet, cgo, gcc, deno, javac) działają tylko w repo właściciela: zaufany korzeń bez symlinków, każdy remote gita na koncie właściciela, to samo dla każdego repo nadrzędnego. Obcy klon dostaje tylko sprawdzenia czytające edytowany plik, z limitem pamięci i zredagowanym wyjściem | `hooks/post-edit-check.js`, `hooks/post-bash-edit-check.js`, `hooks/lib/lang-checkers.js`, `pg/adr/0010-*.md` |
 | **Strażnik komend** | każda komenda shellowa (`PreToolUse`) | blokuje `--no-verify`, force-push, `reset --hard`, `rm -rf` poza katalogami buildu, `gh pr merge`, sekrety w linii komendy, `curl \| sh`, niszczący SQL na bazie, która nie jest na pewno lokalna, instalację lub włączenie modów i pluginów Claude Code (usuwanie jest wolne) oraz łatki, rozpakowywanie i edycję skryptem w katalogu kontrolnym lub nad nim (blokada, gdy katalog roboczy jest niepewny; w każdym repo łatka dotykająca `.git/` albo `.claude/` jest blokowana, używaj `git apply`); wyjątki wydaje człowiek, nie agent: piszesz w czacie `pozwól ALLOW_X`, dopiero wtedy komenda z `ALLOW_X=1` przechodzi (30 min / 3 użycia; `ALLOW_CONTROL_PLANE` 60 min); każde użycie jest logowane | `hooks/bash-guard.js` |
 | **Strażnik edycji, monitor pętli, migawka przed kompakcją** | edycje plików (`PreToolUse`), każde wywołanie narzędzia (`PostToolUse`), przed kompakcją (`PreCompact`) | ta sama reguła warstwy kontrolnej dla Edit/Write; 4 identyczne wywołania z rzędu = sygnał stop; migawka ostatnich poleceń i edytowanych plików przeżywa `/compact` (maskowane: sekrety, e-mail, kennitala, telefony z kierunkowym, IBAN, numery kart) | `hooks/edit-guard.js`, `hooks/loop-monitor.js`, `hooks/precompact-snapshot.js` |
 | **Bramka stop** | koniec sesji (`Stop`) | liczy **tier ryzyka T0–T3 z diffu** (ścieżki + rozmiar), odpala lint/typy/testy na wszystkim, co się zmieniło, i odmawia zamknięcia sesji T2+ bez wymaganych działów recenzentów | `hooks/stop-gate.js`, `hooks/lib/risk-tier.js` |
@@ -31,18 +31,18 @@ To repozytorium jest tym systemem, wyeksportowanym i zsanityzowanym, żeby dało
 | **Merge z dowodem recenzji** | scalanie PR (tylko przez skrypt) | `bin/pg-merge-bezpieczny.py` scala bez wpisywanej frazy, gdy wszystkie kontrole są zielone i jest dowód: żadnego dla dokumentacji (T0), recenzja kodu dokładnie tego diffu (T1), kod + ops (T2); T3 i ścieżki wrażliwe nadal wymagają frazy człowieka. Drugi dowód to recenzja PR w CI (`pg-review.yml`) czytana przez API Actions; plik-wyłącznik wyłącza całość | `bin/pg-merge-bezpieczny.py`, `bin/pg-merge-dowod.js`, `templates/repo/.github/workflows/pg-review.yml`, `pg/adr/0003-*.md` |
 | **Notatki z sesji** | koniec każdej sesji (`SessionEnd`) | dopisuje krótką notatkę (pierwsze polecenie, zmienione pliki, commity, skrót ostatniej odpowiedzi; sekrety, adresy e-mail i numery identyfikacyjne zamaskowane; telefony i nazwiska nie) do `~/.claude/session-notes` albo `AUTO_DOC_DIR`; nigdy nie blokuje | `hooks/auto-doc.py` |
 | **System design** | prompt z decyzją inżynierską; krok B+ w `design.md` | karty decyzyjne per element architektury (kiedy się opłaca, domyślnie „jeszcze tego nie potrzebujesz", koszt, jak pada, pytania kontrolne z komendą do wyszukania), arkusz pojemności i listy kontrolne recenzentów; macierz 62 obszarów (37 obszarów system design + 25 warstw stacku z `assets/stack-picker.html`, każdy DECYZJA / NIE TERAZ / NIE DOTYCZY) sprawdzana przez `bin/sd-matrix-lint.js`; prompt-guard na nie wskazuje | `skills/architecture-advisor/references/sd/`, `pg/design.md` |
-| **Doktryna** | ładowana na zdarzenie, które jej potrzebuje | `design.md` (przed kodem: PRD-lite ze sponsorem/ROI, mini-design, STRIDE-lite, ADR), `dod.md` (definition of done per tier), `prr.md` (przed deployem), `postmortem.md` (incydent → nowa bramka albo nowa blizna), `paradigm.md` (functional core / imperative shell; obcy senior przejmuje repo w jeden dzień), `cases.md` (**170 blizn** — każda bramka wskazuje realną awarię, z której powstała) | `pg/` |
-| **Szablon repo** | nowe repozytorium | CI (`quality.yml`, testy mutacyjne na zmienionych plikach, release, opcjonalne review Claude, które bez tokenu *pomija się* zamiast udawać zieleń), ścisły eslint/tsconfig, szablon PR z checkboxem docs-parity, `docs/ARCHITECTURE.md` z **parsowanym blokiem granic modułów**, `GLOSSARY`, `RUNBOOK`, `PRIVACY`, matryca QA `CRITICAL-PATHS`, szablon ADR | `templates/repo/`, `bin/mas-quality-init.ps1` |
+| **Doktryna** | ładowana na zdarzenie, które jej potrzebuje | `design.md` (przed kodem: PRD-lite ze sponsorem/ROI, mini-design, STRIDE-lite, ADR), `dod.md` (definition of done per tier), `prr.md` (przed deployem), `postmortem.md` (incydent → nowa bramka albo nowa blizna), `paradigm.md` (functional core / imperative shell; obcy senior przejmuje repo w jeden dzień), `cases.md` (**183 blizn** — każda bramka wskazuje realną awarię, z której powstała) | `pg/` |
+| **Szablon repo** | nowe repozytorium | CI (`quality.yml` z jobem Polyglot dla Python/Go/Rust/C#/PHP/Java/Shell, testy mutacyjne na zmienionych plikach, release, opcjonalne review Claude, które bez tokenu *pomija się* zamiast udawać zieleń), ścisły eslint/tsconfig, szablon PR z checkboxem docs-parity, `docs/ARCHITECTURE.md` z **parsowanym blokiem granic modułów**, `GLOSSARY`, `RUNBOOK`, `PRIVACY`, matryca QA `CRITICAL-PATHS`, szablon ADR | `templates/repo/`, `bin/mas-quality-init.ps1` |
 | **Narzędzia floty** | na żądanie / cyklicznie | ścisła ochrona gałęzi z nazw jobów workflow, merge PR tylko na aktualnym merge-ref, rollout pojedynczego pliku jako PR, dowód z produkcji z API Vercela (nigdy z ręcznie wpisanego URL), kopanie sesji i historii gita, cotygodniowe zdrowie strażników, miesięczna kalibracja recenzentów (ten sam defekt w dwóch opakowaniach musi dostać ten sam werdykt) | `bin/mas_*.py`, `scheduled-tasks/` |
 | **Samotesty** | `node bin/pg-selftest.js` | każda bramka ma test **pozytywny** (musi zablokować), pokrycie reguła→bramka sprawdza skrypt; indeks narzędzi w README jest generowany z nagłówków samych narzędzi (narzędzie bez samoopisu pokazuje się jako dług) | `bin/test_*.js`, `bin/pg-rule-coverage.js`, `bin/pg-map.py` |
 
-Policzone, nie szacowane: 409 plików (eksport z 2026-10-14); reszta wg liczenia dla 1.4.0 (2026-10-05): ~45 800 linii, 43 narzędzia, 15 zestawów testów, 11 hooków, 3 hooki gita, 9 agentów-recenzentów, 170 blizn, 26 plików szablonu, 18 skilli, 7 rutyn kodowych + 7 pulpitowych.
+Policzone przez sam eksport, nie szacowane: 448 plików, 183 blizn, 19 skilli, 7 rutyn kodowych + 7 pulpitowych. Migawka dla 1.4.0 (2026-10-05): ~45 800 linii, 43 narzędzia, 15 zestawów testów, 11 hooków, 3 hooki gita, 9 agentów-recenzentów, 26 plików szablonu.
 
 ---
 
 ## Same skille (1 minuta)
 
-18 skilli roboczych (trade-offy architektury, recenzja wielodziałowa, debugowanie, pętle agentów, wzorce frontendu, pisanie) jako plugin Claude Code. Bez hooków i bez zmian w ustawieniach:
+17 skilli roboczych (trade-offy architektury, recenzja wielodziałowa, debugowanie, pętle agentów, wzorce frontendu, pisanie) jako plugin Claude Code. Bez hooków i bez zmian w ustawieniach:
 
 ```bash
 claude plugin marketplace add kamiljan11/coding-higher-mind
@@ -53,7 +53,7 @@ W sesji działa to samo jako `/plugin marketplace add kamiljan11/coding-higher-m
 
 ## Instalacja całego systemu (5 minut)
 
-Wymagania: **Node ≥ 20**, **git**, Claude Code. Opcjonalnie: Python 3 + `ruff` + `pyright` (repo w Pythonie), `gitleaks` (CI i tak go uruchamia), klient PostgreSQL albo Docker (drill backupu).
+Wymagania: **Node ≥ 20**, **git**, Claude Code. Opcjonalnie: Python 3 + `ruff` + `pyright` (repo w Pythonie), narzędzia każdego innego języka, w którym piszesz (Go, Rust, JDK, gcc, .NET, PHP, shellcheck, Deno; brak jest logowany, nie udawany), `gitleaks` (CI i tak go uruchamia), klient PostgreSQL albo Docker (drill backupu).
 
 ```bash
 git clone https://github.com/kamiljan11/coding-higher-mind.git
@@ -83,7 +83,7 @@ Windows działa przez Git Bash (hooki to `sh`), macOS i Linux natywnie. Jedyny w
 ```
 prompt ──▶ prompt-guard.js (protokół) ──▶ edycja ──▶ post-edit-check.js (lint/typy) ──▶ git commit ──▶ pre-commit
 (sekrety · base-check · dup-literals · dep-exists · commented-code · todo-ledger · pii-inventory · sql-lint · workflow-lint · ruff/pyright)
-──▶ git push ──▶ pre-push (bez main · diff-size · module-boundaries · ostrzeżenie o cudzej gałęzi)
+──▶ git push ──▶ pre-push (bez main · diff-size · module-boundaries · nieużywane eksporty, observe · ostrzeżenie o cudzej gałęzi)
 ──▶ PR ──▶ CI z templates/ (quality · mutacje na zmienionych plikach · gitleaks · opcjonalne review Claude)
 ──▶ bin/mas_merge_prs.py (merge tylko, gdy checki odpaliły się na AKTUALNYM merge-ref) ──▶ bin/wait_prod_multi.py (200 z prawdziwej domeny produkcyjnej)
 koniec sesji ──▶ stop-gate.js: tier z diffu; T2+ = działy recenzentów (skill pg-review) albo sesja się nie zamknie
@@ -123,7 +123,7 @@ Nadpisania per repo w `CLAUDE.md` repozytorium: `pg.tier_floor: T2`, `pg.phase: 
 | `bin/` | narzędzia 0-tokenowe + zestawy testów; [bin/README.md](bin/README.md) jest generowany z nagłówka każdego narzędzia |
 | `agents/` | działy recenzentów (tylko odczyt, świeży kontekst, schemat JSON, `how_to_check` przy każdej regule rubryki) |
 | `pg/` | doktryna: `paradigm`, `design`, `dod`, `prr`, `postmortem`, `cases`, `council`, `models`, `github-ready`, retro; `adr/`; `eval/` (golden set bramek + pary kalibracyjne recenzentów) |
-| `skills/` | 18 skilli, lista w `skills.json` (także jako plugin `higher-mind-skills` w `plugins/`) |
+| `skills/` | 19 skilli, lista w `skills.json` (także jako plugin `higher-mind-skills` w `plugins/`) |
 | `templates/repo/` | wszystko, co dostaje nowe repozytorium: workflowy, eslint/tsconfig, szablon PR, szkielety docs, szablon ADR |
 | `scheduled-tasks/` | rutyny Claude Code: recenzent PR floty (dni robocze rano), nadzór CVE (co miesiąc, najpierw deterministycznie), zdrowie strażników (co tydzień), kalibracja recenzentów (co miesiąc) |
 | `routines/` | [routines/README.md](routines/README.md) — warstwa rutyn obu runtime'ów plus `cowork/`: rutyny Claude Desktop (watchdog, backup ze skryptem restore, sesje → notatki pamięci, tygodniowy raport, opt-in cykl samodoskonalenia) |
@@ -154,6 +154,7 @@ Wszystko, co było specyficzne dla maszyny autora, zostało usunięte albo stał
 - Doktryna i rubryki są po polsku; protokół i komunikaty blokad są dwujęzyczne.
 - Agenci-recenzenci kosztują tokeny (T2 ≈ 4×, T3 ≈ 8–10× kosztu jednej recenzji diffu); bramki 0-tokenowe idą pierwsze, żeby agenci nigdy nie widzieli czerwonego lintu.
 - Część bramek zależy od tego, czy repo ma to, co sprawdzają (`tsconfig.json`, blok w `docs/ARCHITECTURE.md`, `CRITICAL-PATHS.md`); bez tego pomijają się **i logują pominięcie**.
+- Sprawdzacze języków ufają katalogowi bez gita pod zaufanym korzeniem (lokalny projekt właściciela) i forkowi na koncie właściciela bez remote `upstream`; oba przypadki są w [pg/known-limits.md](pg/known-limits.md). Obcy kod trzymaj poza zaufanymi korzeniami.
 - System był pisany przez agentów AI pod tymi samymi bramkami, które opisuje. Nie jest skończony; jest obudowany inżynierią przeciw własnym trybom awarii, jawnie.
 
 ## Podziękowania

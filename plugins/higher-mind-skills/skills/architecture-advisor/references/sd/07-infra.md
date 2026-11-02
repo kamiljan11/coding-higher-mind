@@ -22,7 +22,7 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 - *ukryty rozproszony system: funkcja woła funkcję* — `rg -n "functions\.invoke|/functions/v1/" supabase/functions`
 - *import w głąb cudzego modułu / cykle* — `node ~/.claude/bin/module-boundaries.js --help` (uruchom na repo); `rg -n "from ['\"]\.\./\.\./[a-z-]+/(internal|lib)" src`
 - *wspólny kod kopiowany między funkcjami* — `ls supabase/functions/_shared 2>/dev/null; rg -n "^import .* from ['\"]\.\./[a-z-]+/" supabase/functions`
-- *jedna zmiana biznesowa dotyka wielu katalogów (change amplification)* — `git log -n 20 --name-only --pretty=format: | sort | uniq -c | sort -rn | head`
+- *jedna zmiana biznesowa dotyka wielu katalogów (change amplification)* — `node ~/.claude/bin/module-boundaries.js --repo . --report` (linia „Change amplification"; szczegóły → 01 › Dekompozycja wewnątrz monolitu)
 
 **Audyt „czy się trzymamy".**
 1. Czy liczba deployable'i nie przekracza liczby osób, które je utrzymują? → pierwsza komenda.

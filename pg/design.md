@@ -1,7 +1,12 @@
 # PG · DESIGN — przed pierwsza linia kodu (2026-09-05)
 
 Kiedy: PG-core 7D (duza zmiana) / 7N (nowy projekt) albo gdy diff wprowadzi nowy katalog, tabele, endpoint,
-zaleznosc lub integracje. Wynik = 8-15 linii W ODPOWIEDZI (nie w glowie) + ADR, gdy decyzja jest nieodwracalna.
+zaleznosc lub integracje. Wynik: T0-T1 = 8-15 linii W ODPOWIEDZI (nie w glowie); **T2+ = plik `docs/designs/YYYY-MM-DD-<nazwa>.md`
+ze szablonu `templates/repo/docs/designs/TEMPLATE.md`** (P2+P9, 2026-11-01: czat ginie po kompakcji, plik przezywa i da sie go
+zrecenzowac; sekcje „Zalozenia, ktore zmiana uniewaznia” i „Ryzyka” obowiazkowe) + ADR, gdy decyzja jest nieodwracalna.
+Przed planem przeczytaj `docs/ARCHITECTURE.md` › Niezmienniki (jesli repo ja ma); plan lamiacy niezmiennik = design + ADR.
+Po zapisaniu pliku designu T2+: samoocena wg `pg/plan-rubric.md` (P1-lite; m.in. `bin/plan-refs-check.js`), wynik w jego
+sekcji „Status recenzji”, PRZED kodem.
 Dlaczego: „tygodnie kodowania oszczedzaja godziny planowania"; koszt bledu rosnie z faza; 7D bylo proza
 i nie bylo wypelniane (ADR = 0 w 6/7 repo, audyt 2026-09-05).
 
@@ -43,6 +48,7 @@ Paradygmat wg `pg/paradigm.md`: functional core / imperative shell; klasy tylko 
 7. **Spojnosc per przeplyw**: kazdy przeplyw przez cache, replike, indeks wyszukiwania, Realtime lub kolejke — C (platnosci, uprawnienia, stany) czy A (katalog, feed)? Co widzi uzytkownik przy nieswiezych danych? Decyzje stanu czytaj z bazy, nie z cache (`~/.claude/skills/architecture-advisor/references/sd/02 › Spójność per przepływ`).
 8. **Tryby awarii zaleznosci**: dla KAZDEJ zewnetrznej zaleznosci (payment-gateway, Twilio, Resend, LLM, Woo) — timeout, retry (tylko idempotentne, backoff+jitter, limit prob), komunikat dla uzytkownika, kill switch w RUNBOOK (`~/.claude/skills/architecture-advisor/references/sd/05 › Zależności zewnętrzne`).
 9. **Powtorzenia i wyscigi**: kazdy zapis, ktory moze przyjsc 2x (webhook, zadanie, retry klienta) ma klucz idempotencji; check-then-act jest atomowy w bazie (UNIQUE / ON CONFLICT / UPDATE z warunkiem / FOR UPDATE), nie w kodzie (`~/.claude/skills/architecture-advisor/references/sd/05 › Idempotentność i deduplikacja`, `sd/05 › Współbieżność i wyścigi`). Test: to samo zdarzenie 2x -> jeden efekt.
+   Pkt 8-9 przechodzisz katalogiem `docs/architecture/failure-modes.md` (FM1-FM15: siec, API, zaleznosci, ludzie, ruch, dane, czas, pieniadze, offline) — kazda obrona z testem; ops-reviewer #9 sprawdza test sciezki bledu w diffie.
 10. **„Nie potrzebujesz jeszcze” jest decyzja**: kolejka, cache, realtime, silnik wyszukiwania, replika, shard, podzial na uslugi, ktorych NIE dodajemy — 1 linia w ADR z sygnalem powrotu (`architecture-advisor`, `tradeoff-catalog`); dodanie czegokolwiek z listy bez nazwanego OBECNEGO problemu = pytanie „czy w ogole budowac?”.
 
 ## C. Threat-model-lite (dzial: Security) — STRIDE w 6 pytaniach, tylko T2+
@@ -72,7 +78,7 @@ Nowa tabela z FK do encji tenantowej => `org_id` albo trigger `%same_org%` + **t
 
 ## E. ADR — kiedy obowiazkowy
 Nowa zaleznosc runtime · nowa tabela/schemat · nowy modul/granica · zmiana auth/platnosci/i18n · wybor dostawcy (payment-gateway vs Stripe, Resend vs Twilio) · odejscie od `paradigm.md` · dodanie kolejki/cache/realtime/silnika wyszukiwania/repliki · swiadome „nie dodajemy” dla czegos z tej listy (1 linia).
-Szablon: `templates/repo/docs/adr/0000-template.md`. Tresc: kontekst, decyzja, odrzucone alternatywy z powodem, konsekwencje, data, jak cofnac. Bramka: stop-gate (T2+) pyta o ADR, gdy diff dodaje katalog/tabele/zaleznosc bez pliku w `docs/adr/` w tym samym diffie (nudge, nie blok — 2026-09-05).
+Szablon: `templates/repo/docs/adr/0000-template.md`. Tresc w kolejnosci swiadomej decyzji: kontekst -> kryteria -> macierz (warianty z "nic nie zmieniamy", kryteria z driverow, wagi w % wg profilu kontekstu wpisane PRZED ocena, ocena 1-5 z powodem w kazdej komorce, komentarze) -> ryzyka -> decyzja -> wykonanie (spike / PoC / kontrolowane obciazenie / canary + rollback) -> przeglad skutkow w dniu z naglowka (latencja, error rate, koszt, utrzymanie) -> sygnal powrotu. Dokumenty wejsciowe i wyjsciowe decyzji: `docs/architecture/` (README = mapa: quality-attributes z profilami wag, capacity, obszary, risks, roadmap) — przed decyzja CZYTAJ, po decyzji ZAPISUJ. Bramka: stop-gate `arch` (T2+) BLOKUJE od 2026-10-04 — sygnaly (nowa zaleznosc, CREATE TABLE, nowy plik infra) i wymog trade-offu nowego ADR zyja w `hooks/lib/arch-signals.js`, granice wykrywania w `pg/known-limits.md` › 2026-10-04 (m.in. integracja bez nowej zaleznosci NIE jest wykrywana). Statusy i cykl zycia (1 ADR = 1 decyzja, odrzucone/przestarzale/zastapione z linkiem w obie strony): komentarz w szablonie.
 
 ## F. Dzien 0 (nowy projekt) — kolejnosc, nie lista zyczen
 1. `architecture-advisor` (skill) -> stack boring, tier ryzyka projektu, hosting (Vercel domyslnie; Lovable tylko na zyczenie klienta).
@@ -80,10 +86,11 @@ Szablon: `templates/repo/docs/adr/0000-template.md`. Tresc: kontekst, decyzja, o
 3. `mas-quality-init.ps1` -> CI, CLAUDE.md (tier, paradygmat), ADR, PR template, eslint strict, tsconfig base.
 4. Auth, platnosci, i18n, **audit log** (kto/co/kiedy — tak/nie z powodem; faktury/KSeF/medycyna = wymog prawny, dorobienie po fakcie = przepisanie) = decyzje jawne teraz (nie da sie ich tanio cofnac).
 5. Pipeline dziala PRZED feature'ami: deploy + CI + error tracking + smoke e2e + `docs/CRITICAL-PATHS.md` (choc 1 sciezka).
-6. YAGNI dla feature'ow, NIGDY dla granic: interfejsy/warstwa serwisow od poczatku.
+6. YAGNI dla feature'ow, NIGDY dla granic — ale granica = modul ukrywajacy decyzje, ktora sie zmieni (Parnas: schemat tabeli, dostawca), a nie warstwa techniczna „na zapas": vertical slice + `api.ts` per slice + adaptery dostawcow od poczatku (`pg/paradigm.md` › Kryterium podzialu; karta `sd/01 › Dekompozycja wewnatrz monolitu`).
 7. **Faza i wlasnosc w CLAUDE.md od dnia 0**: `pg.phase` (prototype/poc/mvp/production — prototyp NIE jest produktem; kod z Lovable/Bolta = prototyp, nie punkt startowy; promocja do production = PRR), `pg.ownership` (kto ma prawa: LICENSE + SCOPE/ACCEPTANCE dla repo klienckich), `pg.sla` (klasy SEV w RUNBOOK).
 8. **Srodowiska z WLASNA baza**: prod + staging (2. projekt Supabase albo Branching) od dnia 0; `.env.local` nigdy na ref prod (`bin/env-ref-gate.js`); UAT = klient klika na preview i odbiera etap (`docs/ACCEPTANCE.md`). Prototyp bez uzytkownikow moze miec `pg.single_env: true` — jawnie.
 9. **Backup zanim pojawi sie pierwszy realny rekord**: plan (Supabase Pro/PITR albo `pg_dump` cron) + pierwszy restore drill (`bin/backup-drill.py`) z data w RUNBOOK. Supabase Free = brak PITR = decyzja, nie przeoczenie.
+10. **Nowy jezyk = najpierw petla weryfikacji, potem kod** (2026-10-26): ZANIM powstanie pierwszy plik w jezyku, ktorego PG jeszcze nie sprawdza, (a) kompilator/linter zainstalowany po weryfikacji bezpieczenstwa (CLAUDE.md › Instalacja), (b) wpis w `hooks/lib/lang-checkers.js` (CHECKERS + TOOLS) z testem w `bin/test_lang_checkers.js`, (c) krok w `templates/repo/.github/workflows/quality.yml`, (d) runner testow w CI. Lista obslugiwanych jezykow i narzedzi zyje TYLKO w `lang-checkers.js`. Luka jest widoczna: plik bez sprawdzacza = `skipped: no checker for .ext` w `gates.jsonl`, a `guard_health` wypisuje takie rozszerzenia i brakujace narzedzia.
 
 ## G. Macierz obszarow system design (dzial: Architecture; audyt sd-course-coverage 2026-10-06) — artefakt, nie odpowiedz w czacie
 Dlaczego: bez macierzy nie da sie odroznic „swiadomie nie dotyczy" od „przeoczone" (tender-app 2026-10: rate limiting i real-time pominiete bez decyzji); B+ dziala tylko od T2, a drzwi jednokierunkowe (ID, pliki, tozsamosc, region) nie czekaja na tier.

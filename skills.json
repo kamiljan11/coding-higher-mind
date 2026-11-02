@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "bin/pg-export-public.py",
-  "count": 18,
+  "count": 19,
   "skills": [
     {
       "name": "pg-review",
@@ -200,6 +200,17 @@
       "files": 1,
       "summary_pl": "Wstawia do promptów zadań szablony wznawiania po limicie, z punktami kontrolnymi i logiką powrotu.",
       "summary_en": "Adds rate-limit recovery templates, with checkpoints and resume logic, to task prompts."
+    },
+    {
+      "name": "pg-maintain",
+      "category": "Inne",
+      "summary": "Tryb pracy NAD SAMYM PG (~/.claude: hooks, git-hooks, bin, agents, skills, pg/, templates, CLAUDE.md).",
+      "description": "Tryb pracy NAD SAMYM PG (~/.claude: hooks, git-hooks, bin, agents, skills, pg/, templates, CLAUDE.md). Uzyj ZAWSZE, gdy zmiana dotyczy systemu jakosci, nie projektu klienta: nowa bramka/regula, poprawka hooka, rubryka recenzenta, karta sd, szablon repo, ADR PG. Trigger: \"PG\", \"popraw PG\", \"bramka PG\", \"hook PG\", \"rubryka recenzenta\", \"pg-review nie dziala\", \"dlaczego PG zablokowal\", \"ulepsz system jakosci\". NIE dla bramek platnosci/SMS ani hookow w repo klienta. Procedura: orientacja przez indeks -> zmiana u wlasciciela -> bin/pg-self-check.py -> pg-review -> pieczec -> commit -> pg-sync. Katalog bledow z realnych sesji ponizej.",
+      "plugin": true,
+      "path": "skills/pg-maintain",
+      "files": 1,
+      "summary_pl": "Tryb pracy nad samym systemem jakości: najpierw indeks właścicieli, zmiana tylko u właściciela reguły, jedna komenda sprawdzająca przed commitem, potem recenzja. Do tego katalog błędów podejścia z prawdziwych sesji.",
+      "summary_en": "How to work on the quality system itself: start from the owner index, change a rule only where it is owned, run one self-check command before committing, then review. Comes with a catalogue of approach errors taken from real sessions."
     }
   ],
   "agents_count": 10,
@@ -259,7 +270,7 @@
       "model": "sonnet",
       "tools": "Read, Glob, Grep, Bash",
       "summary": "Dzial PRODUCT / DOCS / HANDOVER (finder). Czy zmiana rozwiazuje NAZWANY problem, trzyma non-goals, ma metryke, jest przejmowalna przez obcego (README/ARCHITECTURE/ADR/GLOSSARY), a to, co klient bedzie zmieniac, jest DANYMI, nie kodem.…",
-      "description": "Dzial PRODUCT / DOCS / HANDOVER (finder). Czy zmiana rozwiazuje NAZWANY problem, trzyma non-goals, ma metryke, jest przejmowalna przez obcego (README/ARCHITECTURE/ADR/GLOSSARY), a to, co klient bedzie zmieniac, jest DANYMI, nie kodem. Read-only, swiezy kontekst. Uzyj przez pg-review na T3, na zadanie (\"czy to przejmowalne\", \"handover\", \"czy to rozwiazuje problem\") i przed release.",
+      "description": "Dzial PRODUCT / DOCS / HANDOVER (finder). Czy zmiana rozwiazuje NAZWANY problem, trzyma non-goals, ma metryke, jest przejmowalna przez obcego (README/ARCHITECTURE/ADR/GLOSSARY), a to, co klient bedzie zmieniac, jest DANYMI, nie kodem. Read-only, swiezy kontekst. Uzyj przez pg-review na T3 (wymagany), na T2 (optional_reviewers, rubryka 9 — kod na zapas; observe, ADR-0010), na zadanie (\"czy to przejmowalne\", \"handover\", \"czy to rozwiazuje problem\") i przed release.",
       "path": "agents/product-reviewer.md",
       "summary_pl": "Czy zmiana rozwiązuje nazwany problem, trzyma się zakresu, ma metrykę i czy obca osoba przejmie projekt; to, co klient będzie zmieniał, ma być danymi, a nie kodem.",
       "summary_en": "Whether a change solves the named problem, stays in scope, has a metric and can be handed over to a stranger; what the client will change should be data, not code."

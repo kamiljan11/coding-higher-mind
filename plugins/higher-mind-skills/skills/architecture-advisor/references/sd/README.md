@@ -65,6 +65,7 @@ Zasada przewodnia (z `SKILL.md`): burden of proof leży po stronie złożoności
 | Asystent odpowiada źle mimo dobrego modelu: chunking, wersja modelu embeddingów, RRF + reranker, recall ANN, ewaluacja wyszukiwania | `06 › RAG: chunking, embeddingi, fuzja i ewaluacja wyszukiwania` |
 | „Dodajmy Bloom filter / HLL / Raft / wybór lidera" | `06 › Struktury probabilistyczne i konsensus` |
 | Faktury, umowy, numeracja, PDF, KSeF | `06 › Dokumenty, faktury i numeracja` |
+| Po czym dzielić kod na moduły; ta sama tabela/SDK w wielu miejscach; cohesion, coupling, connascence; Parnas vs slice vs DDD vs hexagonal | `01 › Dekompozycja wewnątrz monolitu` |
 | Podział na usługi/repo/funkcje | `07 › Monolit modularny vs usługi` |
 | „Co robi push", hosting, edge functions, Lovable | `07 › Platforma i ścieżka wdrożenia` |
 | CI zielone, ale nic nie testuje; rollback; wydania | `07 › CI/CD i wydania` |
@@ -76,10 +77,10 @@ Zasada przewodnia (z `SKILL.md`): burden of proof leży po stronie złożoności
 ## Jak używać — trzy tryby
 
 ### 1. Projekt nowej rzeczy (SELECT / Dzień 0)
-Kolejność: (1) `capacity.md` §2–3 — policz, co naprawdę boli (zwykle pliki, region, indeksy, nie QPS); (2) karty drzwi jednokierunkowych: `02 › Model danych`, `02 › Identyfikatory`, `02 › Multi-tenancy`, `05 › Tożsamość i autoryzacja`, `02 › Pieniądze, czas`; (3) karty infrastruktury: `07 › Platforma`, `07 › Środowiska`, `07 › Izolacja sieciowa bazy i najmniejsze uprawnienia`, `07 › Strategie wdrożeń i rollback`, `07 › Koszt, uzależnienie od dostawcy i region`, `05 › Kopie zapasowe`, `05 › Obserwowalność` (Sentry od dnia 0), `07 › CI/CD` (pipeline przed feature'ami); (4) dla każdej cechy produktu karta z `06`/`04`. Wynik: mini-design (`pg/design.md` B i B+) z tabelą spójności per przepływ, budżetem opóźnień i listą „nie potrzebujemy jeszcze" z sygnałami powrotu; ADR przy decyzjach jednokierunkowych.
+Kolejność: (1) `capacity.md` §2–3 — policz, co naprawdę boli (zwykle pliki, region, indeksy, nie QPS); (2) karty drzwi jednokierunkowych: `02 › Model danych`, `02 › Identyfikatory`, `02 › Multi-tenancy`, `05 › Tożsamość i autoryzacja`, `02 › Pieniądze, czas`, `01 › Dekompozycja wewnątrz monolitu` (moduły i ich sekrety, właściciele tabel w `owners`); (3) karty infrastruktury: `07 › Platforma`, `07 › Środowiska`, `07 › Izolacja sieciowa bazy i najmniejsze uprawnienia`, `07 › Strategie wdrożeń i rollback`, `07 › Koszt, uzależnienie od dostawcy i region`, `05 › Kopie zapasowe`, `05 › Obserwowalność` (Sentry od dnia 0), `07 › CI/CD` (pipeline przed feature'ami); (4) dla każdej cechy produktu karta z `06`/`04`. Wynik: mini-design (`pg/design.md` B i B+) z tabelą spójności per przepływ, budżetem opóźnień i listą „nie potrzebujemy jeszcze" z sygnałami powrotu; ADR przy decyzjach jednokierunkowych.
 
 ### 2. Audyt istniejącego repo (AUDIT)
-1. Zbierz fakty: `package.json`, `vercel.json`, `supabase/config.toml`, `docs/ARCHITECTURE.md`, `docs/RUNBOOK.md`; zweryfikuj z kodem (docs mogą być przeterminowane).
+1. Zbierz fakty: `package.json`, `vercel.json`, `supabase/config.toml`, `docs/ARCHITECTURE.md`, `docs/RUNBOOK.md`; zweryfikuj z kodem (docs mogą być przeterminowane). Stan granic jedną komendą: `node ~/.claude/bin/module-boundaries.js --repo . --report` (tabele → moduły, SDK poza adapterem, change amplification).
 2. Przejdź sekcje „Audyt" kart w kolejności ROI (tam bolą pieniądze i dane): `05 › Idempotentność`, `05 › Współbieżność`, `05 › Tożsamość i autoryzacja` + `02 › Multi-tenancy` (zapytania SQL do bazy produkcyjnej), `05 › Zależności zewnętrzne`, `05 › Obserwowalność`, `05 › Kopie zapasowe`, `07 › Platforma`, `07 › Środowiska`; dalej według sygnałów (`03 › Zapytania`, `02 › Pieniądze`, `04 › Webhooki`).
 3. Każde trafienie = finding z komendą i dowodem; „leave it" jest równorzędnym wynikiem (nadmiarowa maszyneria: kolejka bez drugiego konsumenta, cache nad niezmierzonym zapytaniem, dodatkowy magazyn bez ADR).
 4. Zasada zakresu: audyt to raport; dług historyczny naprawiamy tylko na prośbę uzytkownika.
@@ -91,7 +92,7 @@ Kolejność: (1) `capacity.md` §2–3 — policz, co naprawdę boli (zwykle pli
 - **`architecture-advisor`** (decyzje): w SELECT/EVOLVE po `tradeoff-catalog` czyta „Domyślnie u nas" i „Nie potrzebujesz jeszcze" karty komponentu; w AUDIT uruchamia „Audyt"; „Awarie i detekcja" zasila sekcję „breaks when" w ADR.
 - **`pg-council`** (narada): karty są wspólną pulą faktów — dział podaje wynik komendy z audytu, nie opinię; catfish używa „Awarie i detekcja" do kontrargumentu.
 - **Działy `code/data/ops/security/product-reviewer`**: sekcja w `review-checklists.md` uzupełnia rubrykę z `agents/<rola>.md`.
-- **`diagrams`**: „Domyślnie u nas" kart `01 › Bezstanowość`, `04 › Zadania w tle`, `05 › Idempotentność`, `06 › Powiadomienia` opisuje szkielety do narysowania (klient → funkcje bezstanowe → Postgres; tabela `jobs` + worker; webhook → `processed_events` → efekt; zdarzenie → outbox → kanały).
+- **`diagrams`**: „Domyślnie u nas" kart `01 › Bezstanowość`, `04 › Zadania w tle`, `05 › Idempotentność`, `06 › Powiadomienia` opisuje szkielety do narysowania (klient → funkcje bezstanowe → Postgres; tabela `background_jobs` + worker; webhook → `processed_events` → efekt; zdarzenie → outbox → kanały).
 - **`pg/design.md`**: sekcja B+ odsyła do `capacity.md` oraz kart `02 › Spójność per przepływ`, `05 › Zależności zewnętrzne`, `05 › Idempotentność`, `05 › Współbieżność`.
 
 ## Mapa do `tradeoff-catalog.md` (czego nie dublujemy)
@@ -103,6 +104,7 @@ Kolejność: (1) `capacity.md` §2–3 — policz, co naprawdę boli (zwykle pli
 | `04 › Zdarzenia, dzienniki i raporty` (raporty bez CQRS) | 1.4, 1.5 |
 | `05 › Tożsamość i autoryzacja` | 1.7 |
 | `07 › Monolit modularny vs usługi` | 1.1 |
+| `01 › Dekompozycja wewnątrz monolitu` | 1.11 |
 | `07 › Kontenery`, `07 › Platforma` | 1.8, 1.10, 3.4 |
 | `04 › Orkiestracja n8n` | 2.1, 2.2 |
 

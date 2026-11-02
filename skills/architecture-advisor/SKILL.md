@@ -97,13 +97,29 @@ Kiedy: SELECT albo AUDIT przy tierze T2+ (nowy projekt = 13 grup: 12 system desi
 4. **Sklejenie (sesja glowna):** wiersze w kolejnosci `sd-areas.json` -> `docs/architecture/obszary.md`; konflikty miedzy grupami (np. cache vs spojnosc) rozstrzyga sesja glowna, decyzje `one_way` -> ADR (`docs/adr/`) i link w kolumnie Dowod.
 5. **Bramka 0-tokenowa:** `node ~/.claude/bin/sd-matrix-lint.js --repo . [--groups …]`. Exit 1 -> lista brakow wraca do agenta TEJ grupy (tylko jego wiersze + komunikat lintera), max 2 rundy; potem sesja glowna uzupelnia sama i oznacza [NIEPEWNE] w uzasadnieniu. Exit 0 = macierz gotowa; w repo z `pg.sd_matrix: required` stop-gate blokuje `[obszary]` przy T2+ do kompletu.
 
+### Artefakty w repo — co czytasz przed decyzja, co zapisujesz po (2026-10-16, decyzja uzytkownika)
+
+Wynik zostaje w repo, nie tylko w odpowiedzi: nastepna sesja i czlowiek decyduja na tych samych liczbach. Mapa: `docs/architecture/README.md`
+(brak katalogu w starym repo = utworz z `~/.claude/templates/repo/docs/architecture/` tylko na prosbe uzytkownika; nowe repo dostaje go z mas-quality-init).
+
+| tryb | czytasz najpierw | zapisujesz |
+|---|---|---|
+| SELECT | `docs/ARCHITECTURE.md` (Cel), `quality-attributes.md` (profil wag), `capacity.md`, `obszary.md`, `failure-modes.md` | `failure-modes.md` (sciezki krytyczne x FM), ADR z pelna macierza (`docs/adr/`, szablon 0000), wiersze w `obszary.md`, `risks.md`, `roadmap.md > Jeszcze nie`, diagram w `ARCHITECTURE.md` |
+| AUDIT | wszystkie powyzsze (w `failure-modes.md`: ktore obrony nie maja testu) + `docs/adr/` (czy sygnaly powrotu sie spelnily, czy przeglady skutkow sa wpisane) | tabela znalezisk w odpowiedzi, `risks.md`, ADR na kazda zmiane warta zrobienia |
+| EVOLVE | `roadmap.md`, `risks.md`, `capacity.md`, ADR-y z minionym dniem przegladu | `roadmap.md`, ADR-y, `capacity.md` po przeliczeniu |
+
+Macierz w ADR: warianty (zawsze z "nic nie zmieniamy") -> kryteria z driverow (time-to-market, prostota, kompetencje zespolu,
+skalowalnosc, niezawodnosc, spojnosc danych, bezpieczenstwo, zgodnosc regulacyjna, koszt operacyjny; zostaw te, ktore roznicuja)
+-> wagi w % (suma 100) z profilu kontekstu w `quality-attributes.md`, wpisane ZANIM ocenisz -> ocena 1-5 z powodem w kazdej komorce
+-> komentarze i ryzyka. Liczba bez zrodla = `[~]`; ocena bez powodu = nie wpisujesz jej.
+
 ### Mode: SELECT (right architecture for a new project)
 
 1. **Establish context — infer first, then ask.** Pull what you already know from the project, the conversation, and uzytkownik's known stack/memory before asking anything. Then ask only the *load-bearing* unknowns — the one or two facts that would actually change the recommendation (real volume? does it take payments? who maintains it?). Don't interrogate for context you can reasonably infer or that won't move the decision; an unnecessary question is a worse default than a stated assumption the user can correct.
 2. **Name the 2–4 constraints that actually matter here.** Most projects are decided by a handful of real forces (e.g. "solo dev, uncertain requirements, must take ISK payments, low traffic"). Everything else is noise — say so. Then turn them into the **architecture goal** (pg/design.md B.0): one-sentence goal with a number, 2-3 quality priorities in RANKED order, and what we deliberately sacrifice — written to `docs/ARCHITECTURE.md › ## Cel architektury` before the matrix. Every later conflict between areas is settled by the higher priority, and each ADR names the priority it serves. `arch-check --brief` prints it at the start of every session, so agents know it without being told.
 3. **Propose the simplest architecture that satisfies those constraints.** Start from the boring default for the domain (see `owner-stack.md`) and only deviate where a named constraint forces it. Then walk EVERY stack layer, in order: `references/stack-catalog.md` (25 layers, 199 tools incl. all 131 from Arjay's Stack Picker + PL/EU/IS market options; each with the question to ask, "usual for us" hint, what/when per tool; 15 examples; source of truth `references/stack-data.json`, generated from the Stack Picker artifact https://claude.ai/artifact/CaWzJDJ4iikuxtnh2FZooD by `scripts/stack-catalog-from-artifact.js`). Nothing is pre-decided: each layer becomes a `stack-<id>` row in `docs/architecture/obszary.md` with DECYZJA / NIE TERAZ (+ numeric return signal) / NIE DOTYCZY (+ reason) — same matrix and linter as pg/design.md G. Ask the target market first (Poland / EU / global / Iceland): payments, invoicing (KSeF in PL), e-ID, SMS, shipping and hosting region depend on it. A pick outside "usual for us" = short ADR.
 4. **Make the trade-offs explicit.** For each non-trivial choice, state gain / cost / when-it-breaks. Equally important: **name what you are deliberately NOT doing and why** (no queue, no microservices, no custom auth yet).
-5. **Deliver** the ADR + scorecard + diagram, plus a short **"revisit when…"** list — the future signals that would justify revisiting a choice you deferred.
+5. **Deliver** (written to the repo, see the artefact table above) the ADR with its matrix + diagram, plus a short **"revisit when…"** list — the future signals that would justify revisiting a choice you deferred.
 
 ### Mode: AUDIT (assess an existing architecture)
 

@@ -45,20 +45,20 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 
 **Problem.** Krok wolny, zawodny albo płatny (mail, SMS, PDF, LLM, import, webhook wychodzący) nie może blokować ani wywracać żądania użytkownika. Sygnały w diffie: `await` na zewnętrznym API w handlerze użytkownika, `setTimeout` jako „zadanie w tle", fire-and-forget bez zapisu, nowy cron, nowa pętla po rekordach w handlerze.
 
-**Domyślnie u nas.** Tabela `jobs` w Postgresie + worker. Kolumny: `type`, `payload`, `status` (queued/running/done/failed/dead), `attempts`, `max_attempts`, `run_after`, `locked_until`, `last_error`. Pobieranie (odbiera też zadania z wygasłym lease po crashu workera, ale nie takie z wyczerpanymi próbami): `with c as (select id from jobs where ((status='queued' and run_after <= now()) or (status='running' and locked_until < now())) and attempts < max_attempts order by run_after limit 10 for update skip locked) update jobs set status='running', locked_until = now() + interval '5 minutes', attempts = attempts + 1 from c where jobs.id = c.id returning jobs.*;`. Osobny krok (cron/worker) przenosi wyczerpane do `dead`: `update jobs set status='dead', last_error = coalesce(last_error,'lease wygasł, max_attempts') where status='running' and locked_until < now() and attempts >= max_attempts;` (zweryfikowane na PG 17 w transakcji z ROLLBACK: wygasły lease wraca do puli, wyczerpany trafia do `dead`). Lease (`locked_until`) zamiast „running na zawsze"; backoff w `run_after`; limit prób i stan `dead` widoczny w panelu/alercie; konsument idempotentny (→ 05 › Idempotentność). Wyzwalanie: `pg_cron` → funkcja/worker, cron platformy albo n8n (wzorzec: `pg_cron` co kilka sekund przetwarza kolejkę maili). Użytkownik widzi stan („w toku", „nie udało się") zamiast czekać. Rozszerzenie kolejkowe `pgmq` istnieje w ekosystemie Supabase `[NIEPEWNE: dostępność/wersja]` — to ta sama idea, nie inny system.
+**Domyślnie u nas.** Tabela `background_jobs` w Postgresie + worker (nie `jobs`: w domenie warsztatu `jobs` = zlecenie naprawy — jedno słowo, dwa znaczenia, → 01 › Dekompozycja wewnątrz monolitu, pkt 9; nazwa tabeli technicznej ma nie kolidować z pojęciem biznesowym z `docs/GLOSSARY.md`). Kolumny: `type`, `payload`, `status` (queued/running/done/failed/dead), `attempts`, `max_attempts`, `run_after`, `locked_until`, `last_error`. Pobieranie (odbiera też zadania z wygasłym lease po crashu workera, ale nie takie z wyczerpanymi próbami): `with c as (select id from background_jobs where ((status='queued' and run_after <= now()) or (status='running' and locked_until < now())) and attempts < max_attempts order by run_after limit 10 for update skip locked) update background_jobs set status='running', locked_until = now() + interval '5 minutes', attempts = attempts + 1 from c where background_jobs.id = c.id returning background_jobs.*;`. Osobny krok (cron/worker) przenosi wyczerpane do `dead`: `update background_jobs set status='dead', last_error = coalesce(last_error,'lease wygasł, max_attempts') where status='running' and locked_until < now() and attempts >= max_attempts;` (zweryfikowane na PG 17 w transakcji z ROLLBACK: wygasły lease wraca do puli, wyczerpany trafia do `dead`). Lease (`locked_until`) zamiast „running na zawsze"; backoff w `run_after`; limit prób i stan `dead` widoczny w panelu/alercie; konsument idempotentny (→ 05 › Idempotentność). Wyzwalanie: `pg_cron` → funkcja/worker, cron platformy albo n8n (wzorzec: `pg_cron` co kilka sekund przetwarza kolejkę maili). Użytkownik widzi stan („w toku", „nie udało się") zamiast czekać. Rozszerzenie kolejkowe `pgmq` istnieje w ekosystemie Supabase `[NIEPEWNE: dostępność/wersja]` — to ta sama idea, nie inny system.
 **Kiedy NIE:** krok szybki (~<1–2 s) i niekrytyczny — rób inline. Zewnętrzna kolejka (SQS/Kafka) dopiero przy ~setkach zadań/s, fan-oucie do wielu konsumentów lub potrzebie odtwarzania strumienia.
 
 | Wariant | Koszt operacyjny | Finansowy | Poznawczy |
 |---|---|---|---|
-| tabela `jobs` + `SKIP LOCKED` | worker, czyszczenie starych wierszy | zero | niski |
+| tabela `background_jobs` + `SKIP LOCKED` | worker, czyszczenie starych wierszy | zero | niski |
 | zarządzany orkiestrator zadań | integracja, vendor | abonament | średni |
 | SQS/RabbitMQ | serwis, DLQ, monitoring | miesięczny | wysoki |
 | Kafka | klaster, partycje, schematy | wysoki | bardzo wysoki — nie |
 
 **Awarie i detekcja.**
-- *zadanie wisi w `running` po crashu workera* — `select count(*), min(locked_until) from jobs where status='running' and locked_until < now();`
-- *kolejka rośnie szybciej niż jest opróżniana* — `select status, count(*), now()-min(created_at) as oldest from jobs group by status;`
-- *„zatruta" wiadomość wywala konsumenta w kółko* — `select type, last_error, attempts from jobs where status in ('failed','dead') order by attempts desc limit 10;`
+- *zadanie wisi w `running` po crashu workera* — `select count(*), min(locked_until) from background_jobs where status='running' and locked_until < now();`
+- *kolejka rośnie szybciej niż jest opróżniana* — `select status, count(*), now()-min(created_at) as oldest from background_jobs group by status;`
+- *„zatruta" wiadomość wywala konsumenta w kółko* — `select type, last_error, attempts from background_jobs where status in ('failed','dead') order by attempts desc limit 10;`
 - *brak lease/limitu prób w nowej kolejce* — `rg -n -i "skip locked|locked_until|max_attempts|attempts" supabase/migrations src/migrations`
 - *fire-and-forget bez śladu* — `rg -n "\.then\(\(\) => \{\}\)|void [a-z]+\(|setTimeout\(" src/app/api supabase/functions`
 - *cron bez ochrony przed nakładaniem się* — `select jobname, schedule from cron.job;` (Supabase) i sprawdź, czy zadanie ma blokadę (→ 05 › Współbieżność)
@@ -69,7 +69,7 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 3. Czy konsument jest idempotentny — test „to samo zadanie 2×"? → `rg -ln "twice|duplicate|2x|dwa razy" tests`.
 4. Czy wiek najstarszego zadania ma alert? → `rg -n -i "oldest|backlog|queue" docs/RUNBOOK.md`.
 5. Czy żądanie zwraca id/status zamiast czekać, a UI ma stan „w toku"? → `rg -n -i "status|polling|refetchInterval" src/features/<modul>`.
-6. Czy tabela zadań jest czyszczona (retencja)? → `rg -n -i "delete from jobs|retention" supabase`.
+6. Czy tabela zadań jest czyszczona (retencja)? → `rg -n -i "delete from background_jobs|retention" supabase`.
 
 **Nie potrzebujesz jeszcze.** SQS, Kafki, RabbitMQ, Redisa/BullMQ, osobnego silnika workflow (do wieloetapowych długich procesów z retry per krok rozważ później, z ADR).
 

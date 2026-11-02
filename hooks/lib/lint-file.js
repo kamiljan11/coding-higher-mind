@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { log } = require('./gate-log');
 const { checkBalance } = require('./css-balance');
+const langs = require('./lang-checkers');
 
 const JS_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs']);
 const TIMEOUT_LINT_MS = 45000;
@@ -86,7 +87,8 @@ function run(cmd, cwd, timeoutMs) {
 }
 
 const trimReport = (out) => String(out).split('\n').slice(0, MAX_REPORT_LINES).join('\n');
-const skipped = (hook, why, target) => log({ hook, event: 'skipped', reason: why, target });
+let skipTally = 0; // ile skipow w tym procesie — lintFiles liczy plik jako sprawdzony tylko, gdy jego linter nie zrobil skipa
+const skipped = (hook, why, target) => { skipTally++; log({ hook, event: 'skipped', reason: why, target }); };
 const baseNames = (files) => files.map((f) => path.basename(f)).join(', ');
 
 function lintJsFiles(files, root, hook) {
@@ -177,7 +179,8 @@ const isCssFile = (f) => ['.css', '.scss'].includes(path.extname(f).toLowerCase(
 const isJsFile = (f) => JS_EXTENSIONS.has(path.extname(f).toLowerCase());
 const isPyFile = (f) => path.extname(f).toLowerCase() === '.py';
 const isJsonFile = (f) => path.extname(f).toLowerCase() === '.json';
-const isCodeFile = (f) => isJsFile(f) || isPyFile(f);
+// Kod = wszystko, co ma sprawdzacz (lang-checkers.js) ALBO jest kodem bez sprawdzacza (wtedy lintFiles loguje luke).
+const isCodeFile = (f) => isJsFile(f) || isPyFile(f) || langs.hasChecker(f) || langs.isUncheckedCode(f);
 
 function groupBy(items, keyFn) {
   const groups = new Map();
@@ -193,7 +196,8 @@ function groupBy(items, keyFn) {
 // shella nie wchodzi do komendy — jest pomijana i logowana. W repo kodu takich nazw nie ma.
 const SAFE_PATH_RX = /^[^"$`;&|<>%^\n\r]+$/; // %^ = metaznaki cmd.exe (Windows)
 
-// Lintuje ZBIOR plikow. opts: { hook: nazwa do logu, typecheck: bool (domyslnie true) }.
+// Lintuje ZBIOR plikow. opts: { hook: nazwa do logu, typecheck: bool (domyslnie true), budgetMs: budzet dla jezykow
+// z lang-checkers.js (domyslnie 100 s = timeout hooka PostToolUse 120 s minus zapas; stop-gate podaje swoj budzet) }.
 // Zwraca pierwszy blok { blocked, header, out } albo null, gdy czysto / wszystko pominiete.
 function lintFiles(files, opts) {
   const hook = (opts && opts.hook) || 'lint';
@@ -205,19 +209,31 @@ function lintFiles(files, opts) {
     return false;
   });
   const byRoot = groupBy(existing, findRoot);
+  const deadline = Date.now() + (opts && typeof opts.budgetMs === 'number' ? opts.budgetMs : 100000); // 0 = brak czasu, nie domyslne 100 s
+  // Plik liczy sie do `ran` tylko, gdy jego linter realnie zadzialal (skip eslint/ruff = nie liczymy; pg-review 2026-10-26 data).
+  // Zbior, nie licznik: edge function Deno przechodzi sciezke JS i deno check — to nadal 1 plik (pg-review data r2).
+  const checked = new Set();
+  const countIfNotSkipped = (files, fn) => { const before = skipTally; const r = fn(); if (skipTally === before) files.forEach((f) => checked.add(path.resolve(f))); return r; };
   for (const [root, group] of byRoot) {
     const js = group.filter(isJsFile);
     const py = group.filter(isPyFile);
     const json = group.filter(isJsonFile);
     const css = group.filter(isCssFile);
     let result = null;
-    if (js.length) result = lintJsFiles(js, root, hook) || (typecheck ? typecheckRepo(root, hook) : null);
-    if (!result && py.length) result = lintPyFiles(py, root, hook);
+    if (js.length) result = countIfNotSkipped(js, () => lintJsFiles(js, root, hook)) || (typecheck ? typecheckRepo(root, hook) : null);
+    if (!result && py.length) result = countIfNotSkipped(py, () => lintPyFiles(py, root, hook));
     if (!result) for (const j of json) { result = lintJsonFile(j); if (result) break; }
     if (!result) for (const c of css) { result = lintCssFile(c); if (result) break; }
     if (result) { log({ hook, event: 'blocked', reason: result.header.split(' (')[0].split(' —')[0], target: root }); return result; }
+    [...json, ...css].forEach((f) => checked.add(path.resolve(f)));
   }
-  log({ hook, event: 'ran', reason: `${existing.length} files`, target: [...byRoot.keys()].join(';') });
+  // Jezyki spoza TS/JS/Python (lang-checkers.js); deno = dodatkowo dla edge functions, ktore przeszly sciezke JS.
+  const other = langs.runCheckers(existing, { skip: (why, target) => skipped(hook, why, target), deadline });
+  if (other.result) { log({ hook, event: 'blocked', reason: other.result.header.split(' —')[0], target: [...byRoot.keys()].join(';') }); return other.result; }
+  other.checkedFiles.forEach((f) => checked.add(f));
+  // Kod bez sprawdzacza = luka widoczna w guard_health, nie cichy „ran" (przed 2026-10-26 edycja .go logowala `ran: 1 files`).
+  for (const f of existing.filter(langs.isUncheckedCode)) skipped(hook, `no checker for ${path.extname(f).toLowerCase()}`, f);
+  if (checked.size) log({ hook, event: 'ran', reason: `${checked.size} files`, target: [...byRoot.keys()].join(';') });
   return null;
 }
 

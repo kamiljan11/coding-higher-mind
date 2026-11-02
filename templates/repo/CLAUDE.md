@@ -23,6 +23,7 @@
 ## PG v3 (2026-09-05): tier, paradygmat, dzialy
 - `pg.tier_floor: T1` <!-- T2/T3 dla repo z pieniedzmi/PII/multi-tenant; stop-gate podnosi tier z diffu, nigdy nie obniza -->
 - `pg.phase: production` <!-- prototype | poc | mvp | production | maintenance | handoff. Prototyp NIE jest produktem: prototype/poc = sufit T1 (bez review dzialowego); zmiana na production = wypelniona ~/.claude/pg/prr.md w docs/prr/<data>.md w tym samym commicie (bramka bin/phase-gate.js) -->
+- `pg.code_lang: en` <!-- kod, identyfikatory, tabele, komentarze i commity po angielsku (UI przez i18n, slowa domeny bez tlumaczenia w docs/GLOSSARY.md); precheck CODE-LANG daje recenzentowi kandydatow, nic nie blokuje. Repo w innej konwencji = usun linie -->
 - `pg.ownership: mas-saas` <!-- mas-saas (licencja, kod nasz) | client-transferred (prawa przeniesione, LICENSE z nazwa klienta) | client-licensed (klient korzysta, kod nasz) | oss. Repo klienckie => docs/SCOPE.md + docs/ACCEPTANCE.md obowiazkowe -->
 - `pg.sla: internal` <!-- none | internal | contract — klasy SEV i czasy reakcji w docs/RUNBOOK.md; contract = link do umowy -->
 - Srodowiska: `.env.local`/preview NIGDY na produkcyjny ref Supabase (`SUPABASE_PROJECT_REF_PROD` w `.env.example`; bramka `node ~/.claude/bin/env-ref-gate.js --repo .`). Brak stagingu = jawne `pg.single_env: true` z powodem.
@@ -33,6 +34,7 @@
 - Dane osobowe: kazda kolumna PII ma wiersz w `docs/PRIVACY.md` (bramka `pii-inventory-gate.js`); dane klienta do AI/API zewnetrznego tylko z wpisanym procesorem.
 - Dlug: nowy `TODO|FIXME|HACK` w kodzie = wiersz w `docs/quality/BACKLOG.md` w tym samym commicie (bramka `todo-ledger-gate.js`).
 - Paradygmat: `~/.claude/pg/paradigm.md` — functional core / imperative shell; klasy tylko dla stanu z niezmiennikami; **obcy senior przejmuje repo w 1 dzien** (README 15 min, `docs/ARCHITECTURE.md`, `docs/GLOSSARY.md`, ADR, RUNBOOK).
+- Przed planem zmiany przeczytaj `docs/ARCHITECTURE.md` › Niezmienniki; plan, ktory lamie niezmiennik = design + ADR.
 - Definition of Done per tier: `~/.claude/pg/dod.md`. Przed deployem: `~/.claude/pg/prr.md`. Incydent: `~/.claude/pg/postmortem.md` (action item = bramka/case).
 - Review T2+: skill `pg-review` (finderzy dzialowi -> agregacja -> weryfikator). SQL: `node ~/.claude/bin/sql-migration-lint.js --repo . --strict --since origin/main`. Metryki: `node ~/.claude/bin/fleet-metrics.js --repo .`.
 - Lint/TS baseline: `eslint.config.mjs` + `tsconfig.base.json` z szablonu (strict-type-checked, complexity 10, fn <= 60 linii, plik <= 400, switch-exhaustiveness, no-floating-promises).

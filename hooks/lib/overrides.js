@@ -1,4 +1,5 @@
 'use strict';
+// overrides: wyjatki od bramek poziomow A/B/C — TTL i limity uzyc (POLICY; wlasciciel liczb cytowanych w CLAUDE.md).
 // Od 2026-10-02 trzy poziomy (SELF_SERVICE / SELF_APPROVABLE / reszta) — patrz nizej; ponizszy opis dotyczy poziomu C.
 // Wyjatki od bramek wydaje CZLOWIEK, nie agent (landscape #12). Do 2026-09-26 wystarczalo `ALLOW_X=1` w tresci komendy —
 // tekst pisany przez agenta, wiec „swiadoma decyzja uzytkownika" byla deklaracja (probe: `git push --force origin main # ALLOW_FORCE=1`

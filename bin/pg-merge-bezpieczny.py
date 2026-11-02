@@ -79,8 +79,8 @@ ZAWSZE_FRAZA = re.compile(
     re.IGNORECASE)
 # T0 bez recenzji tylko dla czystego tekstu (security-review v3: docs/ route.ts, .mdx, .svg dostawaly T0)
 TEKST_T0 = re.compile(r'\.(md|txt|rst)$', re.IGNORECASE)
-# Uzupelnienie contentEscalation risk-tier.js: `\bservice_role\b` nie lapie SUPABASE_SERVICE_ROLE_KEY (security-review v3).
-TRESC_T3_LOKALNA = re.compile(r'service[_-]?role', re.IGNORECASE)
+# Tresc T3 (service_role, w tym SUPABASE_SERVICE_ROLE_KEY) = risk-tier.js contentEscalation (wlasciciel reguly, 2026-10-19).
+# Tu zostaje tylko znacznik skanera sekretow, ktorego risk-tier nie zna.
 
 
 # ---------- czysty rdzen ----------
@@ -348,9 +348,6 @@ ZNACZNIK_SKANERA = re.compile(r'gitleaks:allow', re.IGNORECASE)
 
 
 def tresc_lokalna(dodane: str) -> str | None:
-    m = TRESC_T3_LOKALNA.search(dodane)
-    if m:
-        return m.group(0)
     z = ZNACZNIK_SKANERA.search(dodane)
     return f'{z.group(0)} (wyjatek skanera sekretow — sprawdz, czy to fikstura, nie prawdziwy sekret)' if z else None
 

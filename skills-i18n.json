@@ -72,6 +72,10 @@
     "rate-limit-auto-recovery-templates": {
       "pl": "Wstawia do promptów zadań szablony wznawiania po limicie, z punktami kontrolnymi i logiką powrotu.",
       "en": "Adds rate-limit recovery templates, with checkpoints and resume logic, to task prompts."
+    },
+    "pg-maintain": {
+      "pl": "Tryb pracy nad samym systemem jakości: najpierw indeks właścicieli, zmiana tylko u właściciela reguły, jedna komenda sprawdzająca przed commitem, potem recenzja. Do tego katalog błędów podejścia z prawdziwych sesji.",
+      "en": "How to work on the quality system itself: start from the owner index, change a rule only where it is owned, run one self-check command before committing, then review. Comes with a catalogue of approach errors taken from real sessions."
     }
   },
   "agents": {

@@ -66,7 +66,7 @@ Wyzwalacz (webhook / harmonogram / wiadomość)
     → retrieval: treść w prompcie → FTS → pgvector → (dopiero potem) osobna baza
   → wynik w Postgresie; błędy i budżety: Sentry + cap per organizacja
 ```
-Zwracaj webhooki szybko i rób handlery idempotentnymi; kolejka (tabela `jobs`) dopiero przy wolnych/zawodnych krokach.
+Zwracaj webhooki szybko i rób handlery idempotentnymi; kolejka (tabela `background_jobs`) dopiero przy wolnych/zawodnych krokach.
 
 ### Strona klienta
 ```
