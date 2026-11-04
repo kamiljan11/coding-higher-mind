@@ -5,6 +5,13 @@ into these releases.
 
 ## [Unreleased]
 
+## [1.9.0] — 2026-11-04
+
+Three weeks of maintenance mode collected into one release: gate measurement, plan-first review, a session index that
+survives compaction, checkers for more languages with a trust rule for running a repository's code, observation of
+what the agent sends, and the fixed context per session broken down by source. Most of the new mechanisms run in
+observe mode: they log and count, they do not block.
+
 **Watching what the agent sends, and measuring what every session costs before it starts (2026-11-03/04).**
 
 - **Outbound sends are observed.** `hooks/outbound-observe.js` logs MCP calls that send, post, merge or delete after the

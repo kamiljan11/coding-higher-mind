@@ -2,7 +2,7 @@
 
 # Coding Higher Mind — PG (PROMPT-GUARD) for Claude Code
 
-**Version v1.8.0 — last updated 2026-10-14.** 15 public releases since 1.0.0 (2026-09-12). Every system needs time to mature: this one is young, changes fast and is honest about its limits ([known limits](pg/known-limits.md)).
+**Version v1.9.0 — last updated 2026-11-04.** 16 public releases since 1.0.0 (2026-09-12). Every system needs time to mature: this one is young, changes fast and is honest about its limits ([known limits](pg/known-limits.md)).
 
 **Quality gates, reviewer agents, routines and an anti-hallucination protocol for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Claude Desktop — enforced by events, not by willpower.**
 
