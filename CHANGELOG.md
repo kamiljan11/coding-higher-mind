@@ -5,6 +5,25 @@ into these releases.
 
 ## [Unreleased]
 
+**Watching what the agent sends, and measuring what every session costs before it starts (2026-11-03/04).**
+
+- **Outbound sends are observed.** `hooks/outbound-observe.js` logs MCP calls that send, post, merge or delete after the
+  session has read external content (mail, web pages, tool output), and the app's Terminal panel goes through the same
+  bash rules. Observe mode: `hooks/outbound_health.py` counts them and checks that the channel is alive; nothing is blocked.
+- **The fixed context per session, by source.** `bin/context-budget.py` (0 tokens) splits what the model gets before its
+  first answer: skills, deferred MCP tools per server, instruction files, hook output per script. With `--baseline` it
+  shows where growth came from (median 80k tokens in late September, 91k now). The skill listing has a fixed character
+  cap, so extra skills do not add context; they lose their descriptions, and the tool counts how many are shown by name only.
+- **Usage by subagents.** `bin/usage-by-repo.py` counts subagent transcripts too: their share of output, cache reads and
+  average context per answer.
+- **Rules from AI_DEVS 4 lessons.** Step 0 "is this a model task at all" and bulk work done by scripts (`pg/models.md`);
+  a repair protocol for agent instructions, class not case, with a positive test and a near negative (`pg/postmortem.md`);
+  an ablation question on a model change; MCP servers get a few task-level tools, not one per API endpoint (`pg/design.md`).
+- **Fewer false alarms.** The session-notes hook logs a missing transcript (session deleted by the app) as a skip, not an
+  error; the health check still turns red when only skips appear and no notes are written. Post-review edits are counted
+  per repository in the stop gate.
+- **The export scans itself for private paths** before commit (`bin/pg-self-check.py`).
+
 **Measuring the gates, planning before code, and a session index that survives compaction (2026-11-01/02).**
 
 - **Gates measure themselves.** Git hooks log every named block with where it came from; `hooks/gate_effectiveness.py`
