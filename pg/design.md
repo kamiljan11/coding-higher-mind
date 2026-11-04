@@ -68,6 +68,7 @@ Nowa tabela z FK do encji tenantowej => `org_id` albo trigger `%same_org%` + **t
 - [ ] a11y: klawiatura, label na kazdym polu, kontrast, focus — `axe` w e2e dla T2 UI.
 - [ ] PII: co zbieramy, po co, jak dlugo (retencja), czy w fixture'ach sa dane syntetyczne.
 - [ ] Koszt: AI/API per org ma cap i alert; nowa zaleznosc chmurowa ma cene w ADR.
+- [ ] Serwer MCP / narzedzia dla agenta: kilka scalonych narzedzi pod zadania uzytkownika, nie 1:1 z endpointami API. Kazda nazwa narzedzia trafia do kontekstu KAZDEJ sesji (rea: 170 narzedzi = 5 206 zn ~ 1,5k tok w kazdej sesji z podlaczonym rea, pomiar transkryptow 2026-11-04; wiersz `narzedzia mcp rea` w `bin/context-budget.py` to mediana, takze z sesji bez rea), a model gorzej wybiera z dlugiej listy. Szablon `skills/mcp-builder` (plugin konta) mowi „comprehensive API coverage” — w PG wygrywa ta regula (AI_DEVS 4, propozycja #8 w notatce vaultu `Knowledge/AI_DEVS 4/AI_DEVS 4 vs PG 2026-11-03.md`).
 - [ ] Deploy path: Lovable (Publish reczny, edge fn NIE z pusha) vs Vercel (push = deploy) — zapisz w README.
 - [ ] Cache: kazda mutacja ma inwalidacje (`invalidateQueries` / `revalidatePath` / `router.refresh`); „u mnie widac stare dane" = klasa bledow, nie przypadek (takze CDN/DNS resolver).
 - [ ] PII: nowa kolumna/pole osobowe ma wiersz w `docs/PRIVACY.md` (dana, cel, retencja, procesor, jak usunac); dane klienta do AI/API zewnetrznego tylko z wpisanym procesorem.
