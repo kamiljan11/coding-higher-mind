@@ -20,7 +20,9 @@ Swiadomie poswiecamy: <co jest gorsze, zeby 1-3 dzialaly>
 ## Moduly i granice (co jest gdzie)
 <!-- Sekret (Parnas) = decyzja, ktora modul ukrywa, bo moze sie zmienic. Inne moduly jej nie znaja: nie wolaja
      `.from("<tabela>")` cudzego slice'a, nie importuja SDK dostawcy. Pusty sekret = modul bez kryterium podzialu.
-     Karta: ~/.claude/skills/architecture-advisor/references/sd/01-fundamenty.md › Dekompozycja wewnatrz monolitu. -->
+     Karta: ~/.claude/skills/architecture-advisor/references/sd/01-fundamenty.md › Dekompozycja wewnatrz monolitu.
+     Klasa subdomeny (DDD) w kolumnie Odpowiedzialnosc: kluczowa (przewaga klienta — budujemy sami) / wspierajaca / generyczna
+     (kup albo gotowiec). Kluczowe max 1-2; piec kluczowych = zle czytasz domene. Rygor testow dalej z kolumny Tier. -->
 | Katalog | Odpowiedzialnosc | Sekret (co ukrywa) | Wejscie (public API) | Tier |
 |---|---|---|---|---|
 | `src/features/<x>` | … | schemat tabel `<x>` (zapytania tylko w `api.ts`) | `index.ts` | T2 |
@@ -36,7 +38,9 @@ Swiadomie poswiecamy: <co jest gorsze, zeby 1-3 dzialaly>
      „niepisane zalozenia architektoniczne" — jesli nie ma ich tutaj, kazdy kolejny diff moze je zlamac i nikt tego nie zobaczy.
      `owners` = tabela -> modul-wlasciciel (sekret z tabeli wyzej): `.from('<tabela>')` poza nim = ostrzezenie `SEKRET` w pre-push
      (observe, nie blok). Bez wpisu: ostrzezenie, gdy tabela jest znana w > `maxTableModules` modulach. Dostawcy: `vendors`
-     dopisuje pakiety SDK do listy domyslnej, `adapters` = gdzie wolno je importowac. Stan calego repo: `--report`. -->
+     dopisuje pakiety SDK do listy domyslnej, `adapters` = gdzie wolno je importowac. `shared` = tabele przekrojowe, ktore czyta
+     kazdy modul (tenant/profil, np. `profiles`, `organizations`, `org_members`) — poza liczeniem; wpisuj tylko takie, ktore chroni RLS,
+     nie domenowe. Stan calego repo: `--report`. -->
 
 ```json
 {
@@ -48,11 +52,15 @@ Swiadomie poswiecamy: <co jest gorsze, zeby 1-3 dzialaly>
   "maxFanIn": 40,
   "owners": {},
   "maxTableModules": 2,
+  "shared": [],
   "adapters": ["src/integrations", "supabase/functions"]
 }
 ```
 
 ## Przeplyw danych (diagram)
+<!-- Poziomy C4: Context (system + ludzie + systemy zewnetrzne) zmienia sie TYLKO przy nowej integracji — inna zmiana na nim
+     = mieszanie poziomow; kazdy Container (SPA, edge fn, Postgres, worker) opisywalny 1-2 zdaniami, inaczej to 2 kontenery;
+     domyslnej bazy kazdego kontenera nie rysuj osobno — tylko gdy jest inna niz wspolna. -->
 ```mermaid
 flowchart LR
   UI[React] --> Q[TanStack Query] --> SB[(Supabase RLS)]

@@ -26,7 +26,10 @@ function makeRun(name, opts) {
   writeJson(path.join(run, 'findings.ops.json'), { findings: [finding({ line_range: [11, 13] })] });
   writeJson(path.join(run, 'findings.security.json'), { findings: [finding({ file: 'src/b.ts', rule_id: (opts && opts.ruleB) || 'R-LOG', severity: 'minor', line_range: [5, 6] })] });
   writeJson(path.join(run, 'verdicts.json'), { verdicts: [{ finding_id: 'code-2', verdict: 'not_reproduced', reason: 'nie powtarza sie' }] });
-  const r = spawnSync('node', [path.join(BIN, 'pg-aggregate.js'), run, '--repo', '/x/repo-fixture', '--final', '--verdicts', path.join(run, 'verdicts.json'), '--json'], { encoding: 'utf8' });
+  const r = spawnSync('node', [path.join(BIN, 'pg-aggregate.js'), run, '--repo', '/x/repo-fixture', '--final', '--verdicts', path.join(run, 'verdicts.json'), '--json'], {
+    // PG_GATE_LOG w tmpdir: fixture'y bez files_read nie moga pisac would_block do produkcyjnego gates.jsonl (A18 ops).
+    encoding: 'utf8', env: Object.assign({}, process.env, { HOME: home, PG_GATE_LOG: path.join(root, 'gates-aggregate.jsonl') }),
+  });
   if (r.status === 2 || !fs.existsSync(path.join(run, 'aggregated.json'))) throw new Error('fixture: pg-aggregate nie zadzialal: ' + r.stderr);
   return run;
 }
@@ -173,6 +176,15 @@ check('nieznana decision bez --decide -> exit 1, nic nie zapisane', r.status ===
 r = run(['--run', RUN10, '--tier', 'T2', '--decide', 'u1=fixed']);
 const row10 = rows().find((x) => x.group_id === 'u1');
 check('zly tier.json -> ostrzezenie, tier z --tier', r.status === 0 && /tier.json nieczytelny/.test(r.stderr) && row10 && row10.tier === 'T2', r.stderr + JSON.stringify(row10));
+
+// 11. HOME nadpisany -> ostrzezenie na stderr, zapis i exit bez zmian (2026-11-02: wyniki A30/A31 w logu klonu)
+const { homeOverride } = require(path.join(BIN, 'pg-outcome.js'));
+check('homeOverride: ten sam katalog (takze z koncowym /) -> brak ostrzezenia', homeOverride('/home/user', '/home/user/') === null && homeOverride('/home/user', null) === null);
+check('homeOverride: inny HOME -> ostrzezenie z obiema sciezkami', /HOME=\/tmp\/k != \/home\/user/.test(homeOverride('/tmp/k', '/home/user') || ''));
+const RUN11 = path.join(root, 'run11');
+writeJson(path.join(RUN11, 'aggregated.json'), { findings: [{ id: 'h1', rule_id: 'R', severity: 'minor', decision: 'note', agreement: 1, roles: ['code'], file: 'a' }] });
+r = run(['--run', RUN11, '--tier', 'T1', '--decide', 'h1=kept_note']);
+check('CLI z HOME tymczasowym: exit 0, wiersz zapisany, UWAGA HOME na stderr', r.status === 0 && rows().some((x) => x.group_id === 'h1') && /UWAGA: HOME=/.test(r.stderr), r.stderr);
 
 fs.rmSync(root, { recursive: true, force: true });
 console.log(failures ? `\n${failures} FAIL` : '\nwszystko ok');

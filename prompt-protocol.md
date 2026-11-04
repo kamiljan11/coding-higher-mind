@@ -28,6 +28,10 @@ Pelny raport: outputs sesji Cowork `quality-pipeline/03-ANTY-HALUCYNACJE-RESEARC
    (najpierw dokladne cytaty, potem odpowiedz z cytatow; Anthropic: do +30% jakosci).
 5. Stabilny i KOMPLETNY output: "dziala/gotowe" tylko z dowodem (exit 0, obejrzany
    rezultat) — pokaz dowod, nie streszczenie. Pominiete czesci nazwij wprost.
+   Liczby z danych hurtowych (>~20 rekordow/plikow) liczy skrypt, nie model; po wczytaniu
+   sprawdz: liczba wczytanych == oczekiwana (blad siedzi zwykle we wczytaniu, nie w liczeniu;
+   AI_DEVS 4 S03E02). Przy pracy hurtowej i przed wyborem modelu: czy to w ogole wymaga modelu (pg/models.md › Krok 0;
+   prog hurtu = ten plik; hook prompt-guard ma kopie, test sprawdza tylko tekst hooka — zmiana progu = oba miejsca).
 6. Self-check CoVe-lite w tym samym przebiegu: draft -> pytania weryfikacyjne do
    wlasnych twierdzen -> korekta. Oznaczaj [NIEPEWNE] + poziom pewnosci gdy trzeba.
 

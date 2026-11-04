@@ -1,7 +1,7 @@
 # Reguly pracy w tym repo (obowiazuja kazdego agenta AI i czlowieka)
 
 ## Zanim napiszesz JAKIKOLWIEK nowy kod
-1. **Grep first.** Przeszukaj repo czy istniejaca funkcja/util/komponent robi to samo. Jesli tak — uzyj albo rozszerz. Duplikacja logiki = odrzucona zmiana.
+1. **Grep first.** Przeszukaj repo czy istniejaca funkcja/util/komponent robi to samo. Jesli tak — uzyj albo rozszerz. Duplikacja logiki = odrzucona zmiana. Wyjatek: podobny kod z ROZNYCH kontekstow (np. walidacja zamowienia vs faktury) to nie duplikacja — scalenie wiaze dwa powody zmiany.
 2. Przeczytaj sasiednie pliki modulu, ktory zmieniasz. Trzymaj sie ich konwencji, nie swoich preferencji.
 3. Zmiana architektoniczna (nowy modul, zaleznosc, wzorzec, schemat danych) -> najpierw ADR w `docs/adr/`, potem implementacja.
 

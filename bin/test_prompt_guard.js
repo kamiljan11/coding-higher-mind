@@ -89,6 +89,7 @@ fs.rmSync(ovDir, { recursive: true, force: true });
   chk('1. prompt sesji = pelne 1-6 i 7. KOD', /^1\. NIEJASNOSC/m.test(first) && /^7\. KOD: grep-first/m.test(first), first.slice(0, 120));
   chk('kolejny prompt = skroty (core + 7 KOD skrot), bez pelnego 1.', !/^1\. NIEJASNOSC/m.test(again) && /^1-6 \(pelne/m.test(again) && /7\. KOD \(pelne wyzej/.test(again), again.slice(0, 160));
   chk('skrot krotszy niz polowa pelnego', again.length * 2 < first.length, `${again.length} vs ${first.length}`);
+  chk('praca hurtowa = skrypt + liczba wczytanych (raz na sesje, AI_DEVS #4)', /praca hurtowa \(>~20 rekordow\/plikow\) = skrypt liczy/.test(first) && /liczba wczytanych == oczekiwana/.test(first) && !/praca hurtowa/.test(again), first.slice(-600));
   chk('skrot 7L zachowuje fan-out tylko na haslo', /fan-out \(Workflow\/ultracode\) tylko na jawne haslo/.test(again), again.slice(-400));
   spawnSync(process.execPath, [path.join(__dirname, '..', 'hooks', 'session-context.js')], { input: JSON.stringify({ source: 'compact', session_id: sid }), encoding: 'utf8' });
   chk('po /compact znowu pelny protokol', /^1\. NIEJASNOSC/m.test(run(sid)), 'brak pelnego');

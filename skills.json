@@ -203,7 +203,7 @@
     },
     {
       "name": "pg-maintain",
-      "category": "Inne",
+      "category": "Review i jakosc",
       "summary": "Tryb pracy NAD SAMYM PG (~/.claude: hooks, git-hooks, bin, agents, skills, pg/, templates, CLAUDE.md).",
       "description": "Tryb pracy NAD SAMYM PG (~/.claude: hooks, git-hooks, bin, agents, skills, pg/, templates, CLAUDE.md). Uzyj ZAWSZE, gdy zmiana dotyczy systemu jakosci, nie projektu klienta: nowa bramka/regula, poprawka hooka, rubryka recenzenta, karta sd, szablon repo, ADR PG. Trigger: \"PG\", \"popraw PG\", \"bramka PG\", \"hook PG\", \"rubryka recenzenta\", \"pg-review nie dziala\", \"dlaczego PG zablokowal\", \"ulepsz system jakosci\". NIE dla bramek platnosci/SMS ani hookow w repo klienta. Procedura: orientacja przez indeks -> zmiana u wlasciciela -> bin/pg-self-check.py -> pg-review -> pieczec -> commit -> pg-sync. Katalog bledow z realnych sesji ponizej.",
       "plugin": true,

@@ -16,6 +16,8 @@
 //  4. Wyciek sekretu modulu (Parnas; connascence wysokiego stopnia) w DODANYCH liniach = ostrzezenie (observe, 2026-10-18):
 //     `.from('tabela')` poza wlascicielem z `owners` (bez owners: tabela znana w > maxTableModules modulach) albo import SDK
 //     dostawcy poza `adapters`, albo import wnetrza cudzego slice'a z pominieciem index.ts (content coupling). Karta: skills/architecture-advisor/references/sd/01-fundamenty.md › Dekompozycja wewnatrz monolitu.
+//     `shared` = tabele przekrojowe (tenant, profil: konwencja + RLS, nie modul) — poza liczeniem wyciekow. Edge fn (osobny deploy,
+//     nie zaimportuje index.ts slice'a) dostaje wlasna wskazowke: RPC/widok wlasciciela albo wpis w `shared`/`owners`.
 // --report: audyt calego repo (nie bramka) — tabele -> moduly (z naruszeniami `owners`), moduly techniczne znajace tabele
 //     (podzial wg warstw zamiast pojec biznesowych), SDK poza adapterem, change amplification ostatnich 30 commitow.
 // Ostrzezenia SEKRET i pominiecia analizy ida do ~/.claude/logs/gates.jsonl (would_block / skipped) — metryka trybu observe.
@@ -252,8 +254,12 @@ function leakRules(rules) {
     if (Number.isInteger(rules.maxTableModules) && rules.maxTableModules > 0) maxTableModules = rules.maxTableModules;
     else problems.push('maxTableModules ma byc liczba calkowita > 0');
   }
+  const shared = new Set(strList(rules.shared, 'shared') || []);
+  // shared wygrywa z owners (wycisza tabele) — konflikt = literowka/kopia, ktora po cichu zdejmuje ochrone wlasciciela
+  const both = Object.keys(owners).filter((t) => shared.has(t));
+  if (both.length) problems.push(`tabela w owners i shared naraz (shared wycisza owners): ${both.join(', ')}`);
   return {
-    owners, maxTableModules,
+    owners, maxTableModules, shared,
     vendors: [...DEFAULT_VENDORS, ...(strList(rules.vendors, 'vendors') || [])],
     adapters: strList(rules.adapters, 'adapters') || DEFAULT_ADAPTERS,
     problems,
@@ -279,16 +285,19 @@ function isVendor(spec, vendors) {
  */
 function secretLeaks(refs, imports, usage, rules, baseUsage = null, contracts = new Set()) {
   const out = [];
-  const { owners, maxTableModules: maxMods, vendors, adapters } = leakRules(rules);
+  const { owners, maxTableModules: maxMods, vendors, adapters, shared } = leakRules(rules);
   for (const r of refs) {
+    if (shared.has(r.table)) continue;
+    // edge fn = osobny deploy (Deno): import index.ts slice'a jest niewykonalny, wiec inna wskazowka (gates.jsonl 2026-10-22..25: 7/7 sygnalow)
+    const edge = r.file.startsWith('supabase/functions/');
     const owner = owners[r.table];
     if (owner) {
-      if (!underAny(r.file, [owner])) out.push({ ...r, kind: 'table', why: `tabela ${r.table} jest sekretem ${owner} — wolaj funkcje z jego index.ts` });
+      if (!underAny(r.file, [owner])) out.push({ ...r, kind: 'table', why: edge ? `edge fn zna tabele ${r.table} (sekret ${owner}) — czytaj przez RPC/widok wlasciciela` : `tabela ${r.table} jest sekretem ${owner} — wolaj funkcje z jego index.ts` });
       continue;
     }
     const mods = usage.get(r.table);
     const knewBefore = baseUsage && baseUsage.get(r.table) && baseUsage.get(r.table).has(moduleOf(r.file));
-    if (mods && mods.size > maxMods && !knewBefore) out.push({ ...r, kind: 'table', why: `tabela ${r.table} znana w ${mods.size} modulach (> ${maxMods}) — wskaz wlasciciela w ARCHITECTURE.md (owners)` });
+    if (mods && mods.size > maxMods && !knewBefore) out.push({ ...r, kind: 'table', why: edge ? `edge fn zna tabele ${r.table} znana w ${mods.size} modulach (> ${maxMods}) — przekrojowa (tenant/profil) = wpisz do shared; domenowa = owners + RPC/widok wlasciciela` : `tabela ${r.table} znana w ${mods.size} modulach (> ${maxMods}) — wskaz wlasciciela w ARCHITECTURE.md (owners); przekrojowa (tenant/profil) = shared` });
   }
   for (const im of imports) {
     if (isVendor(im.spec, vendors) && !underAny(im.file, adapters)) out.push({ ...im, kind: 'vendor', why: `SDK ${im.spec} poza adapterem (${adapters.join(', ')})` });
@@ -469,8 +478,9 @@ function report(repo) {
   const rules = readRules(repo);
   const readNow = (f) => { try { return fs.readFileSync(path.join(repo, f), 'utf8'); } catch (e) { return null; } };
   const usage = tableUsage(files, readNow);
-  const { owners, maxTableModules, problems } = leakRules(rules);
+  const { owners, maxTableModules, problems, shared } = leakRules(rules);
   const tables = [...usage].map(([table, mods]) => {
+    if (shared.has(table)) return { table, modules: mods.size, files: [...mods.values()].reduce((a, b) => a + b, 0), owner: null, outsiders: [], flagged: false, shared: true, byModule: Object.fromEntries(mods) };
     const owner = owners[table] || null;
     const outsiders = owner ? [...mods.keys()].filter((m) => !underAny(m, [owner]) && !underAny(owner, [m])) : [];
     return { table, modules: mods.size, files: [...mods.values()].reduce((a, b) => a + b, 0), owner, outsiders, flagged: owner ? outsiders.length > 0 : mods.size > maxTableModules, byModule: Object.fromEntries(mods) };
@@ -503,7 +513,7 @@ function printReport(r) {
   console.log(`module-boundaries --report: ${r.files} plikow TS/JS`);
   console.log(`Tabele -> liczba modulow (connascence: schemat znany w wielu miejscach; prog ${r.maxTableModules} bez owners):`);
   for (const t of r.tables.slice(0, 15)) {
-    const own = t.owner ? ` (owner ${t.owner}${t.outsiders.length ? '; poza nim: ' + t.outsiders.slice(0, 5).join(', ') + (t.outsiders.length > 5 ? ' ...' : '') : ''})` : '';
+    const own = t.shared ? ' (shared: przekrojowa)' : t.owner ? ` (owner ${t.owner}${t.outsiders.length ? '; poza nim: ' + t.outsiders.slice(0, 5).join(', ') + (t.outsiders.length > 5 ? ' ...' : '') : ''})` : '';
     console.log(`  ${t.flagged ? '!' : ' '} ${t.table}: ${t.modules} modulow, ${t.files} plikow${own}`);
   }
   if (!r.tables.length) console.log('  (brak .from("tabela") — repo bez klienta Supabase albo inny wzorzec dostepu)');
@@ -540,7 +550,9 @@ function main() {
   for (const l of r.leaks.slice(0, 10)) console.log(`  SEKRET (ostrzezenie) ${l.file}:${l.line} — ${l.why}`);
   // observe: licznik ostrzezen i pominiec w gates.jsonl (guard_health) — bez tego nie da sie skalibrowac progu ani awansowac do bloku
   const tlog = (e) => { if (opts.from) gateLog({ hook: 'module-boundaries', target: repo, source: opts.from, ...e }); };
-  tlog({ event: blocking ? 'blocked' : 'ran', reason: blocking ? `cykl/warstwy ${blocking}` : 'ok' });
+  // items przy blokadzie: bez nich nie da sie po fakcie ocenic, czy blokada byla sluszna (przeglad telemetrii 2026-11-02)
+  const blockItems = [...r.newCycles.map((c) => `cykl: ${c.slice(0, 4).join(' -> ')}${c.length > 4 ? ' -> ...' : ''}`), ...r.violations.map((v) => `${v.from}:${v.line} -> ${v.to}`)].slice(0, 20);
+  tlog(blocking ? { event: 'blocked', reason: `cykl/warstwy ${blocking}`, items: blockItems } : { event: 'ran', reason: 'ok' });
   for (const kind of new Set(r.leaks.map((l) => l.kind))) {
     const items = [...new Set(r.leaks.filter((l) => l.kind === kind).map((l) => `${l.file}:${l.table || l.spec}`))].sort().slice(0, 20);
     tlog({ event: 'would_block', reason: `SEKRET ${kind}`, count: items.length, items });

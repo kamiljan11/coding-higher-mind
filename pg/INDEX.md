@@ -8,15 +8,19 @@ Regul, progow i liczb tu nie ma (parafraza dryfuje) — przed decyzja otworz pli
 | Plik | Wlasciciel czego |
 |---|---|
 | `hooks/auto-doc.py` | auto-doc — notatka z sesji Claude Code do katalogu notatek (hook SessionEnd). |
-| `hooks/bash-guard.js` | PreToolUse hook (matcher: Bash/PowerShell/mcp__desktop-commander__start_process/interact_with_process) — twarde bramki na komendy, ktore reguly CLAUDE.md … |
+| `hooks/bash-guard.js` | PreToolUse hook (matcher: Bash/PowerShell/mcp__desktop-commander__start_process/interact_with_process/mcp__terminal__run_in_terminal) — twarde bramki na … |
+| `hooks/context-checkpoint.js` | Stop hook: przypomnienie o checkpoincie sesji przed koncem okna kontekstu (kompakcja L1, 2026-11-02; observe, nigdy nie blokuje). |
 | `hooks/edit-guard.js` | PreToolUse hook (Edit/Write/MultiEdit/NotebookEdit/desktop-commander write_file/edit_block/move_file) — landscape 2026-09-26. |
 | `hooks/gate_effectiveness.py` | Skutecznosc bramek git-hookow (G3) i wyniki recenzji (G4) — czyste funkcje, wolane z guard_health.py (jak lang_gap_health). |
 | `hooks/guard_health.py` | Guard-health: deterministyczny audyt calego systemu jakosci (0 tokenow AI). |
 | `hooks/lang_gap_health.py` | Ocena luk jezykowych z telemetrii gates.jsonl (ADR-0010) — czyste funkcje, wolane z guard_health.py. |
 | `hooks/loop-monitor.js` | PostToolUse hook (wszystkie narzedzia) — landscape #17. Loop Guardrails z CLAUDE.md („ten sam tool + ten sam blad 2x -> zmien podejscie") istnialy tylko proza … |
 | `hooks/memory-guard.js` | PreToolUse hook (matcher: mcp__desktop-commander__write_file) — v3 (2026-09-05). |
+| `hooks/outbound-observe.js` | PreToolUse hook (matcher: MATCHER nizej) — OBSERVE, nigdy nie blokuje (2026-11-03). |
+| `hooks/outbound_health.py` | Zywotnosc hooka outbound-observe (audyt 2026-11-03) — funkcje wolane z guard_health.py (jak lang_gap_health). |
 | `hooks/post-bash-edit-check.js` | PostToolUse hook (matcher: Bash/PowerShell) — edycje kodu przez sed -i / heredoc / redirect / |
 | `hooks/post-edit-check.js` | PostToolUse hook (globalny) — po KAZDEJ edycji pliku (Edit / Write / MultiEdit / NotebookEdit / mcp__desktop-commander__write_file / … |
+| `hooks/postcompact-summary.js` | PostCompact hook: streszczenie kompakcji (compact_summary) zapisane na dysk obok migawki sesji (kompakcja L3, 2026-11-02, pg/GLOSSARY.md › Kompakcja L0-L6). |
 | `hooks/precompact-snapshot.js` | PreCompact hook: migawka sesji + indeks (wszystkie polecenia, pliki, agenci, wklejki) przed kompakcja (2026-09-26, kompakcja L2 2026-11-01, pg/GLOSSARY.md › … |
 | `hooks/prompt-guard.js` | UserPromptSubmit hook — wstrzykuje PG-core do KAZDEGO niebanalnego promptu w Claude Code. |
 | `hooks/session-context.js` | SessionStart hook (startup/resume/clear/compact) — wstrzykuje pamiec sesyjna z Obsidiana do kontekstu DETERMINISTYCZNIE (stdout => kontekst). |
@@ -76,7 +80,7 @@ Regul, progow i liczb tu nie ma (parafraza dryfuje) — przed decyzja otworz pli
 | `pg/models.md` | PG · Modele: delty per model + plan dryfu (2026-09-05; lineup zaktualizowany 2026-10-05) |
 | `pg/paradigm.md` | PG · Paradygmat i „sztuka" kodu floty PG (2026-09-05) |
 | `pg/plan-rubric.md` | Rubryka oceny planu/designu PRZED kodem (P1-lite) — samoocena autora T2+, swiezy recenzent przy pieniadzach/auth/tenantach |
-| `pg/postmortem.md` | PG · POSTMORTEM — incydent zamienia sie w bramke (2026-09-05) |
+| `pg/postmortem.md` | PG · POSTMORTEM — incydent zamienia sie w bramke; naprawa instrukcji agenta (2026-09-05, 2026-11-03) |
 | `pg/prr.md` | PG · PRODUCTION READINESS REVIEW — przed deployem / release (T2, T3) (2026-09-05) |
 | `pg/ref-pg-internals.md` | ref-pg-internals — Senior Quality Pipeline 1-9 + PG v3 (pełny opis) |
 | `pg/retro-2026-09-06.md` | PG · Retrospektywa 2026-09-06 — moje własne pętle „wracam i naprawiam" vs system |
@@ -94,4 +98,5 @@ Regul, progow i liczb tu nie ma (parafraza dryfuje) — przed decyzja otworz pli
 | `pg/adr/0008-granice-modulow-sekret-observe-i-sciezka-bledu-narzedzia.md` | ADR-0008: Granice modułów wg sekretu i domeny (observe), ścieżka błędu narzędzia, język kodu jako deklaracja repo |
 | `pg/adr/0009-wiedza-raz-kotwice-indeks-i-tryb-pracy-nad-pg.md` | ADR-0009: Wiedza raz w samym PG — kotwice liczb, generowany indeks właścicieli, pg-self-check |
 | `pg/adr/0010-sprawdzacze-jezykow-i-kod-na-zapas-observe.md` | ADR-0010: Sprawdzacze top języków w hookach i bramka „kod na zapas” (observe) |
+| `pg/adr/0011-kanaly-observe-wysylka-mcp-i-panel-terminal.md` | ADR-0011: Kanaly observe dla wysylki MCP i panelu Terminal |
 

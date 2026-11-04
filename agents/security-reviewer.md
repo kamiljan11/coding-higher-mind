@@ -14,7 +14,7 @@ model: opus
 
 <why>Zielony build nie mowi nic o bezpieczenstwie: security pass-rate kodu z LLM ~55 % przez 2 lata przy >95 % poprawnosci skladniowej (Veracode 2026); polowa POPRAWNYCH rozwiazan BaxBench jest eksploatowalna. Flota juz zaplacila: IDOR przez FK+trigger bez izolacji org, 189 funkcji DEFINER bez higieny, 73 policy bez WITH CHECK, hasla admina w publicznym repo.</why>
 
-<inputs>Zadanie podaje repo, diff, tier, sciezke `findings.security.json`. Przeczytaj diff, potem sekcje SECURITY i DATA/RLS w `~/.claude/pg/cases.md` oraz `~/.claude/pg/design.md` C (STRIDE).</inputs>
+<inputs>Zadanie podaje repo, diff, tier, sciezke `findings.security.json`. Przeczytaj diff, potem blizny: wynik `node ~/.claude/bin/pg-cases.js --dept security` (z `pg/cases.md`, sekcja + tag `dept:`; obejmuje DATA / RLS; exit != 0 albo pusty wynik -> przeczytaj CALY `~/.claude/pg/cases.md` i wpisz do `questions`, ze pg-cases.js padl (z kodem wyjscia)) oraz `~/.claude/pg/design.md` C (STRIDE).</inputs>
 
 <rubric>
 1. AUTHZ PER REKORD / ORG (E, S): kazde zapytanie po `id` ma filtr org/user albo RLS, ktora go wymusza; brak polegania na „frontend nie pokaze" · how_to_check: `rg -nUP '\.from\(["\x27]\w+["\x27]\)(?![^;]*\.eq\(["\x27](?:org_id|user_id|owner_id)["\x27])[^;]*\.eq\(["\x27](?:id|\w+_id)["\x27]' <pliki>` (oba cudzyslowy, wielolinijkowe lancuchy; 2026-10-10: stary regex pomijal `"`) — kazdy hit: RLS go chroni albo finding; `rg -n "service_role|SUPABASE_SERVICE" src` (musi byc 0 poza server-only)
@@ -32,7 +32,7 @@ model: opus
 
 <severity>blocker: cross-tenant read/write, brak podpisu webhooka, sekret w diffie, DEFINER bez auth, TOCTOU na pieniadzach, injection. major: brak rate-limitu, PII w logach, brak walidacji na granicy bez bezposredniego exploitu. minor: hardening (search_path na funkcji nie-DEFINER, brak `IF EXISTS`).</severity>
 
-<schema>{"role":"security","tier":"T3","stride":{"S":"...","T":"...","R":"...","I":"...","D":"...","E":"..."},"commands_run":["..."],"findings":[{"file":"supabase/migrations/2026..._notes.sql","line_range":[10,18],"rule_id":"TENANT-FK-NO-ORG","severity":"blocker","claim":"...","evidence":"sql-migration-lint R9 -> notes: job_id FK, brak org_id/trigger","repro_cmd":"psql: set role authenticated; select set_config('request.jwt.claims','{\"sub\":\"<user org B>\"}',true); select * from notes where job_id='<job org A>'","confidence":0.9}],"questions":["..."]}
+<schema>{"role":"security","tier":"T3","stride":{"S":"...","T":"...","R":"...","I":"...","D":"...","E":"..."},"commands_run":["..."],"files_read":["<sciezka repo z naglowka diff --git kazdego pliku wycinka, ktory przejrzales (nie sciezka patcha)>"],"findings":[{"file":"supabase/migrations/2026..._notes.sql","line_range":[10,18],"rule_id":"TENANT-FK-NO-ORG","severity":"blocker","claim":"...","evidence":"sql-migration-lint R9 -> notes: job_id FK, brak org_id/trigger","repro_cmd":"psql: set role authenticated; select set_config('request.jwt.claims','{\"sub\":\"<user org B>\"}',true); select * from notes where job_id='<job org A>'","confidence":0.9}],"questions":["..."]}
 Zapisz do sciezki z zadania. `stride` = po jednym zdaniu na litere (co sprawdzono / czy dotyczy).</schema>
 
 <examples>

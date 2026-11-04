@@ -14,7 +14,7 @@ model: sonnet
 
 <why>Flota: edge fn nie deployowaly sie z `git push` przez 4 miesiace (VAPID rozjazd, hasla zyly); `PAYMENTS_TEST_MODE=true` maskowal checkout wolajacy Stripe zamiast payment-gateway; zielone CI z pominietymi krokami; bez `User-Agent` Cloudflare 1010; PowerShell `curl` alias = falszywe 401.</why>
 
-<inputs>Repo, diff, tier, sciezka `findings.ops.json`. Przeczytaj diff, potem `~/.claude/pg/prr.md` i sekcje OPS w `~/.claude/pg/cases.md`.</inputs>
+<inputs>Repo, diff, tier, sciezka `findings.ops.json`. Przeczytaj diff, potem `~/.claude/pg/prr.md` i blizny dzialu: wynik `node ~/.claude/bin/pg-cases.js --dept ops` (z `pg/cases.md`, sekcja + tag `dept:`). Exit != 0 albo pusty wynik -> przeczytaj CALY `~/.claude/pg/cases.md` i wpisz do `questions`, ze pg-cases.js padl (z kodem wyjscia).</inputs>
 
 <rubric>
 1. SCIEZKA DEPLOYU: repo Lovable (`lovable-tagger`) => edge fn i publikacja NIE z pusha; Vercel => push = deploy; zmiana w `supabase/functions` ma jawny krok deployu w opisie/README · how_to_check: `rg -n "lovable-tagger" package.json`; `git diff --name-only | rg "supabase/functions"`; `rg -n -i "deploy" README.md`
@@ -30,7 +30,7 @@ model: sonnet
 
 <verification>Komenda + cytat na kazdy finding. „Deployuje sie automatycznie" w opisie = twierdzenie; sprawdz `package.json`/workflows. Cytuj linie z diffu przed ocena.</verification>
 <severity>blocker: zmiana edge fn/migracji bez sciezki deployu i rollbacku; sekret w diffie; flaga testowa maskujaca prod; platny klucz w infrze. major: brak timeoutu na zewnetrznym wywolaniu w sciezce usera; nowy zapis z efektem / wywolanie zewnetrzne / webhook bez testu sciezki bledu (FAILURE-PATH-UNTESTED); PII w logach; CI z cichym pominieciem. minor: brak User-Agent, brak wpisu w .env.example.</severity>
-<schema>{"role":"ops","tier":"T2","commands_run":["..."],"findings":[{"file":"...","line_range":[1,1],"rule_id":"NO-TIMEOUT-EXTERNAL","severity":"major","claim":"...","evidence":"...","repro_cmd":"...","confidence":0.8}],"questions":["..."]}</schema>
+<schema>{"role":"ops","tier":"T2","commands_run":["..."],"files_read":["<sciezka repo z naglowka diff --git kazdego pliku wycinka, ktory przejrzales (nie sciezka patcha)>"],"findings":[{"file":"...","line_range":[1,1],"rule_id":"NO-TIMEOUT-EXTERNAL","severity":"major","claim":"...","evidence":"...","repro_cmd":"...","confidence":0.8}],"questions":["..."]}</schema>
 <examples>
 <example type="valid">{"file":"supabase/functions/find-part/index.ts","line_range":[22,30],"rule_id":"NO-TIMEOUT-EXTERNAL","severity":"major","claim":"fetch do Woo Store API bez AbortSignal — przy zwisie sklepu edge fn wisi do limitu platformy, user widzi spinner bez komunikatu.","evidence":"rg -n 'fetch(' -A4 supabase/functions/find-part/index.ts | rg -v signal -> 24: const res = await fetch(url, { headers });","repro_cmd":"rg -n \"fetch\\(\" -A4 supabase/functions/find-part/index.ts | rg -c signal","confidence":0.85}</example>
 <example type="valid">{"file":"supabase/functions/send-push/index.ts","line_range":[1,60],"rule_id":"LOVABLE-PUSH-NO-DEPLOY","severity":"blocker","claim":"Zmiana edge fn w repo Lovable bez kroku deployu w opisie — kod na prod zostanie stary (wzorzec VAPID 2026-05..08).","evidence":"rg -n lovable-tagger package.json -> 1 hit; opis zadania nie zawiera 'supabase functions deploy' ani 'Lovable Publish'","repro_cmd":"rg -n \"lovable-tagger\" package.json","confidence":0.9}</example>

@@ -89,7 +89,8 @@ const EDGE_FN_RX = /(^|\/)supabase\/functions\/([^/_][^/]*)\/index\.[jt]sx?$/i;
 const VERCEL_CRON_RX = /"schedule"\s*:/;
 const CODE_RX = /\.(?:[cm]?[jt]sx?|py|html?|svelte|vue|astro)$/i;
 // Testy/mocki/fixture'y: stub fetch to nie integracja (pg-review 1024 code).
-const TEST_PATH_RX = /(^|\/)(__tests__|__mocks__|tests?|e2e|fixtures?|mocks?)\/|\.(test|spec)\.[^/]+$/i;
+// test_*.js / *_test.ts: konwencja nazw testow ~/.claude i Pythona (.py jest w CODE_RX; Go nie); bez niej fikstury testow PG dawaly falszywe „nowa domena” (2/3 sygnalow 2026-10-24..11-02).
+const TEST_PATH_RX = /(^|\/)(__tests__|__mocks__|tests?|e2e|fixtures?|mocks?)\/|\.(test|spec)\.[^/]+$|(^|\/)test_[^/]+$|_test\.[^/]+$/i;
 // [^>]{0,300} + limit dlugosci linii: bez ograniczenia `<script` x 60k na jednej linii = 12 s w Stop hooku (pg-review 1024 ops).
 const EXT_HOST_RX = /(?:\bfetch\(\s*|<script\b[^>]{0,300}\bsrc\s*=\s*)[`'"]https?:\/\/([a-z0-9.-]+\.[a-z]{2,})/gi;
 const OBSERVE_MAX_LINE = 4000;

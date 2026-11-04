@@ -25,6 +25,13 @@ const VERDICTS = ['reproduced', 'not_reproduced', 'cannot_run'];
 // Bez zmiennej przekierowujacej (recenzja p345 security-1: TMPDIR przestawial „tmpdir”, wiec override trafial w dowolny plik).
 // Testy podstawiaja HOME tymczasowy.
 const logFile = () => path.join(os.homedir(), '.claude', 'logs', 'review-outcomes.jsonl');
+// HOME nadpisany (testy klonu z HOME=<klon>/..) = wiersze laduja poza ~/.claude uzytkownika, a logs/ nie idzie gitem
+// (2026-11-02: wyniki A30/A31 w logu klonu). Ostrzezenie, nie blad: testy celowo pisza do HOME tymczasowego.
+function homeOverride(home, real) {
+  if (!home || !real || path.resolve(home) === path.resolve(real)) return null;
+  return `UWAGA: HOME=${home} != ${real} (konto) — wyniki poza ~/.claude, guard_health ich nie policzy`;
+}
+const realHome = () => { try { return os.userInfo().homedir; } catch (e) { return null; } };
 
 class ToolError extends Error {}
 
@@ -150,10 +157,12 @@ function main(argv) {
     fs.appendFileSync(file, lead + rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
   } catch (e) { throw new ToolError(`nie moge zapisac ${file}: ${e.code || e.message}`); }
   console.log(`pg-outcome: zapisano ${rows.length} wierszy (repo=${repo}, tier=${tier}, run_key=${runKey}) -> ${file}`);
+  const warn = homeOverride(os.homedir(), realHome());
+  if (warn) console.error(`pg-outcome: ${warn}`);
   return 0;
 }
 
-module.exports = { OUTCOMES, SEVERITIES, DECISIONS, VERDICTS, runKeyOf, parseArgs, parseDecisions };
+module.exports = { OUTCOMES, SEVERITIES, DECISIONS, VERDICTS, runKeyOf, parseArgs, parseDecisions, homeOverride };
 
 if (require.main === module) {
   try { process.exit(main(process.argv.slice(2))); } catch (e) {

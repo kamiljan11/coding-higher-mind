@@ -42,6 +42,16 @@ with tempfile.TemporaryDirectory(dir=CACHE) as tmp:
     git(repo, 'add', '.')
     git(repo, 'commit', '-qm', 'feat: pierwsza funkcja')
     out = str(Path(tmp, 'vault'))
+    ckpt, prec = Path(tmp, 'Checkpoints'), Path(tmp, 'precompact')  # kompakcja L5: linki do pamieci sesji
+    ckpt.mkdir()
+    prec.mkdir()
+    (ckpt / '2026-11-02 abcdef12 moj-projekt.md').write_text('# checkpoint')
+    (ckpt / '2026-11-02 99999999 inny.md').write_text('# cudzy')
+    (ckpt / '2026-11-02 11111111 abcdef12-projekt.md').write_text('# sid8 tylko w nazwie projektu')
+    (prec / 'abcdef123456.index.md').write_text('indeks')
+    (prec / 'abcdef123456.summary.md').write_text('streszczenie')
+    os.environ['AUTO_DOC_CHECKPOINT_DIR'] = str(ckpt)
+    os.environ['AUTO_DOC_PRECOMPACT_DIR'] = str(prec)
     TS = '2000-01-01T00:00:00Z'
     transkrypt = [
         {'type': 'user', 'timestamp': TS, 'message': {'role': 'user', 'content': '<system-reminder>wstrzykniete</system-reminder>'}},
@@ -66,9 +76,16 @@ with tempfile.TemporaryDirectory(dir=CACHE) as tmp:
     sprawdz('commit repo w notatce', 'feat: pierwsza funkcja' in tresc, tresc)
     sprawdz('ostatnia odpowiedz w notatce', 'Gotowe: dodalem logowanie.' in tresc, tresc)
     sprawdz('liczba polecen = 1 (bez tool_result i meta)', '**Polecen uzytkownika:** 1' in tresc, tresc)
+    sprawdz('L5: wikilink do checkpointu tej sesji (sid8), bez cudzego',
+            '[[Claude Memory/Checkpoints/2026-11-02 abcdef12 moj-projekt]]' in tresc and '99999999' not in tresc
+            and '11111111' not in tresc, tresc)
+    sprawdz('L5: indeks artefaktow i streszczenia kompakcji; brak migawki = brak linku',
+            'indeks artefaktow:' in tresc and 'abcdef123456.summary.md' in tresc and 'migawka sprzed' not in tresc, tresc)
 
-    rc2, pliki2 = uruchom(transkrypt, str(repo), out, sesja='zzz999')
-    sprawdz('druga sesja dopisuje do tego samego pliku dnia', len(pliki2) == 1 and pliki2[0].read_text().count('## ') == 2, str(pliki2))
+    rc2, pliki2 = uruchom(transkrypt, str(repo), out, sesja='fedcba987654')  # poprawny sid bez plikow pamieci
+    tresc2 = pliki2[0].read_text() if pliki2 else ''
+    sprawdz('druga sesja dopisuje do tego samego pliku dnia', len(pliki2) == 1 and tresc2.count('## ') == 2, str(pliki2))
+    sprawdz('L5: sesja bez plikow pamieci = brak sekcji (1 sekcja na 2 wpisy)', tresc2.count('**Pamiec sesji:**') == 1, tresc2)
 
     pusty = str(Path(tmp, 'vault-pusty'))
     rc3, pliki3 = uruchom([{'type': 'user', 'timestamp': TS, 'message': {'content': '<command-name>/clear</command-name>'}}], tmp, pusty)
@@ -76,13 +93,22 @@ with tempfile.TemporaryDirectory(dir=CACHE) as tmp:
 
     r = subprocess.run([sys.executable, str(HOOK)], input='{"transcript_path": "/nie/istnieje.jsonl"}', text=True,
                        capture_output=True, env={**os.environ, 'AUTO_DOC_DIR': pusty, 'HOME': tmp}, timeout=30, check=False)
-    sprawdz('brak transkryptu = exit 0 + wpis w logu bledow', r.returncode == 0 and Path(tmp, '.claude/logs/auto-doc.log').is_file(),
-            f'rc={r.returncode}')
+    log = Path(tmp, '.claude/logs/auto-doc.log')
+    wpisy = log.read_text().splitlines() if log.is_file() else []
+    sprawdz('brak transkryptu = exit 0 + wpis SKIP (nie blad, guard_health go nie liczy)',
+            r.returncode == 0 and len(wpisy) == 1 and wpisy[0].split(' ', 2)[1] == 'SKIP', f'rc={r.returncode} {wpisy}')
+    r = subprocess.run([sys.executable, str(HOOK)], input='{zly json', text=True,
+                       capture_output=True, env={**os.environ, 'AUTO_DOC_DIR': pusty, 'HOME': tmp}, timeout=30, check=False)
+    wpisy = log.read_text().splitlines() if log.is_file() else []
+    sprawdz('blad hooka (zly JSON) = exit 0 + wpis bez SKIP (guard_health = RED)',
+            r.returncode == 0 and len(wpisy) == 2 and wpisy[1].split(' ', 2)[1] != 'SKIP', f'rc={r.returncode} {wpisy}')
 
 _spec = importlib.util.spec_from_file_location('auto_doc', HOOK)
 assert _spec and _spec.loader
 _ad = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_ad)
+for zly in ['../../etc/passwd', 'abcdef12/../x', 'abcdef123456\n', None, '']:
+    sprawdz(f'L5: zly session_id {zly!r} = brak linkow', _ad.memory_links(zly) == [], str(_ad.memory_links(zly)))
 for probka in ['Bearer ' + 'abcdefghijklmnop12345', 'eyJ' + 'hbGciOiJIUzI1NiJ9' + '.' + 'eyJzdWIiOiIxMjM0NTY3ODkwIn0' + '.' + 'sig_abc',
                'sk' + '-proj-' + 'A' * 20, 'sk' + '_live_' + 'B' * 20, 'EAA' + 'C' * 30, 'AC' + 'f' * 32, 'password=' + 'Hunter2xyz',
                'api_key: ' + 'zzzzzzzzzz', 'mail jan@firma' + '.is', 'kt 010190' + '-2399']:

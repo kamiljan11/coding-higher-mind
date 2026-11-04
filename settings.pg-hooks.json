@@ -14,7 +14,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell|mcp__desktop-commander__start_process|mcp__desktop-commander__interact_with_process",
+        "matcher": "Bash|PowerShell|mcp__desktop-commander__start_process|mcp__desktop-commander__interact_with_process|mcp__terminal__run_in_terminal",
         "hooks": [
           {
             "type": "command",
@@ -42,6 +42,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*__((?!(?:[A-Z][A-Za-z0-9]*_)?(?:[gG]et|[lL]ist|[sS]earch|[rR]ead)(?:_|[A-Z]))\\w*(?:[sS]end|[rR]eply|[fF]orward|[dD]raft|[tT]rash|[dD]elete|[vV]acation|[eE]mpty_?[fF]older|[sS]ignature|[uU]pdateUser|update_display_name)\\w*|calendar_create_event|merge_pull_request|push_files|create_or_update_file|create_pull_request(?:_review)?|create_issue|update_issue|add_issue_comment|create_repository|fork_repository|reserve_booking|create_branch|update_pull_request(?:_branch)?|set_auto_merge|create_scheduled_task|update_scheduled_task)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{CLAUDE_DIR}}/hooks/outbound-observe.js\"",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "PreCompact": [
@@ -51,6 +61,18 @@
           {
             "type": "command",
             "command": "node \"{{CLAUDE_DIR}}/hooks/precompact-snapshot.js\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"{{CLAUDE_DIR}}/hooks/postcompact-summary.js\"",
             "timeout": 30
           }
         ]
@@ -108,6 +130,11 @@
             "type": "command",
             "command": "node \"{{CLAUDE_DIR}}/hooks/stop-gate.js\"",
             "timeout": 170
+          },
+          {
+            "type": "command",
+            "command": "node \"{{CLAUDE_DIR}}/hooks/context-checkpoint.js\"",
+            "timeout": 15
           }
         ]
       }

@@ -32,6 +32,11 @@ SECRET_RX = re.compile(
 MAX_FILES = 25
 MAX_COMMITS = 15
 MAX_ROOT_LOOKUPS = 60  # katalogi, nie pliki: git_root kosztuje do 5 s, hook ma 30 s
+# Pamiec sesji (kompakcja L5): checkpointy L1 (Obsidian) i pliki precompact (migawka, indeks artefaktow, streszczenia L3).
+CHECKPOINT_DIR = Path(os.environ.get('AUTO_DOC_CHECKPOINT_DIR') or HOME / 'Obsidian' / 'MAIN' / 'Claude Memory' / 'Checkpoints')
+PRECOMPACT_DIR = Path(os.environ.get('AUTO_DOC_PRECOMPACT_DIR') or HOME / '.claude' / 'logs' / 'precompact')
+PRECOMPACT_KINDS = (('.index.md', 'indeks artefaktow'), ('.summary.md', 'streszczenia kompakcji'), ('.md', 'migawka sprzed kompakcji'))
+SID_RX = re.compile(r'^[A-Za-z0-9-]{8,64}$')
 PHRASE_RX = re.compile(r'^\s*(pozwol\s+ALLOW_\w+|ok|tak|nie|dalej|continue|try again)\s*$', re.IGNORECASE)
 SCRATCH_RX = re.compile(r'^/tmp/|/scratch-workspaces/|/scratchpad/')
 
@@ -107,6 +112,27 @@ def project_name(roots: list[str], cwd: str) -> str:
     return os.path.basename(cwd.rstrip('/')) or 'bez projektu'
 
 
+def memory_links(session_id: object) -> list[str]:
+    """Linki do pamieci sesji: checkpointy `<data> <sid8> <projekt>.md` (wikilink Obsidiana) + pliki precompact <sid>.*.
+
+    [] gdy brak plikow albo zly session_id. Blad odczytu katalogu -> log i linki zebrane do tej pory (notatka sesji zostaje).
+    """
+    sid = str(session_id or '')
+    if not SID_RX.fullmatch(sid):
+        return []
+    links: list[str] = []
+    try:
+        names = sorted(p.name for p in CHECKPOINT_DIR.glob('*.md') if f' {sid[:8]} ' in p.name)
+        links += [f'  - checkpoint: [[Claude Memory/Checkpoints/{n[:-3]}]]' for n in names]
+        for suffix, label in PRECOMPACT_KINDS:
+            f = PRECOMPACT_DIR / f'{sid}{suffix}'
+            if f.is_file():
+                links.append(f'  - {label}: `{str(f).replace(str(HOME), "~")}`')
+    except OSError as e:
+        log_error(f'pamiec sesji: {type(e).__name__}: {e}')
+    return links
+
+
 def build_entry(data: dict, parsed: dict) -> tuple[str, str]:
     folders = list(dict.fromkeys(f if os.path.isdir(f) else os.path.dirname(f) for f in parsed['files']))[:MAX_ROOT_LOOKUPS]
     root_of = {d: git_root(d) for d in folders}
@@ -118,6 +144,7 @@ def build_entry(data: dict, parsed: dict) -> tuple[str, str]:
     for root in dict.fromkeys(roots or ([cwd_root] if cwd_root else [])):
         commits += [f'{os.path.basename(root)}: {c}' for c in repo_commits(root, parsed['first_ts'] or '1 day ago')]
     now = datetime.now(timezone.utc)
+    memory = memory_links(data.get('session_id'))
     files = '\n'.join(f'  - `{f.replace(str(HOME), "~")}`' for f in parsed['files'][:MAX_FILES]) or '  - (brak)'
     if len(parsed['files']) > MAX_FILES:
         files += f'\n  - ... (+{len(parsed["files"]) - MAX_FILES})'
@@ -129,6 +156,7 @@ def build_entry(data: dict, parsed: dict) -> tuple[str, str]:
         f"**Zmienione pliki:**\n{files}\n\n"
         f"**Commity w repo od startu sesji** (moga zawierac commity rownoleglych sesji):\n"
         + ('\n'.join(f'  - {redact(c)}' for c in commits) or '  - (brak)') + '\n\n'
+        + ("**Pamiec sesji:**\n" + '\n'.join(memory) + '\n\n' if memory else '') +
         f"**Ostatnia odpowiedz (skrot):** {redact(parsed['last_text'])[:600]}\n\n---\n\n")
     return project, entry
 
@@ -142,6 +170,9 @@ def write_entry(project: str, entry: str) -> Path:
     with target.open('a', encoding='utf-8') as f:
         f.write(header + entry)
     return target
+
+
+SKIP = 'SKIP'  # znacznik wpisu bez bledu; guard_health.py nie liczy go do RED
 
 
 def log_error(message: str) -> None:
@@ -159,7 +190,8 @@ def main() -> int:
         data = json.loads(sys.stdin.read() or '{}')
         path = Path(str(data.get('transcript_path') or ''))
         if not path.is_file():
-            log_error(f'brak transkryptu: {path}')
+            # sesja usunieta przez aplikacje albo zamknieta przed 1. zapisem (2026-11-04: 26 wpisow, 0 plikow) — nie blad hooka
+            log_error(f'{SKIP} brak transkryptu: {path}')
             return 0
         parsed = parse_transcript(path)
         if not parsed['prompts']:
