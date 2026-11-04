@@ -22,6 +22,10 @@
 //  8. (2026-11-01, pg/cases.md AGGREGATE-DEDUPE-MISS, 4. przypadek w runie A1) grupy z ROZNYCH dzialow, ten sam plik, inne
 //     rule_id, nakladajace sie linie (oba zakresy <= CROSS_ROLE_MAX_SPAN) = mozliwy ten sam defekt -> NIE scalamy (falszywa
 //     zgoda dalaby must_fix bez dowodu), tylko obie ida do weryfikatora takze jako minor (`cross_role_overlap`).
+//  9. (2026-11-02, plan F, OBSERVE) finder, ktory nic nie przeczytal: plik roli powinien miec `files_read`; gdy w katalogu jest
+//     slice.json (pg-slice), pliki wycinka roli (pusty wycinek = caly diff) musza byc w `files_read`. Luka -> `read_gaps` w wyniku,
+//     sekcja w raporcie i `would_block` w gates.jsonl (tylko z --final); werdykt BEZ zmian, dopoki dane nie pokaza, ze finderzy pisza pole
+//     (ADR-0008: blokada dopiero po incydencie). Zrodlo: EGM sentinel RESOURCE_UNREADABLE -> not_run.
 // Uzycie: node pg-aggregate.js <dir> --repo <sciezka repo> [--tier T2|T3 | --required code,ops] [--final] [--verdicts <plik>] [--json]
 const fs = require('fs');
 const path = require('path');
@@ -65,6 +69,30 @@ function validateRoleFile(file) {
     valid.push(Object.assign(picked, { role, severity, line_range: range, id: `${role}-${idx + 1}` }));
   });
   return { role, valid, rejected };
+}
+
+// Sciezka do porownan: bez ./ a/ b/, ukosniki /, male litery. Wpis absolutny pasuje, gdy konczy sie na /<sciezka wycinka>.
+const normPath = (p) => String(p).replace(/\\/g, '/').replace(/^(\.\/|[ab]\/)/, '').toLowerCase();
+
+// Plan F (observe): ktore pliki wycinka roli nie sa w files_read. Bez slice.json nie ma z czym porownac -> tylko brak pola.
+// Observe nie moze zmienic werdyktu (A18 ops): uszkodzony slice.json albo files_read daje wpis `error`, nie wyjatek z aggregate().
+function readGaps(dir, roleFiles) {
+  try {
+    const slice = readJson(path.join(dir, 'slice.json'));
+    const gaps = [];
+    for (const { role, data } of roleFiles) {
+      if (!data || !Array.isArray(data.files_read)) { gaps.push({ role, missing_field: true, unread: [] }); continue; }
+      if (!slice || !slice.roles) continue;
+      const own = slice.roles[role] && Array.isArray(slice.roles[role].files) ? slice.roles[role].files : [];
+      const expected = own.length ? own : (Array.isArray(slice.files) ? slice.files.map((f) => f.file) : []);
+      const read = data.files_read.map(normPath);
+      const unread = expected.filter((f) => { const n = normPath(f); return !read.some((r) => r === n || r.endsWith('/' + n)); });
+      if (unread.length) gaps.push({ role, missing_field: false, unread });
+    }
+    return gaps;
+  } catch (e) {
+    return [{ role: '*', missing_field: false, unread: [], error: String(e && e.message) }];
+  }
 }
 
 const sameFile = (a, b) => a.file.replace(/\\/g, '/').toLowerCase() === b.file.replace(/\\/g, '/').toLowerCase();
@@ -182,6 +210,10 @@ function renderMarkdown(result) {
     lines.push('', '## Odrzucone przez agregator (bez dowodu — nie licza sie)');
     for (const r of result.rejected.slice(0, 20)) lines.push(`- ${r.why}${r.finding ? `: ${String(r.finding.claim || '').slice(0, 120)}` : ''}`);
   }
+  if ((result.read_gaps || []).length) {
+    lines.push('', '## Pokrycie czytania (observe — nie zmienia werdyktu)');
+    for (const g of result.read_gaps) lines.push(`- ${g.role}: ${g.error ? `blad sprawdzenia: ${g.error}` : g.missing_field ? 'brak pola files_read' : `nie przeczytal: ${g.unread.slice(0, 10).join(', ')}${g.unread.length > 10 ? ` (+${g.unread.length - 10})` : ''}`}`);
+  }
   if (result.questions.length) { lines.push('', '## Pytania do czlowieka'); for (const q of result.questions) lines.push(`- ${q}`); }
   return lines.join('\n') + '\n';
 }
@@ -195,6 +227,7 @@ function aggregate(dir, verdictsPath, opts) {
   const roles = [];
   const questions = [];
   const incomplete = [];
+  const roleFiles = [];
   if (!files.length) incomplete.push('0 plikow findings.<rola>.json w katalogu przebiegu');
   for (const file of files) {
     const { role, valid, rejected: rej, broken } = validateRoleFile(file);
@@ -203,6 +236,7 @@ function aggregate(dir, verdictsPath, opts) {
     all.push(...valid);
     rejected.push(...rej);
     const data = readJson(file);
+    if (!broken) roleFiles.push({ role, data });
     if (data && Array.isArray(data.questions)) questions.push(...data.questions.map((q) => `[${role}] ${q}`));
   }
   const missingRoles = (o.requiredRoles || []).filter((r) => !roles.includes(r));
@@ -222,6 +256,7 @@ function aggregate(dir, verdictsPath, opts) {
     roles, findings, rejected, questions, incomplete, required_roles: o.requiredRoles || [],
     stats: { total: all.length + rejected.length, rejected: rejected.length, groups: groups.length, blocker: count('blocker'), must_fix: count('must_fix'), note: count('note'), dropped: count('dropped') },
     needs_verification: needsVerification,
+    read_gaps: readGaps(dir, roleFiles),
     verdict,
     generated_at: new Date().toISOString(),
   };
@@ -235,7 +270,7 @@ function requiredRolesFromArgs(args) {
   return [];
 }
 
-module.exports = { aggregate, dedupe, validateRoleFile, decide, roleOfAgent, requiredRolesFromArgs, MIN_AGREEMENT_FOR_BLOCKER, VERDICT };
+module.exports = { aggregate, readGaps, dedupe, validateRoleFile, decide, roleOfAgent, requiredRolesFromArgs, MIN_AGREEMENT_FOR_BLOCKER, VERDICT };
 
 if (require.main === module) {
   const args = process.argv.slice(2);
@@ -248,6 +283,20 @@ if (require.main === module) {
   const repoIdx = args.indexOf('--repo');
   if (repoIdx >= 0 && args[repoIdx + 1]) result.repo = path.resolve(args[repoIdx + 1]);
   fs.writeFileSync(path.join(dir, 'aggregated.json'), JSON.stringify(result, null, 2));
+  // Plan F observe: luka czytania = would_block w gates.jsonl (widoczna w guard_health, linia info; gate_effectiveness liczy
+  // tylko git-hooki). Tylko z --final: wstepna agregacja tego samego RUN nie dubluje wpisu (A18 code). reason = rodzaj luki
+  // (malo wartosci, liczy sie w top-N guard_health), szczegoly per rola w `detail`.
+  if (args.includes('--final') && result.read_gaps.length) {
+    const kind = (g) => (g.error ? 'error' : g.missing_field ? 'no-field' : 'unread');
+    // Telemetria nie zmienia werdyktu, ale jej brak ma byc widoczny: blad require (A18) i blad zapisu — log() zwraca false (A19).
+    let written = false, why = 'blad zapisu';
+    try {
+      written = require(path.join(__dirname, '..', 'hooks', 'lib', 'gate-log.js')).log({ hook: 'pg-aggregate', event: 'would_block', gate: 'files-read',
+        reason: [...new Set(result.read_gaps.map(kind))].sort().join('+'), target: result.repo || dir,
+        detail: result.read_gaps.map((g) => `${g.role}:${g.missing_field ? 'no-field' : g.error ? 'error' : g.unread.length}`).join(',') }) === true;
+    } catch (e) { why = String(e && e.message); }
+    if (!written) console.error(`pg-aggregate: wpis files-read do gates.jsonl nie zapisany: ${why}`);
+  }
   fs.writeFileSync(path.join(dir, 'aggregated.md'), renderMarkdown(result));
   process.stdout.write(args.includes('--json') ? JSON.stringify(result, null, 2) : renderMarkdown(result));
   process.exit(result.verdict === VERDICT.APPROVE ? 0 : result.verdict === VERDICT.INCOMPLETE ? 3 : 1);

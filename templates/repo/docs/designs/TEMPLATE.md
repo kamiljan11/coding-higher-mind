@@ -48,7 +48,9 @@ Metryka sukcesu + event: <co policzymy po wdrozeniu i skad> albo jawnie „brak 
 <!-- Ktore wiersze `docs/ARCHITECTURE.md` › Niezmienniki dotyka ta zmiana i jak zostaja prawdziwe. Nowy niezmiennik -> dopisz tam. -->
 
 ## 10. Weryfikacja
-<!-- Komendy, ktore udowodnia G1..Gn (te same co w §2), plus testy regresji i bramki. -->
+<!-- Komendy, ktore udowodnia G1..Gn (te same co w §2), plus testy regresji i bramki.
+     Migracja/RLS, edge fn, webhook, platnosc, nowa domena zewnetrzna: min. 1 komenda na prawdziwej zaleznosci
+     (pgTAP/psql na lokalnym Supabase, curl na preview, Playwright z click/fill), nie tylko mock (pg/plan-rubric.md krok 8). -->
 
 ## 11. Wdrozenie i rollback
 <!-- Sciezka deployu (Lovable push / Vercel PR), flagi, migracja dwuetapowa, jak cofnac, co bedzie w logach przy awarii. -->

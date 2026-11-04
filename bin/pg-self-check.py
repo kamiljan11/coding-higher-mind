@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 TIMEOUT = 600
 ALWAYS = {"hooks": ["bin/test_hooks_v3.js"], "git-hooks": ["bin/test_hooks_v3.js"]}
@@ -126,6 +127,25 @@ def consumers(files: list[str], root: str) -> list[str]:
     return out
 
 
+def export_check_cmd() -> list[str]:
+    """Skan publicznego eksportu (denylista: /home/<user>/, nazwisko, ID) bez zapisu plikow.
+
+    Dwa incydenty (a2e0118, bfb2e7e: /home/<litera>/ w przykladzie) wylapal dopiero test_pg_export w guard_health, po commicie.
+    pg-export-public czyta stale ~/.claude (ROOT), jak pg-map — stad tylko dla wlasnego --root.
+    --out = katalog, ktory nie istnieje: narzedzie odmawia niepustego --out, a --check-only nic w nim nie tworzy.
+    """
+    out = os.path.join(tempfile.gettempdir(), f"pg-selfcheck-export-{os.getpid()}")
+    return [sys.executable, os.path.join(HERE, "pg-export-public.py"), "--out", out, "--check-only"]
+
+
+def checks_for(root: str, own: bool) -> list[tuple[str, list[str]]]:
+    claims = [sys.executable, os.path.join(HERE, "claims-check.py"), "--root", root] + ([] if own else ["--min-anchors", "0"])
+    if not own:
+        return [("claims-check", claims)]
+    return [("pg-map --check", [sys.executable, os.path.join(HERE, "pg-map.py"), "--check"]), ("claims-check", claims),
+            ("pg-export-public --check-only", export_check_cmd())]
+
+
 def run_checks(root: str) -> tuple[list[str], list[str]]:
     red: list[str] = []
     warn: list[str] = []
@@ -142,19 +162,17 @@ def run_checks(root: str) -> tuple[list[str], list[str]]:
             red.append(f"test {t}: " + "; ".join(ln for ln in (r.stdout + r.stderr).splitlines() if ln.lstrip().startswith("FAIL"))[:400])
     # Mapy i pieczec opisuja ~/.claude (stale sciezki w pg-map/pg-seal) — dla innego --root pomijane jawnie.
     own = os.path.realpath(root) == os.path.realpath(os.path.dirname(HERE))
-    claims = [sys.executable, os.path.join(HERE, "claims-check.py"), "--root", root] + ([] if own else ["--min-anchors", "0"])
-    checks = [("claims-check", claims)]
-    if own:
-        checks.insert(0, ("pg-map --check", [sys.executable, os.path.join(HERE, "pg-map.py"), "--check"]))
-    else:
-        warn.append("--root poza ~/.claude: pg-map --check i pieczec pominiete")
+    checks = checks_for(root, own)
+    if not own:
+        warn.append("--root poza ~/.claude: pg-map --check, skan eksportu i pieczec pominiete")
     for name, cmd in checks:
         r = sh(cmd, root)
         print(f"  {name}: {r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr.strip()[:200]}")
         if r.returncode == 2:
             raise ToolError(f"{name}: {r.stderr.strip()[:200]}")
         if r.returncode != 0:
-            red.append(f"{name}: rc={r.returncode} (pg-map bez --check regeneruje; claims-check: popraw liczbe albo kotwice)")
+            red.append(f"{name}: rc={r.returncode} (pg-map bez --check regeneruje; claims-check: popraw liczbe albo kotwice;"
+                       " eksport: prywatna sciezka/nazwa w pliku z allowlisty -> zamien na ~/ albo dodaj substytucje)")
     warn += [f"stare odwolanie? {s_}" for s_ in stale_refs(files, root)]
     # Usuniety/przemianowany PLIK: changed_files go nie widzi (isfile), wiec szukamy jego nazwy osobno (r10 code).
     for d in deleted_files(root):

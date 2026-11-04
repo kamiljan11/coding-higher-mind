@@ -203,6 +203,7 @@ jobs:
   e2e:
     name: E2E smoke (Playwright)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -217,3 +218,7 @@ jobs:
           npm ci || npm install
           npx playwright install --with-deps chromium
           npx playwright test --reporter=line
+
+      - name: No Playwright config
+        if: hashFiles('playwright.config.ts', 'playwright.config.js') == ''
+        run: echo "::warning::E2E smoke skipped - no playwright.config; green CI does not prove the app works (~/.claude/pg/plan-rubric.md step 8)"

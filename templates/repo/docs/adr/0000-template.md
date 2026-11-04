@@ -35,6 +35,8 @@ Profil wag: [MVP / regulowany (finanse, dane osobowe) / wlasny — 1 zdanie dlac
 | Koszt operacyjny (zl/mies + lock-in) ( %) | | | | |
 | **Suma wazona (ocena x waga / 100, max 5)** | | | | |
 
+Mala roznica sumy = remis: suma nie rozstrzyga. Rozstrzyga najpierw kryterium o najwyzszej wadze; gdy i tam rowno — opcja tansza do odwrocenia (drzwi dwukierunkowe).
+
 **Ryzyka:** Co moze pojsc zle przy wybranej opcji i po czym to poznamy — ID w `docs/architecture/risks.md`.
 
 **Decyzja:** Jedno zdanie bez „rozwazamy” / „byc moze”: „Uzywamy X do Y”. Co wybralismy? Ktoremu priorytetowi z `docs/ARCHITECTURE.md › Cel architektury` sluzy (nr) i czego kosztem?

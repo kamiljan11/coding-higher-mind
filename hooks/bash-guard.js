@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PreToolUse hook (matcher: Bash|PowerShell|mcp__desktop-commander__start_process|interact_with_process) — twarde bramki
+// PreToolUse hook (matcher: Bash|PowerShell|mcp__desktop-commander__start_process|interact_with_process|mcp__terminal__run_in_terminal) — twarde bramki
 // na komendy, ktore reguly CLAUDE.md zakazuja "z pamieci". Exit 2 => komenda NIE wykonuje sie, powod wraca do Claude.
 // v4 (2026-09-26, landscape): reguly w lib/bash-rules.js (parser powloki + dawne regexy jako podloga);
 // wyjatek `ALLOW_X=1` w komendzie wg poziomu z lib/overrides.js (2026-10-02): A = agent sam, B = po samozatwierdzeniu
@@ -33,15 +33,23 @@ const TOOL_FIELDS = {
   'mcp__desktop-commander__start_process': 'command',
   'mcp__desktop-commander__interact_with_process': 'input',
 };
+// Kanaly powloki tylko MIERZONE (ADR-0008: pomiar przed blokada; 2026-11-03, security-review outbound-observe):
+// panel Terminal aplikacji wykonywal komendy z pominieciem bash-guard (~140 wywolan w transkryptach, m.in. sudo).
+// Te same reguly co dla Bash, ale wynik = `would_block` (reason `observe-channel:rule:<id>`), NIGDY exit 2; brak trafien = `ran`
+// `sudo` na poczatku segmentu = osobny would_block `observe-channel:sudo` (zadna regula go nie lapie, a ten kanal go niesie;
+// guard_health raportuje would_block, nie ran).
+const OBSERVE_FIELDS = { 'mcp__terminal__run_in_terminal': 'command' };
 
 function main() {
   let input = {};
   try { input = JSON.parse(fs.readFileSync(0, 'utf8').replace(/^﻿/, '') || '{}'); } catch (e) { return 0; }
   const tool = String(input.tool_name || 'Bash');
-  const field = TOOL_FIELDS[tool];
+  const observeOnly = Object.prototype.hasOwnProperty.call(OBSERVE_FIELDS, tool);
+  const field = TOOL_FIELDS[tool] || OBSERVE_FIELDS[tool];
   if (!field) return 0;
   const cmd = String((input.tool_input || {})[field] || '');
   if (!cmd.trim()) return 0;
+  if (observeOnly) return observeChannel(tool, cmd, input);
   if (lib.error) {
     log({ hook: HOOK, event: 'skipped', reason: 'lib load failed -> fallback: ' + lib.error, target: input.cwd || '' });
     if (FALLBACK.some((rx) => rx.test(cmd))) {
@@ -94,6 +102,90 @@ function main() {
     }
     log({ hook: HOOK, event: 'bypass', reason: `${t} (${source === 'session' ? 'zgoda uzytkownika w czacie' : 'poziom B: samozatwierdzenie po recenzji'})`, target: input.cwd || '' });
   }
+  return 0;
+}
+
+// sudo jako komenda segmentu (kanal obserwowany): segment zaczyna sie po ; & | ( { ! ` nowej linii albo then/do/else/elif;
+// przed sudo dopuszczone przypisania zmiennych i opakowania time/nice/exec/command/env/xargs/nohup/timeout z opcjami
+// i czasem (timeout 5); sudo tez po sciezce (/usr/bin/sudo) i jako \sudo. Cytaty wyciete (echo "sudo x" to nie sudo), ale
+// cialo `sh -c '...'`/`bash -lc "..."` oceniane jak komenda (jeden poziom). Odstepy tylko [ \t]: \s zjadal serie nowych
+// linii i dawal czas kwadratowy (ops-review 2026-11-03: 30k x \n = 1,5 s). Poza zasiegiem: eval, aliasy/funkcje, skrypt
+// z pliku, zagniezdzone -c — lista w pg/ref-pg-internals.md.
+const SUDO_SEGMENT = /(?:^|[;&|({!`\n]|\b(?:then|do|else|elif)\b)[ \t]*(?:[A-Za-z_]\w*=\S*[ \t]+)*(?:(?:time|nice|exec|command|env|xargs|nohup|timeout)(?:[ \t]+-\S+(?:[ \t]+\d+)?)*[ \t]+(?:\d+(?:\.\d+)?[smhd]?[ \t]+)?(?:[A-Za-z_]\w*=\S*[ \t]+)*)*\\?(?:\/\S*\/)?sudo(?:\s|$)/;
+// Cialo `-c` tylko po nazwie powloki (grep -c 'sudo' to nie komenda); opcje przed -c dozwolone (bash -l -c, bash -lc).
+const SHELL_C_BODY = /(?:^|[^\w/.-])(?:\/\S*\/)?(?:sh|bash|zsh|dash|ksh)(?:[ \t]+-[A-Za-z]+)*[ \t]+-[A-Za-z]*c[ \t]+("(?:[^"\\]|\\.)*"|'[^']*')/g;
+// Cytaty -> "" jednym przejsciem (regex cudzyslowu byl kwadratowy na seriach \" — ops-review 2026-11-03: 100k znakow = 11,7 s).
+// Inna semantyka niz stripQuoted w lib/bash-rules.js i lib/lint-file.js: zwraca tez tresc podstawien.
+// Podstawienie $(...) i `...` wewnatrz "..." wykonuje sie, wiec jego tresc wraca jako osobny segment (bez zagniezdzen).
+function blankShellQuotes(s) {
+  let out = '';
+  const subs = [];
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === '\\') { out += s.slice(i, i + 2); i += 2; continue; }
+    if (ch !== '"' && ch !== "'") { out += ch; i++; continue; }
+    let j = i + 1;
+    while (j < s.length && s[j] !== ch) {
+      if (ch === '"' && s[j] === '\\') { j += 2; continue; }
+      if (ch === '"' && (s.startsWith('$(', j) || s[j] === '`')) {
+        const open = s[j] === '`' ? 1 : 2;
+        const end = s.indexOf(open === 1 ? '`' : ')', j + open);
+        if (end < 0) { j = s.length; break; } // podstawienie bez domkniecia = cytat bez domkniecia (jedno przejscie)
+        subs.push(s.slice(j + open, end));
+        j = end + 1;
+        continue;
+      }
+      j++;
+    }
+    if (j >= s.length) { out += s.slice(i); break; } // cytat bez domkniecia: reszta bez zmian
+    out += '""';
+    i = j + 1;
+  }
+  return out + subs.map((x) => '\n' + x).join('');
+}
+function sudoInCommand(cmd) {
+  if (SUDO_SEGMENT.test(blankShellQuotes(cmd))) return true;
+  for (const m of cmd.matchAll(SHELL_C_BODY)) {
+    if (SUDO_SEGMENT.test(blankShellQuotes(m[1].slice(1, -1)))) return true;
+  }
+  return false;
+}
+
+const OBSERVE_MAX_CHARS = 20000;
+
+// Kanal obserwowany: kazda regula, ktora by zablokowala (albo wymagala wyjatku ALLOW_*), idzie do gates.jsonl jako would_block.
+// Stale reasony (guard_health grupuje po nich); target = nazwa narzedzia, nie komenda (komenda moze niesc sekrety/PII).
+function observeChannel(tool, cmd, input) {
+  if (lib.error) {
+    log({ hook: HOOK, event: 'skipped', reason: 'observe-channel: biblioteka regul nie laduje sie', target: tool });
+    return 0;
+  }
+  lib.gateLog.noteInputKeys(HOOK, input);
+  // Ocena regul rosnie nieliniowo z dlugoscia (ops-review 2026-11-03: 100k znakow = 7,9 s w lib.evaluate, timeout hooka 15 s);
+  // dluzsza komenda = skipped ze stalym reasonem (widoczne w guard_health), nie cisza i nie ubity hook.
+  if (cmd.length > OBSERVE_MAX_CHARS) {
+    log({ hook: HOOK, event: 'skipped', reason: `observe-channel: komenda dluzsza niz ${OBSERVE_MAX_CHARS} znakow`, target: tool });
+    return 0;
+  }
+  // Panel ma wlasny katalog (tool_input.cwd, np. "~"); reguly zalezne od katalogu licza sie wzgledem niego. Bez pola
+  // (wiekszosc wywolan) = katalog sesji — przyblizenie: katalog startowy panelu nie jest w wejsciu hooka.
+  const own = (input.tool_input || {}).cwd;
+  const cwd = typeof own === 'string' && own ? own.replace(/^~(?=$|\/)/, require('os').homedir()) : (input.cwd || process.cwd());
+  let result;
+  try {
+    result = lib.evaluate(cmd, { dialect: 'sh', cwd, agentType: input.agent_type || input.agentType || null });
+  } catch (e) {
+    // reason staly (grupowanie); w target tylko klasa bledu: komunikat parsera moze cytowac komende (sekrety/PII)
+    log({ hook: HOOK, event: 'skipped', reason: 'observe-channel: blad oceny regul', target: `${tool}: ${(e && e.name) || 'blad'}` });
+    return 0;
+  }
+  // Nazwa tokena pochodzi z tekstu komendy: ksztalt ALLOW_X do 32 znakow, inny = jeden kubelek (kardynalnosc grup w guard_health).
+  const tokens = result.tokens.map((t) => (/^ALLOW_[A-Z_]{1,32}$/.test(t) ? t : 'ALLOW_?'));
+  const hits = [...result.blocks.map((b) => `rule:${b.id}`), ...result.observes.map((o) => `rule:${o.id}`), ...tokens.map((t) => `override:${t}`)];
+  if (sudoInCommand(cmd)) hits.push('sudo');
+  for (const h of [...new Set(hits)]) log({ hook: HOOK, event: 'would_block', reason: `observe-channel:${h}`, target: tool });
+  if (!hits.length) log({ hook: HOOK, event: 'ran', reason: 'observe-channel: bez trafien regul', target: tool });
   return 0;
 }
 

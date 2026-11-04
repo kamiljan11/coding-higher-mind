@@ -19,7 +19,7 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 
 **Awarie i detekcja.**
 - *deployable'i liczniejsze niż osoby utrzymujące* — `ls -d supabase/functions/*/ | wc -l`; `ls Dockerfile* docker-compose*.yml wrangler.* vercel.json 2>/dev/null`
-- *ukryty rozproszony system: funkcja woła funkcję* — `rg -n "functions\.invoke|/functions/v1/" supabase/functions`
+- *ukryty rozproszony system: funkcja woła funkcję* — `rg -n "functions\.invoke|/functions/v1/" supabase/functions`. Werdykt: synchroniczny łańcuch edge fn dłuższy niż 2 kroki (próg jak slice → slice, 01 › Dekompozycja wewnątrz monolitu, pkt 6c) = jedna jednostka awarii i wdrożenia (rozproszony monolit) -> ADR z powodem, kolejka (`background_jobs`) albo scal w jedną funkcję
 - *import w głąb cudzego modułu / cykle* — `node ~/.claude/bin/module-boundaries.js --help` (uruchom na repo); `rg -n "from ['\"]\.\./\.\./[a-z-]+/(internal|lib)" src`
 - *wspólny kod kopiowany między funkcjami* — `ls supabase/functions/_shared 2>/dev/null; rg -n "^import .* from ['\"]\.\./[a-z-]+/" supabase/functions`
 - *jedna zmiana biznesowa dotyka wielu katalogów (change amplification)* — `node ~/.claude/bin/module-boundaries.js --repo . --report` (linia „Change amplification"; szczegóły → 01 › Dekompozycja wewnątrz monolitu)

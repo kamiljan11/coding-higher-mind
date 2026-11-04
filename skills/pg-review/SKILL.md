@@ -16,7 +16,7 @@ Budzet: T1 ~1x, T2 ~4x, T3 ~8-10x kosztu jednej recenzji diffu. Wszystko w jedny
 
 ## 0. Przygotowanie (0 tokenow)
 ```bash
-RUN="${TEMP:-${TMPDIR:-/tmp}}/pg-review-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$RUN"
+RUN="$HOME/.cache/pg-review-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$RUN"   # nie /tmp: tmpfs znika przy crashu/restarcie razem z dowodem recenzji (2026-11-02); nazwa pg-review-* wymagana (RUN_DIR_RX w hooks/lib/protected-paths.js)
 cd <repo>
 node ~/.claude/bin/pg-self-approve.js --diff . > "$RUN/diff.patch" && [ -s "$RUN/diff.patch" ] || { echo "diff.patch pusty/blad — STOP"; exit 1; }
 git status --porcelain > "$RUN/status.txt"   # kanoniczny diff (HEAD + nieśledzone) — pg-self-approve porownuje go bajt w bajt
@@ -50,7 +50,7 @@ Prompt KAZDEGO findera (krotki; rola ma pelna rubryke w `~/.claude/agents/<rola>
 ```
 Repo: <sciezka>. Tier: <T>. Twoj wycinek: <RUN>/diff.<rola>.patch (czytaj CALY). Pelny diff (kontekst, gdy potrzebny): <RUN>/diff.patch diff_sha256=<SHA>.
 Trafienia skryptu z rubryk: <RUN>/prechecks.json, klucz "<rola>" — kazde ocen (finding z dowodem albo FP; komenda w commands_run). Opis zadania: <1-3 linie / PRD-lite>.
-Zapisz findings DOKLADNIE wg schematu z twojej definicji do: <RUN>/findings.<rola>.json.
+Zapisz findings DOKLADNIE wg schematu z twojej definicji do: <RUN>/findings.<rola>.json (z `files_read` = sciezki repo z naglowkow `diff --git` plikow wycinka, ktore przejrzales; sciezka patcha sie nie liczy).
 Odpowiedz koncowa ZACZNIJ od tego samego obiektu JSON {"findings": [...]} (bez wstepu; to on jest dowodem), potem <= 10 linii. Nie edytuj zadnego pliku w repo.
 ```
 Prompt zawiera DOSLOWNIE `diff_sha256=<SHA>` i sciezke `<RUN>/diff.patch` (pelny diff) — `pg-merge-dowod`/`pg-self-approve` wiaza transkrypt
@@ -78,7 +78,9 @@ Wchodzi do agregacji jak kazdy dzial. Drugi dev server (inna organizacja / walut
 ```bash
 node ~/.claude/bin/pg-aggregate.js "<RUN jako SCIEZKA literalna>" --repo "<sciezka repo>" --tier <T>   # exit 0 APPROVE / 1 REQUEST CHANGES / 3 INCOMPLETE
 ```
-Findings bez `evidence`/`repro_cmd` sa odrzucane automatycznie. `needs_verification` = lista dla weryfikatora:
+Findings bez `evidence`/`repro_cmd` sa odrzucane automatycznie. `read_gaps` (plan F, observe 2026-11-02) = finder bez `files_read` albo z
+nieprzeczytanymi plikami swojego wycinka wg `slice.json` (pusty wycinek = caly diff); werdyktu nie zmienia, idzie do `gates.jsonl` jako
+`would_block` — luke czytania zglos w raporcie i odpal tego findera ponownie. `needs_verification` = lista dla weryfikatora:
 blocker (kazdy bez werdyktu) + major zgloszony przez 1 dzial. Minor zgloszony przez 1 dzial = `note` BEZ weryfikacji (2026-10-06, audyt #6/#7:
 r27 15/23 findings to minor, kazdy zjadal budzet weryfikatora i po `reproduced` stawal sie must_fix -> petla fixow; replay r27: needs_verification 22 -> 4).
 Minor zgodny z >= 2 dzialow = must_fix jak dotad. Konsekwencja dla auto-merge: samotny minor nie blokuje juz `pg-merge-bezpieczny` brakiem werdyktu.

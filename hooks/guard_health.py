@@ -64,8 +64,11 @@ HOOK_WIRING = [
     ("PreToolUse", "bash-guard.js"),
     ("PreToolUse", "memory-guard.js"),
     ("PreToolUse", "edit-guard.js"),
+    ("PreToolUse", "outbound-observe.js"),  # observe wysylki przez MCP po czytaniu tresci zewnetrznej (2026-11-03)
     ("PostToolUse", "loop-monitor.js"),
     ("PreCompact", "precompact-snapshot.js"),
+    ("PostCompact", "postcompact-summary.js"),  # kompakcja L3 (2026-11-02): streszczenie kompakcji na dysk
+    ("Stop", "context-checkpoint.js"),  # kompakcja L1 (2026-11-02): przypomnienie o checkpoincie przy 70/85 % okna
     ("SessionStart", "session-context.js"),
     ("SessionEnd", "auto-doc.py"),  # notatka sesji w Obsidianie (od 2026-10-05; wczesniej auto_doc.py nie byl wpiety)
 ]
@@ -78,14 +81,27 @@ TSC_B_SITES = [
     CLAUDE / "scheduled-tasks" / "fleet-pr-reviewer" / "SKILL.md",
 ]
 
-# auto-doc (2026-10-05): bledy hooka z ostatnich 24 h = RED (poprzedni auto_doc nie dzialal 2 tygodnie niezauwazony)
+# auto-doc (2026-10-05): bledy hooka z ostatnich 24 h = RED (poprzedni auto_doc nie dzialal 2 tygodnie niezauwazony).
+# Wpis "SKIP" (brak transkryptu: sesja usunieta przez aplikacje, 2026-11-04) to nie blad -> tylko licznik w opisie.
 _ad_log = CLAUDE / "logs" / "auto-doc.log"
 try:
     _ad_recent = [ln for ln in _ad_log.read_text(encoding="utf-8").splitlines()[-50:]
                   if ln[:19] >= (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()[:19]]
 except OSError:
     _ad_recent = []
-check("auto-doc: brak bledow w logs/auto-doc.log z ostatnich 24 h", not _ad_recent, (_ad_recent or [""])[-1][:160])
+_ad_skips = [ln for ln in _ad_recent if ln.split(" ", 1)[1:2] and ln.split(" ", 1)[1].startswith(("SKIP ", "brak transkryptu:"))]
+_ad_errors = [ln for ln in _ad_recent if ln not in _ad_skips]
+# martwy auto-doc mimo SKIP (np. CC zmienil transcript_path): >= 3 pominiecia i 0 notatek w 24 h. Historia 2026-10-06..11-04:
+# kazdy dzien z >= 3 SKIP mial notatki. Katalog = OUT_DIR z hooks/auto-doc.py (AUTO_DOC_DIR nadpisuje oba).
+_ad_out = Path(os.environ.get("AUTO_DOC_DIR") or HOME / "Obsidian" / "MAIN" / "Claude Code Sessions")
+try:
+    _ad_notes = sum(1 for f in _ad_out.glob("*.md") if f.stat().st_mtime >= (datetime.now(timezone.utc) - timedelta(hours=24)).timestamp())
+except OSError:
+    _ad_notes = 0
+if len(_ad_skips) >= 3 and not _ad_notes:
+    _ad_errors.append(f"{len(_ad_skips)} x SKIP i 0 notatek w {_ad_out} w 24 h — transcript_path nie dziala? ostatni: {_ad_skips[-1][:100]}")
+check("auto-doc: brak bledow w logs/auto-doc.log z ostatnich 24 h", not _ad_errors,
+      (_ad_errors or [""])[-1][:160] or (f"pominiete (SKIP): {len(_ad_skips)}, notatki 24 h: {_ad_notes}" if _ad_skips else ""))
 
 # 1. settings.json: hooki wpiete, pliki istnieja, matchery i timeouty (v3)
 try:
@@ -106,6 +122,16 @@ try:
     _pre = hooks.get("PreToolUse", [])
     _bg = " | ".join(g.get("matcher", "") for g in _pre if any("bash-guard" in h.get("command", "") for h in g.get("hooks", [])))
     check("bash-guard lapie tez desktop-commander start_process/interact (omijal matcher Bash)", "start_process" in _bg and "interact_with_process" in _bg, _bg)
+    check("bash-guard mierzy panel Terminal (mcp__terminal__run_in_terminal, observe 2026-11-03)", "mcp__terminal__run_in_terminal" in _bg, _bg)
+    _ob = [g.get("matcher", "") for g in _pre if any("outbound-observe" in h.get("command", "") for h in g.get("hooks", []))]
+    try:
+        _want = subprocess.run(["node", "-e", "process.stdout.write(require(process.argv[1]).MATCHER)", str(CLAUDE / "hooks" / "outbound-observe.js")],
+                               capture_output=True, text=True, timeout=20, check=False).stdout
+    except (OSError, subprocess.SubprocessError) as e:
+        _want = ""
+        _ob.append(f"node: {e}")
+    # kopia w settings.json musi byc DOKLADNIE wzorcem z hooka — inaczej nowe narzedzie z listy hooka nigdy do niego nie dotrze
+    check("outbound-observe: matcher w settings.json = MATCHER z hooks/outbound-observe.js", bool(_want) and _want in _ob, f"settings={_ob} hook={_want}")
     stop_ok = any(h.get("timeout", 60) >= 150 for g in hooks.get("Stop", []) for h in g.get("hooks", []) if "stop-gate" in h.get("command", ""))
     check("Stop stop-gate timeout >= 150 s", stop_ok, "lint+tsc+testy nie mieszcza sie w 60 s")
 except Exception as e:  # noqa: BLE001
@@ -190,6 +216,7 @@ if LANG_TOOLS:
 
 # 2f. telemetria bramek: skipy z ostatnich N dni (v3). Skip bez powodu = RED; reszta = info do logu.
 counts: Counter = Counter()  # (hook, event) -> n; czytane tez nizej (obejscia ALLOW_* z pre-commit)
+outbound_line = ""  # zywotnosc outbound-observe (sekcja 2f), drukowana po info
 window_events: list = []  # zdarzenia z okna (bez redirected) dla lang_gap_health (ADR-0010) i sekcji G3; puste, gdy brak gates.jsonl
 if GATES_LOG.exists():
     since = datetime.now(timezone.utc) - timedelta(days=GATES_WINDOW_DAYS)
@@ -260,6 +287,19 @@ if GATES_LOG.exists():
 else:
     check("gates.jsonl istnieje (hooki loguja)", False, "zaden hook nic nie zapisal — telemetria martwa albo hooki nie chodza")
 
+# Zywotnosc outbound-observe (audyt 2026-11-03): wysylki MCP w transkryptach vs wpisy OUTBOUND. Logika: hooks/outbound_health.py.
+# Poza `if GATES_LOG.exists()`: brak logu to wlasnie przypadek „hook nic nie zapisal” (code+ops review r4).
+# Pomiar, ktory padl, = RED (zepsuty czujnik nie moze wygladac na zdrowy hook; code+product review 2026-11-03).
+try:
+    if str(CLAUDE / "hooks") not in sys.path:
+        sys.path.insert(0, str(CLAUDE / "hooks"))
+    import outbound_health
+    _ob_ok, outbound_line = outbound_health.liveness(CLAUDE, datetime.now(timezone.utc) - timedelta(days=GATES_WINDOW_DAYS), window_events)
+except Exception as e:  # noqa: BLE001
+    _ob_ok, outbound_line = False, f"outbound-observe: pomiar zywotnosci padl ({type(e).__name__}: {e})"
+check("outbound-observe zyje: kazda wysylka MCP z transkryptow ma wpis OUTBOUND", _ob_ok,
+      outbound_line + " — repro: node bin/test_outbound_observe.js; python3 bin/test_outbound_health.py")
+
 # 2f2. golden suite bramek 0-tokenowych (pg-eval, ~5 s): recall/FP bramek na bliznach floty — regresja = RED
 rc, out = sh(["node", str(CLAUDE / "bin" / "pg-eval.js"), "--json"], timeout=120)
 try:
@@ -299,7 +339,9 @@ _c = sh([sys.executable, str(CLAUDE / "bin" / "claims-check.py"), "--min-anchors
 check("claims-check: liczby w streszczeniach PG zgodne ze zrodlem", _rc_out(_c)[0] == 0, (_rc_out(_c)[1].strip().splitlines() or ["brak wyniku"])[-1])
 # + Fala 0 pomiaru (2026-11-01, pg-review p345f): G3/G4, rejestr wynikow recenzji, wskaznik ucieczek.
 for _t in ("test_claims_check.py", "test_pg_self_check.py", "test_pg_map.py", "test_pg_export.py",  # narzedzia pracy nad PG (2026-10-19) + export = straznik prywatnosci (r12 ops)
-           "test_gate_effectiveness.py", "test_pg_escapes.py", "test_pg_outcome.js"):  # test_gate_log_fala0.js poza lista: gate-log kopiuje bypass do prod gates.jsonl (p345h code-1)
+           "test_gate_effectiveness.py", "test_pg_escapes.py", "test_pg_outcome.js", "test_adr_review_due.js",
+           "test_outbound_observe.js", "test_outbound_health.py"):  # outbound: observe wysylki MCP (2026-11-03), log w tmpdir
+    # test_gate_log_fala0.js poza lista: gate-log kopiuje bypass do prod gates.jsonl (p345h code-1)
     _r = sh(["node" if _t.endswith(".js") else sys.executable, str(CLAUDE / "bin" / _t)], timeout=300)
     check(f"{_t}: przypadki przechodza", _rc_out(_r)[0] == 0, (_rc_out(_r)[1].strip().splitlines() or ["brak wyniku"])[-1])
 
@@ -520,6 +562,13 @@ for _root in _roots:
             _local_override.append(_repo.name)
 if _local_override:
     info.append(f"WARN lokalny core.hooksPath (globalne bramki nie dzialaja): {', '.join(sorted(set(_local_override))[:8])}")
+# 6c2. Petla decyzji PG (OODA, 2026-11-02): ADR PG po terminie przegladu / „proponowane” po wdrozeniu. WARN, nie RED (observe).
+_adr = sh(["node", str(CLAUDE / "bin" / "adr-review-due.js"), "--repo", str(CLAUDE)], timeout=30)
+_adr_rc, _adr_out = _rc_out(_adr)
+if _adr_rc == 1 and _adr_out.startswith("adr-review-due:"):  # sh() zwraca 1 tez przy timeoucie / braku node (A29 code-2, ops-1)
+    info.insert(0, "WARN " + _adr_out.strip()[:300])
+elif _adr_rc != 0:
+    info.append(f"WARN adr-review-due: blad narzedzia (exit {_adr_rc})")
 # 6d. permissions.deny zawiera baseline (#10); sciezki absolutne w skladni `//` (inaczej CC traktuje je jako wzgledne).
 try:
     _deny = set(json.loads(read(CLAUDE / "settings.json")).get("permissions", {}).get("deny", []))
@@ -555,6 +604,8 @@ for r in red:
     print("RED:", r)
 for i in info[:12]:
     print("gates-7d:", i)
+if outbound_line:  # zawsze widoczne (info[:12] ucinalo outbound-observe/skipped za post-bash-edit)
+    print("gates-7d:", outbound_line)
 
 # Fala 0 (design §11.3-11.4): G3 + G4 jako OSOBNE bloki po liscie info (info[:12] by je uciela); tylko informacja, status bez zmian.
 # Logika: hooks/gate_effectiveness.py (czyste funkcje, jak lang_gap_health; test: bin/test_gate_effectiveness.py).

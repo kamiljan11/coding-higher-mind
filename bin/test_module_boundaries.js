@@ -96,6 +96,27 @@ it('secretLeaks: owner poza wlascicielem, stopien bez owners, SDK poza adapterem
   assert.equal(noOwners.length, 0, 'ponizej progu = cisza');
 });
 
+it('secretLeaks: shared = tabela przekrojowa poza liczeniem; edge fn dostaje wskazowke RPC/shared zamiast index.ts', () => {
+  const files = ['src/features/a/x.ts', 'src/features/b/y.ts', 'src/features/c/z.ts', 'supabase/functions/notify/index.ts'];
+  const usage = mb.tableUsage(files, () => "db.from('organizations'); db.from('vehicles')");
+  const refs = [{ file: 'supabase/functions/notify/index.ts', line: 1, table: 'organizations' }, { file: 'supabase/functions/notify/index.ts', line: 2, table: 'vehicles' }];
+  const plain = mb.secretLeaks(refs, [], usage, {});
+  assert.equal(plain.length, 2);
+  assert.match(plain[0].why, /edge fn zna tabele organizations .*wpisz do shared/);
+  assert.doesNotMatch(plain[0].why, /index\.ts/, 'edge fn nie zaimportuje index.ts slice\'a');
+  const withShared = mb.secretLeaks(refs, [], usage, { shared: ['organizations'] });
+  assert.deepEqual(withShared.map((l) => l.table), ['vehicles'], 'shared poza liczeniem, domenowa dalej sygnal');
+  const owned = mb.secretLeaks(refs.slice(1), [], usage, { owners: { vehicles: 'src/features/a' } });
+  assert.match(owned[0].why, /RPC\/widok wlasciciela/);
+  const slice = mb.secretLeaks([{ file: 'src/features/b/y.ts', line: 1, table: 'vehicles' }], [], usage, { owners: { vehicles: 'src/features/a' } });
+  assert.match(slice[0].why, /wolaj funkcje z jego index\.ts/, 'slice w procesie: wskazowka bez zmian');
+  assert.equal(mb.leakRules({ shared: 'profiles' }).problems.length, 1, 'zly typ shared = problem, nie wyjatek');
+  assert.equal(mb.leakRules({ shared: ['profiles'] }).shared.has('profiles'), true);
+  assert.match(mb.leakRules({ shared: ['vehicles'], owners: { vehicles: 'src/features/a' } }).problems[0], /owners i shared naraz.*vehicles/);
+  const direct = mb.secretLeaks([{ file: 'supabase/functions/helper.ts', line: 1, table: 'vehicles' }], [], usage, { owners: { vehicles: 'src/features/a' } });
+  assert.match(direct[0].why, /edge fn zna tabele vehicles/, 'plik wprost w supabase/functions = tez edge fn');
+});
+
 it('parseTableRefs: .from lamane przez Prettiera, myStorage/Observable/Promise.from to nie tabele', () => {
   const src = "const a = db\n  .from(\n    'users')\n  .select();\nx.myStorage.from('t2'); Observable.from('abc'); Promise.from('p');";
   assert.deepEqual(mb.parseTableRefs(src), [{ table: 'users', line: 2 }]);
@@ -163,6 +184,12 @@ it('analyze: cykl istniejacy w bazie = stary (nie blokuje); cykl dodany w diffie
   let code = 0;
   try { execFileSync(process.execPath, [path.join(__dirname, 'module-boundaries.js'), '--repo', root, '--base', 'origin/main'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) { code = e.status; }
   assert.equal(code, 1);
+  // z --from: wpis blocked niesie items (cykl + naruszenia warstw), zeby ocenic blokade po fakcie
+  try { execFileSync(process.execPath, [path.join(__dirname, 'module-boundaries.js'), '--repo', root, '--base', 'origin/main', '--from', 'pre-push'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) { code = e.status; }
+  assert.equal(code, 1);
+  const blockedLine = fs.readFileSync(process.env.PG_GATE_LOG, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.event === 'blocked').pop();
+  assert.ok(blockedLine.items.some((i) => i.startsWith('cykl: ')), JSON.stringify(blockedLine));
+  assert.ok(blockedLine.items.some((i) => /^src\/lib\/a\.ts:2 -> /.test(i)), JSON.stringify(blockedLine));
   fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(hooksOff, { recursive: true, force: true });
 });
 

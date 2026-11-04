@@ -51,7 +51,10 @@ floty nie dostaja `--from` (inaczej telemetria `gates.jsonl` miesza audyt z push
 | Test zmieniony razem z kodem | asercja kolejnosci pol JSON poprawiona w tym samym commicie | dozwolone tylko przy przeniesieniu odpowiedzialnosci i bez oslabienia asercji; powod w commicie |
 | Lawina zmian jednej reguly | ADR-0008 = 30 plikow w 12 katalogach | krok 3 (odsylacz zamiast kopii); `git diff --stat` w raporcie |
 | Testy zielone tylko z jednego cwd | `precompact-snapshot`: `path.resolve('C:/proj/a.ts')` przy cwd = `~/.claude` dawal „plik PG" (2026-10-19) | `pg-self-check` odpala testy z cwd = `~/.claude`, nie z katalogu testu |
+| Regula pod jeden incydent (prompt, rubryka, CLAUDE.md) | rubryki rosna o rule_id z kazdego incydentu; ta sama wada kodu: UNTRUSTED-GIT-CONFIG-WHACK-A-MOLE (`pg/cases.md`) | `pg/postmortem.md` › Naprawa instrukcji agenta: klasa + 2-3 warianty, pozytyw + bliski negatyw, po edycji rubryki przebieg roli na golden diffach (`pg-eval.js` = tylko bramki 0-tokenowe) |
 | Obejscie bash-guard skryptem | `edit_*.py` w scratchpadzie zapisywaly do `bin/` | krok 7; pieczec (`pg-seal --check`) |
+| Prywatna sciezka w pliku eksportu wykryta po commicie | a2e0118, bfb2e7e (`/home/<litera>/` w przykladzie) | `pg-self-check` -> `pg-export-public --check-only` (drzewo robocze, 2026-11-03) |
+| Telemetria zapisana do klonu | testy klonu z `HOME=<klon>/..`, a `pg-outcome.js` w tej samej powloce pisal `logs/review-outcomes.jsonl` klonu (A30/A31, 4 wiersze, 2026-11-02; `logs/` jest w .gitignore, wiec pull ich nie przenosi) | `pg-outcome`/`pg-aggregate` zawsze bez nadpisanego `HOME`; sciezka zapisu w wyniku `pg-outcome` = `~/.claude/logs/...` |
 
 Incydent (co sie stalo, dowod, data) idzie do `pg/cases.md`, bo to jedyny rejestr blizn. Tutaj dopisz tylko wiersz WZORCA podejscia
 z odsylaczem do blizny, a gdy da sie go zlapac komenda, dodaj test do `pg-self-check`.

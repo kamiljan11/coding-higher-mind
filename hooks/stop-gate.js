@@ -237,16 +237,44 @@ const AGGREGATE_DIR_RX =/pg-aggregate\.js["']?\s+(?:"([^"$]+)"|'([^'$]+)'|([^\s"
 // Narzedzia, ktore koncza prace przed zwroceniem wyniku (okno zamkniete). Wszystko inne (Agent, MCP, nowe) = do konca sesji.
 const SYNC_TOOLS = new Set(['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch', 'TodoWrite', 'ToolSearch', 'Skill']);
 
+// Edycje po ostatniej recenzji liczone PER REPO (2026-11-02: Write do /tmp, Obsidiana i drugiego repo w sesji wielorepo dawaly
+// falszywe [review] w repo bez zmian od recenzji). Tylko narzedzia ze ZNANYM plikiem (Edit/Write/...) licza sie per repo.
+// Komenda powloki liczy sie zawsze, jak dawniej: proba zgadywania sciezek z tekstu komendy dawala kolejne dziury fail-open
+// (spacja w sciezce, `>/x`, `cd "$HOME"/x`, glob/klamry, skrypty inline) — parser powloki w bramce to zly kompromis.
+const expandHome = (p) => String(p).replace(/^(~|\$HOME|\$\{HOME\})(?=\/|$)/, os.homedir());
+// realpath (root z git rev-parse jest rzeczywisty): zapis przez symlink do repo tez sie liczy. Plik/katalogi jeszcze
+// nieistniejace -> realpath najblizszego istniejacego przodka + reszta sciezki (nowy podkatalog za symlinkiem tez trafia).
+// t3EditAfterReview zostaje globalne: nadmiar = ponowna recenzja, kierunek bezpieczny.
+function realish(p) {
+  const tail = [];
+  let cur = p;
+  for (;;) {
+    try { return path.join(fs.realpathSync(cur), ...tail); } catch (e) { /* nie istnieje — idz w gore */ }
+    const up = path.dirname(cur);
+    if (up === cur) return p;
+    tail.unshift(path.basename(cur));
+    cur = up;
+  }
+}
+function insideRoot(root, file) {
+  const rel = path.relative(realish(path.resolve(root)), realish(path.resolve(cwd, expandHome(file))));
+  return rel === '' || (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel)); // `..foo` w repo = w repo
+}
+function editsAfterReviewIn(transcript, root) {
+  return transcript.editsSinceReview.filter((e) => !e.file || insideRoot(root, e.file)).length;
+}
+
 async function parseTranscript(transcriptPath) {
   const result = { available: false, editedFiles: [], editsAfterReview: 0, reviewerRan: false, reviewersRan: new Set(),
     startedAt: null, t3EditAfterReview: false, aggregateRuns: [], testRunAfterEdit: false, lastAssistantText: '', commandText: '',
-    skillsRan: new Set(), toolWindows: [] };
+    skillsRan: new Set(), toolWindows: [], editsSinceReview: [] };
   const commands = [];
   const toolStart = new Map();
   if (!transcriptPath || !fs.existsSync(transcriptPath)) return result;
   result.available = true;
   const onEdit = (file) => {
     result.editsAfterReview++;
+    result.editsSinceReview.push({ file: file || null });
     result.testRunAfterEdit = false;
     for (const run of result.aggregateRuns) run.editsAfter++;
     if (file && T3_PATH_RX.test(String(file).replace(/\\/g, '/'))) result.t3EditAfterReview = true;
@@ -310,7 +338,7 @@ async function parseTranscript(transcriptPath) {
       } else if (block.name === 'Agent') {
         const role = reviewerRoleOf(toolInput);
         if (role) {
-          result.reviewerRan = true; result.reviewersRan.add(role); result.editsAfterReview = 0; result.t3EditAfterReview = false;
+          result.reviewerRan = true; result.reviewersRan.add(role); result.editsAfterReview = 0; result.editsSinceReview = []; result.t3EditAfterReview = false;
           for (const run of result.aggregateRuns) run.reviewersAfter++; // finder/verifier PO agregacji = agregacja posrednia w toku
         }
       } else if (block.name === 'Skill') {
@@ -577,9 +605,27 @@ const ENV_REF_GATE = path.join(__dirname, '..', 'bin', 'env-ref-gate.js');
 const QA_PATHS_DOC = path.join('docs', 'CRITICAL-PATHS.md');
 const UI_CHANGE_RX = /\.(tsx|jsx|vue|svelte)$|[\/\\](routes?|pages|app)[\/\\]|supabase[\/\\]functions/i;
 
+// Podpowiedzi bez blokady raz na sesje i repo (uzytkownik 2026-11-02: „to sie pokazuje przy kazdej wiadomosci?"). Bez session_id
+// (testy, stary klient) = bez wygaszania. Ostrzezenia o ryzyku (DEV NA PRODZIE, LIMIT, anty-petla) ida zawsze przez nudgesOut.
+const nudgesSeenPath = input.session_id ? path.join(os.tmpdir(), 'claude-stop-nudges-' + crypto.createHash('md5').update(String(input.session_id)).digest('hex')) : null;
+// Znacznik w wspolnym tmp moze byc dowolny (np. `123` -> TypeError przy ladowaniu modulu = exit 1 = Stop bez bramek).
+const nudgesSeen = new Set((() => {
+  try {
+    const v = nudgesSeenPath ? JSON.parse(fs.readFileSync(nudgesSeenPath, 'utf8')) : [];
+    return Array.isArray(v) ? v.filter((k) => typeof k === 'string') : [];
+  } catch (e) { return []; }
+})());
+const nudgesSeenBefore = nudgesSeen.size;
+function nudgeOnce(root, text) {
+  const key = crypto.createHash('md5').update(root + '|' + text).digest('hex');
+  if (nudgesSeenPath && nudgesSeen.has(key)) return;
+  nudgesSeen.add(key);
+  nudgesOut.push(text);
+}
+
 function nudges(root, changed) {
   if (!changed.some((f) => TEST_FILE_RX.test(f))) {
-    nudgesOut.push('[stop-gate] Uwaga: zmieniono kod bez zmiany testow. Nowa logika => dopisz test (DoD). Refaktor/config => zignoruj.');
+    nudgeOnce(root, '[stop-gate] Uwaga: zmieniono kod bez zmiany testow. Nowa logika => dopisz test (DoD). Refaktor/config => zignoruj.');
   }
   if (fs.existsSync(ENV_REF_GATE)) {
     // execFileSync (tablica argumentow), nie string powloki: sciezka repo z metaznakami nie moze stac sie komenda
@@ -588,12 +634,12 @@ function nudges(root, changed) {
     if (env.status === 1) nudgesOut.push('[stop-gate] DEV NA PRODZIE: lokalny .env wskazuje na produkcyjny ref Supabase (PRR P15). Przelacz na staging/branch albo zadeklaruj `pg.single_env: true` z powodem w CLAUDE.md.\n' + String(env.stdout || '').split('\n').slice(0, 4).join('\n'));
   }
   if (changed.some((f) => UI_CHANGE_RX.test(f)) && fs.existsSync(path.join(root, QA_PATHS_DOC))) {
-    nudgesOut.push('[stop-gate] UI/route/edge fn zmienione i docs/CRITICAL-PATHS.md istnieje -> sciezki krytyczne na instancjach: `node ~/.claude/bin/qa-matrix.js --repo . --base-url <url>` albo dzial qa-reviewer (pg-review 1b). Na T3 z linia `pg.qa_url: <url>` w CLAUDE.md qa-reviewer staje sie WYMAGANY (narada D-2026-09-12, opcja C); bez niej = ostrzezenie.');
+    nudgeOnce(root, '[stop-gate] UI/route/edge fn zmienione i docs/CRITICAL-PATHS.md istnieje -> sciezki krytyczne na instancjach: `node ~/.claude/bin/qa-matrix.js --repo . --base-url <url>` albo dzial qa-reviewer (pg-review 1b). Na T3 z linia `pg.qa_url: <url>` w CLAUDE.md qa-reviewer staje sie WYMAGANY (narada D-2026-09-12, opcja C); bez niej = ostrzezenie.');
   }
   if (fs.existsSync(path.join(root, TEMPLATE_TEST))) {
     const list = sh('git ls-files -- "*.test.ts" "*.test.tsx" "*.spec.ts" "*.spec.tsx"', root, GIT_TIMEOUT_MS);
     const real = (list.out || '').split('\n').map((s) => s.trim()).filter((s) => s && !/src\/test\/example\.test\.ts$/.test(s) && !/^e2e\//.test(s));
-    if (!real.length) nudgesOut.push('[stop-gate] Uwaga: jedyny test jednostkowy to szablonowy src/test/example.test.ts — bramka testow pilnuje niczego.');
+    if (!real.length) nudgeOnce(root, '[stop-gate] Uwaga: jedyny test jednostkowy to szablonowy src/test/example.test.ts — bramka testow pilnuje niczego.');
   }
 }
 
@@ -817,6 +863,9 @@ function observeClaims(transcript, repos) {
 }
 
 function emitNudges() {
+  if (nudgesSeenPath && nudgesSeen.size > nudgesSeenBefore) {
+    try { fs.writeFileSync(nudgesSeenPath, JSON.stringify([...nudgesSeen])); } catch (e) { /* bez zapisu = najwyzej powtorna podpowiedz */ }
+  }
   if (!nudgesOut.length) return;
   process.stdout.write(JSON.stringify({ systemMessage: nudgesOut.join('\n') }) + '\n');
 }
@@ -880,7 +929,7 @@ async function main() {
       const missing = need ? need.required.filter((r) => !transcript.reviewersRan.has(r)) : [];
       // #14: edycja sciezki T3 PO ostatnim review = review ponownie (budzet 8 edycji dotyczy reszty).
       const t3Stale = need && need.tier === 'T3' && transcript.t3EditAfterReview;
-      const reviewed = transcript.reviewerRan && transcript.editsAfterReview <= POST_REVIEW_EDIT_BUDGET && missing.length === 0 && !t3Stale;
+      const reviewed = transcript.reviewerRan && editsAfterReviewIn(transcript, root) <= POST_REVIEW_EDIT_BUDGET && missing.length === 0 && !t3Stale;
       if (need && !reviewed) block('review', root,
         `Zmiana ${need.tier} (${need.why}) bez pelnej recenzji dzialowej. Wymagani recenzenci: ${need.reviewers}. ` +
         (missing.length && transcript.reviewerRan ? `BRAKUJE: ${missing.join(', ')} (odpalono: ${[...transcript.reviewersRan].join(', ') || 'nikogo'}). ` : '') +
@@ -916,7 +965,7 @@ async function main() {
         'sprawdz: `node ~/.claude/bin/sd-matrix-lint.js --repo .`. Procedura: ~/.claude/pg/design.md › G.');
     } else if (!sdRequired && archNeed && (archNeed.tier === 'T2' || archNeed.tier === 'T3')) {
       const hint = sdMatrixHint(root);
-      if (hint) nudgesOut.push(hint);
+      if (hint) nudgeOnce(root, hint);
     }
     if (!alreadyBlocked('arch-drift', root)) {
       const drift = archDrift(root, committed.shas, !transcript.available || committed.degraded);
@@ -924,7 +973,7 @@ async function main() {
         `Ta sesja odeszla od ustalonej architektury (${SD_MATRIX_DOC}, \`pg.sd_matrix: required\`):\n${drift.join('\n')}\n` +
         'Napraw sam w tej turze: cofnij zmiane w kodzie ALBO zaktualizuj wiersz macierzy (DECYZJA + dowod; zmiana decyzji = ADR w docs/adr/). ' +
         'Sprawdz: `node ~/.claude/bin/arch-check.js --repo . --since HEAD --new-only`. Procedura: ~/.claude/pg/design.md › G.');
-      if (drift) nudgesOut.push(`[stop-gate] Podpowiedz PG (bez blokady): drift od macierzy obszarow w tej sesji (${path.basename(root)}):\n${drift.join('\n')}`);
+      if (drift) nudgeOnce(root, `[stop-gate] Podpowiedz PG (bez blokady): drift od macierzy obszarow w tej sesji (${path.basename(root)}):\n${drift.join('\n')}`);
     }
     nudges(root, changed);
   }

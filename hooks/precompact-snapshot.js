@@ -54,10 +54,21 @@ const stripEnvelopes = (t) => String(t || '')
   .replace(/\[Image[^\]]*\]/g, '').trim();
 const clip = (t, n) => (t.length > n ? t.slice(0, n) + ' […]' : t);
 // Migawka lezy na dysku jawnym tekstem (ops-review): tokeny wklejone w prompt maskujemy przed zapisem.
-const SECRET_RX = /\b(ghp_|gho_|github_pat_|sk-ant-|sk-|sbp_|xox[abp]-|AKIA)[A-Za-z0-9_-]{8,}|\bBearer\s+[A-Za-z0-9._-]{20,}|\b[A-Fa-f0-9]{40,}\b|\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
+// TOKEN_RX = sekrety rozpoznawalne po ksztalcie (prefiks dostawcy, Bearer, JWT, blok PEM); A21 security: + Stripe
+// sk_live_/sk_test_/rk_live_/whsec_, Google AIza, klucz prywatny PEM. HEX_RX osobno: golym 40+ hex jest tez SHA commita.
+const TOKEN_RX = /\b(ghp_|gho_|github_pat_|sk-ant-|sk-|sk_live_|sk_test_|rk_live_|whsec_|sbp_|xox[abp]-|AKIA|AIza)[A-Za-z0-9_-]{8,}|\bBearer\s+[A-Za-z0-9._-]{20,}|\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g;
+const HEX_RX = /\b[A-Fa-f0-9]{40,}\b/g;
+// `password=...`, `api_key: ...` (A21 security): nazwa zostaje, wartosc znika. A22 security: tez nazwy z prefiksem z .env
+// (DB_PASSWORD=, OPENAI_API_KEY=, SUPABASE_SERVICE_ROLE_KEY=, GITHUB_TOKEN=) i klucz JSON w cudzyslowie ("password": "...").
+// Prefiks `[A-Za-z0-9_]*?` startuje tylko na granicy slowa (\b) -> koszt liniowy w dlugosci slowa, nie kwadratowy.
+const KV_SECRET_RX = /\b([A-Za-z0-9_]*?(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|_key|_token))(["']?\s*[=:]\s*)["']?[^\s"'&,;]{6,}/gi;
 // PII (ops-review runda 3): e-mail, kennitala (DDMMYY-NNNN), telefon z kierunkowym, IBAN, numer karty.
 const PII_RX = /[\w.+-]+@[\w-]+\.[\w.-]+|\b\d{6}-?\d{4}\b|\+\d{2,3}[\s-]?\d{3}[\s-]?\d{3,4}(?:[\s-]?\d{2,3})?\b|\b[A-Z]{2}\d{2}(?:\s?[A-Z0-9]{4}){3,7}\b|\b(?:\d[ -]?){13,19}\b/g;
-const redact = (t) => String(t || '').replace(SECRET_RX, '[REDACTED]').replace(PII_RX, '[PII]');
+const redactTokens = (t) => String(t || '').replace(TOKEN_RX, '[REDACTED]').replace(KV_SECRET_RX, '$1$2[REDACTED]');
+const redact = (t) => redactTokens(t).replace(HEX_RX, '[REDACTED]').replace(PII_RX, '[PII]');
+// Streszczenie kompakcji (postcompact-summary, A21 ops): SHA commitow i diff_sha256 musza przetrwac doslownie (Compact
+// Instructions w CLAUDE.md), wiec bez HEX_RX. Granica: dawny 40-hex token OAuth GitHuba nie zostanie zamaskowany (pg/known-limits.md).
+const redactKeepHashes = (t) => redactTokens(t).replace(PII_RX, '[PII]');
 // Wpisy „user", ktore nie sa poleceniami uzytkownika: streszczenie kompakcji, meta, echo hookow i skilli.
 const NOT_A_PROMPT_RX = /^(Stop hook feedback|Base directory for this skill|This session is being continued|Caveat: The messages below)/;
 
@@ -79,7 +90,7 @@ function readTail(file) {
 // ani koperta zamknieta wczesniej literalem (data A6 PoC) nie daje wklejki. Prawdziwa wklejka przed system-reminderem zostaje
 // (data A5: 7/34 wpisow). Blok nie-polecenie (Stop hook feedback) = brak wklejek.
 const FOREIGN_TAG_RX = /<\/?(task-notification|system-reminder|agent-message|teammate-message|command-\w+|local-command-stdout|local-command-caveat|bash-stdout|bash-stderr|bash-input)\b/i;
-// Ciecie na granicy tokenu: niedokonczony sekret na koncu nie umknie SECRET_RX (data A5: 39 znakow hex jawnie). Najwyzej 512 znakow
+// Ciecie na granicy tokenu: niedokonczony sekret na koncu nie umknie redact() (data A5: 39 znakow hex jawnie). Najwyzej 512 znakow
 // ogona, zeby wklejka bez spacji (base64, minifikat) nie znikala cala (data A6).
 // Petla zamiast regexu: niezakotwiczony /\S+$/ byl kwadratowy (security A6: ~150 ms na wklejke).
 // dropTail: zrzuca ostatni (przeciety) token, najwyzej 512 znakow; bez spacji w ogonie = twarde 512 znakow mniej.
@@ -90,7 +101,7 @@ const dropTail = (t) => {
   return t.slice(0, i > min ? i : min);
 };
 const clipToken = (t, n) => (t.length <= n ? t : dropTail(t.slice(0, n)) + ' […]');
-// redact PRZED ostatecznym cieciem (data A7): twarde ciecie bez spacji zostawialo 39 znakow hex, ktorych SECRET_RX ({40,}) nie lapal.
+// redact PRZED ostatecznym cieciem (data A7): twarde ciecie bez spacji zostawialo 39 znakow hex, ktorych HEX_RX ({40,}) nie lapal.
 // Okno PASTE_CLIP + 1024 ogranicza koszt redact(). Sekret przeciety granica okna nie przejdzie redact(), a redakcje wczesniej
 // moga przesunac go w pierwsze 20000 znakow (security A8 PoC) -> po redact okna zrzucany jest jego ogon (dropTail).
 const PASTE_WINDOW = PASTE_CLIP + 1024;
@@ -311,7 +322,7 @@ function sweep(keepSid) {
   }
 }
 
-module.exports = { readTranscript, stripEnvelopes, redact, entryPastes, pastePairs, FOREIGN_TAG_RX, NOT_A_PROMPT_RX, DIR };
+module.exports = { readTranscript, stripEnvelopes, redact, redactKeepHashes, entryPastes, pastePairs, FOREIGN_TAG_RX, NOT_A_PROMPT_RX, DIR };
 
 if (require.main === module) {
   try { main(); } catch (e) {

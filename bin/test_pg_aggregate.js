@@ -177,5 +177,53 @@ try {
   fs.rmSync(xrDir, { recursive: true, force: true });
 }
 
+// Plan F (observe, 2026-11-02): finder bez files_read albo bez plikow swojego wycinka = read_gaps; werdykt bez zmian.
+const rgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-agg-read-'));
+try {
+  fs.writeFileSync(path.join(rgDir, 'slice.json'), JSON.stringify({
+    files: [{ file: 'src/a.ts', roles: ['code'] }, { file: 'docs/RUNBOOK.md', roles: ['ops'] }],
+    roles: { code: { files: ['src/a.ts'] }, ops: { files: [] }, product: { files: ['docs/RUNBOOK.md'] } },
+  }));
+  fs.writeFileSync(path.join(rgDir, 'findings.code.json'), JSON.stringify({ files_read: ['./src/a.ts'], findings: [] }));
+  fs.writeFileSync(path.join(rgDir, 'findings.ops.json'), JSON.stringify({ files_read: ['/repo/src/A.ts'], findings: [] }));
+  fs.writeFileSync(path.join(rgDir, 'findings.product.json'), JSON.stringify({ findings: [] }));
+  const r = aggregate(rgDir, null, { requiredRoles: ['code', 'ops'], final: true });
+  const gap = (role) => r.read_gaps.find((g) => g.role === role);
+  check('files_read: wycinek przeczytany (./ i wielkosc liter) -> brak luki', !gap('code'), JSON.stringify(r.read_gaps));
+  check('files_read: pusty wycinek = caly diff; nieprzeczytany plik -> luka', gap('ops') && gap('ops').unread.join() === 'docs/RUNBOOK.md', JSON.stringify(gap('ops')));
+  check('files_read: wpis absolutny pasuje po koncowce sciezki', gap('ops') && !gap('ops').unread.includes('src/a.ts'));
+  check('files_read: brak pola -> luka missing_field', gap('product') && gap('product').missing_field === true);
+  check('files_read: observe — werdykt APPROVE mimo luk', r.verdict === 'APPROVE' && r.incomplete.length === 0, r.verdict + ' ' + r.incomplete.join('; '));
+  fs.rmSync(path.join(rgDir, 'slice.json'));
+  const r2 = aggregate(rgDir, null, { requiredRoles: ['code'] });
+  check('files_read: bez slice.json tylko brak pola jest luka', r2.read_gaps.length === 1 && r2.read_gaps[0].role === 'product', JSON.stringify(r2.read_gaps));
+  // CLI (A18): wpis would_block tylko z --final, do PG_GATE_LOG w tmpdir, exit 0 mimo luki (observe).
+  const { spawnSync } = require('child_process');
+  const logFile = path.join(rgDir, 'gates.jsonl');
+  const cli = (extra) => spawnSync('node', [path.join(__dirname, 'pg-aggregate.js'), rgDir, '--repo', rgDir, '--required', 'code', ...extra], {
+    encoding: 'utf8', env: Object.assign({}, process.env, { HOME: rgDir, PG_GATE_LOG: logFile }),
+  });
+  const entries = () => { try { return fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)); } catch (e) { return []; } };
+  const pre = cli([]);
+  check('files_read CLI: bez --final brak wpisu (wstepna agregacja nie dubluje)', pre.status === 0 && entries().length === 0, `rc=${pre.status} ${pre.stderr}`);
+  const fin = cli(['--final']);
+  const wb = entries().filter((e) => e.hook === 'pg-aggregate' && e.event === 'would_block' && e.gate === 'files-read');
+  check('files_read CLI: --final -> exit 0 i jeden would_block files-read', fin.status === 0 && wb.length === 1 && !/nie zapisany/.test(fin.stderr), `rc=${fin.status} ${fin.stderr} ${JSON.stringify(entries())}`);
+  check('files_read CLI: reason = rodzaj luki, detail per rola, origin test', wb[0] && wb[0].reason === 'no-field' && wb[0].detail === 'product:no-field' && wb[0].origin === 'test', JSON.stringify(wb[0]));
+  // log niezapisywalny (katalog logu = zwykly plik): exit dalej 0, a brak wpisu widac na stderr (A19)
+  const blocker = path.join(rgDir, 'not-a-dir');
+  fs.writeFileSync(blocker, '');
+  const bad = spawnSync('node', [path.join(__dirname, 'pg-aggregate.js'), rgDir, '--repo', rgDir, '--required', 'code', '--final'], {
+    encoding: 'utf8', env: Object.assign({}, process.env, { HOME: rgDir, PG_GATE_LOG: path.join(blocker, 'gates.jsonl') }),
+  });
+  check('files_read CLI: blad zapisu logu -> stderr, exit 0', bad.status === 0 && /files-read do gates\.jsonl nie zapisany: blad zapisu/.test(bad.stderr), `rc=${bad.status} ${bad.stderr}`);
+  // uszkodzony slice.json (files: [null]) nie moze zmienic werdyktu
+  fs.writeFileSync(path.join(rgDir, 'slice.json'), JSON.stringify({ files: [null], roles: { code: { files: [] } } }));
+  const broken = aggregate(rgDir, null, { requiredRoles: ['code'] });
+  check('files_read: uszkodzony slice.json -> wpis error, werdykt APPROVE', broken.verdict === 'APPROVE' && broken.read_gaps.some((g) => g.error), JSON.stringify(broken.read_gaps));
+} finally {
+  fs.rmSync(rgDir, { recursive: true, force: true });
+}
+
 console.log(failures ? `\n${failures} FAIL` : '\nwszystkie OK');
 process.exit(failures ? 1 : 0);

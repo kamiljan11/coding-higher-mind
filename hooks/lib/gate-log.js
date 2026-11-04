@@ -53,7 +53,8 @@ function log(entry) {
       fs.mkdirSync(path.dirname(PROD_LOG), { recursive: true });
       fs.appendFileSync(PROD_LOG, JSON.stringify(Object.assign({ ts: new Date().toISOString(), pid: process.pid, redirected: true }, entry, extra)) + '\n');
     }
-  } catch (e) { /* telemetria nigdy nie moze zablokowac sesji */ }
+    return true;
+  } catch (e) { return false; /* telemetria nigdy nie moze zablokowac sesji; false = wolajacy moze to zglosic (pg-aggregate) */ }
 }
 
 // Jakie POLA (nie wartosci) Claude Code przysyla hookowi — np. czy jest `agent_type` (read-only recenzenci, #15).

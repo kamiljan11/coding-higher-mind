@@ -260,6 +260,19 @@ with tempfile.TemporaryDirectory() as td:
             check("allowlista: sledzony plik z niezacommitowana zmiana = RuntimeError", False, "brak wyjatku")
         except RuntimeError as e:
             check("allowlista: sledzony plik z niezacommitowana zmiana = RuntimeError", "bin/pub.py" in str(e), str(e))
+        # --check-only (pg-self-check przed commitem) skanuje drzewo robocze zamiast odmawiac — nic nie zapisuje.
+        try:
+            check("allowlista allow_dirty: dirty plik zostaje w skanie bez wyjatku", "bin/pub.py" in exp.allowlist(allow_dirty=True))
+        except RuntimeError as e:
+            check("allowlista allow_dirty: dirty plik zostaje w skanie bez wyjatku", False, str(e))
+        check("allowlista allow_dirty: NOWY niesledzony plik (bin/) tez w skanie przed commitem",
+              "bin/private_fleet.py" in exp.allowlist(allow_dirty=True))
+        os.remove(os.path.join(td, "bin/pub.py"))
+        try:
+            check("allowlista allow_dirty: skasowany sledzony plik pominiety bez wyjatku", "bin/pub.py" not in exp.allowlist(allow_dirty=True))
+        except (RuntimeError, OSError) as e:
+            check("allowlista allow_dirty: skasowany sledzony plik pominiety bez wyjatku", False, str(e))
+        _w(td, "bin/pub.py", "prywatna zmiana\n")  # stan dla testu odmowy ponizej (dirty, nie skasowany)
         # Odmowa PRZED kasowaniem --out (code/ops A14): bez --check-only, --out = klon publiczny z plikiem-wartownikiem.
         # Mutant z allowlist() za rmtree przechodzil wszystkie testy (oba wczesniejsze exit 2 chodza z --check-only).
         pclone = os.path.join(td, "pubclone")
@@ -282,6 +295,11 @@ with tempfile.TemporaryDirectory() as td:
             check("pg/public: sledzony plik z niezacommitowana zmiana = RuntimeError", False, "brak wyjatku")
         except RuntimeError as e:
             check("pg/public: sledzony plik z niezacommitowana zmiana = RuntimeError", "pg/public/README.md" in str(e), str(e))
+        try:
+            check("pg/public allow_dirty: dirty + niesledzony plik w skanie bez wyjatku",
+                  sorted(exp.public_src_files(allow_dirty=True)) == ["pg/public/README.md", "pg/public/notatki-sesji.md"])
+        except RuntimeError as e:
+            check("pg/public allow_dirty: dirty plik w skanie bez wyjatku", False, str(e))
         _git(td, "checkout", "--", "pg/public/README.md")
         _w(td, "CLAUDE.md", "# x\n")
         _git(td, "add", "CLAUDE.md")

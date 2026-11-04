@@ -40,6 +40,10 @@ ponizej wlasne streszczenie, nie kopia. Termin EGM: `pg/GLOSSARY.md`.
    (takze prompty LLM i DEFAULT w DDL). Pusta sekcja bez `rg` = Major.
 7. **Niezmienniki:** ktore wiersze `docs/ARCHITECTURE.md` › Niezmienniki dotyka zmiana i jak zostaja prawdziwe.
    Tabela z wierszem „PRZYKLAD” z szablonu albo pusta, a repo ma dane/tenantow/pieniadze = Major (niezmienniki nie spisane).
+8. **Weryfikacja na prawdziwej zaleznosci (sekcja 10 szablonu):** zmiana dotyka migracji/RLS, edge fn, webhooka, platnosci
+   albo nowej domeny zewnetrznej -> co najmniej jedna komenda z §10 dziala na prawdziwej zaleznosci (pgTAP/psql na lokalnym
+   Supabase, curl na preview, Playwright z click/fill na sciezce krytycznej), w tym samym PR. Sam test z mockiem = Major
+   (blizna `POSTGREST-AMBIGUOUS-EMBED`: vitest i tsc zielone, kazdy ekran padal). Repo Lovable bez CLI: curl na preview.
 
 ## Wynik (do sekcji „Status recenzji” pliku designu)
 - Parafraza (5-8 linii).

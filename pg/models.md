@@ -28,6 +28,14 @@ modeli. Quirki modelu zyja TYLKO w bloku delty ponizej.** Zmiana modelu = zmiana
 - Historia append-only: edycja wczesniejszych wiadomosci uniewaznia bloki thinking.
 - Batchuj niezalezne tool calls w jednej rundzie.
 
+## Krok 0: czy to w ogole model? (AI_DEVS 4 S01E02/S03E01-02, 2026-11-03)
+Przed wyborem modelu pytanie, czy zadanie wymaga osadu. Najtanszy model to brak modelu (0 tokenow, deterministycznie).
+- Deterministyczne (liczenie, filtr, porownanie, dedup, format, walidacja) -> skrypt; model tylko tam, gdzie potrzebny osad.
+- Hurt (>~20 rekordow/plikow): skrypt liczy, filtruje i deduplikuje; model dostaje reszte w paczkach, a zwraca ID albo krotka etykiete. Po wczytaniu `liczba wczytanych == oczekiwana` (blad zwykle we wczytaniu, nie w liczeniu).
+- To samo zadanie drugi raz -> skrypt: w PG `bin/` z samoopisem i testem (`pg-map`), w projekcie `scripts/`.
+- Zadanie cykliczne (scheduled task): czesc deterministyczna = skrypt wolany z promptu, model interpretuje tylko jego wynik.
+Wzorzec w PG: agregacja recenzji = `bin/pg-aggregate.js` (kod), finderzy = model tylko do oceny.
+
 ## Model per rola per tier (regula uzytkownika: Sonnet do narzedziowki, Opus do trudnego rozumowania)
 
 | Rola | T1 | T2 | T3 |
@@ -66,6 +74,17 @@ Budzet tokenow: T0 0x, T1 ~1x, T2 ~4x, T3 ~8-10x „jednej recenzji diffu" (Anth
 - Kadencja: kazda edycja prompta roli -> szybki przebieg (deterministyczna czesc `bin/pg-eval.js` + 1 rola na Sonnet); **zmiana modelu domyslnego = zdarzenie bramkowane**: brak wdrozenia, jesli recall spadl > 10 p.p. albo FP-rate wzrosl > 2x; miesieczny baseline na przypietym modelu (ciche dryfy checkpointu).
 - Prompty rol i delty = pliki w git; regresja = jeden `git revert`.
 - Kiedy wychodzi nowy model: (1) odpal golden suite na nim, (2) dopisz NOWY blok delty na podstawie oficjalnej strony modelu (nie z pamieci), (3) porownaj metryki, (4) dopiero potem `model:` w frontmatter agentow. Nigdy odwrotnie.
+- Ablacja rusztowania (AI_DEVS 4 S05E01, 2026-11-03; pytanie, nie automat): system ma zyskiwac na lepszym modelu, a nie
+  tylko tyc. Przy zmianie modelu domyslnego, po kroku (3): ktory punkt delty STAREGO modelu (sekcja Delty) jest zbedny na
+  nowym? Delty to jedyne reguly przypisane do konkretnego modelu; regul PG-core, rubryk i bramek ta procedura nie obejmuje
+  (nie maja zapisanego zwiazku z modelem). Blok delty modelu, ktorego pipeline nie uzywa, pomin.
+  - Jednostka = jeden punkt delty. Dowod = kroki (1)-(3) na nowym modelu bez tego punktu, progi jak w Kadencji. Zestaw
+    diffow roli jest maly (`pg/eval/cases/`, kilkanascie fixture'ow: 1 przypadek ~ kilka p.p.), a przebieg roli
+    niedeterministyczny, wiec wynik = trop: punkt bez wplywu idzie do obserwacji na realnych recenzjach, nie do kosza.
+  - Luka: kroki (1)-(3) nie maja narzedzia, ktore uruchamia role na golden suite. Dwa rozne korpusy: `pg/eval/cases.json`
+    = bramki deterministyczne (`bin/pg-eval.js`, bez modelu), `pg/eval/cases/` = diffy dla rol (bez runnera i progow) — przebieg roli = subagent ze swiezym kontekstem, recznie; koszt ~ 1 subagent na punkt x role z ta delta.
+  Decyzja uzytkownika (brak decyzji = delta zostaje); wynik (co zdjete/zostawione, dane) -> ADR w `pg/adr/` (kolejny numer;
+  `bin/pg-map.py` dopisze go do `pg/INDEX.md`).
 
 ## Zasada niezaleznosci sygnalu (dogfood 2026-09-05)
 Weryfikator MUSI mierzyc czym innym niz to, co wykonawca optymalizuje. 4 blizny jednego wieczoru (zielony badge przez usuniecie audytu, „brak czerwonego" przy skonfliktowanym PR bez runow, „lokalnie YAML parsuje" przy niewaznym workflow, odpiety SHA po odswiezeniu szablonu) zlapal wylacznie SYGNAL OBCY wykonawcy: semgrep w CI, `mergeable_state`, `run.name == run.path`, regex na `uses:`. Metryka, ktora agent widzi i moze poprawic wprost, przestaje byc miara (Goodhart; MAST FM-2.x). Przy projektowaniu bramki pytaj: „czy agent moze zzielenic ten sygnal bez naprawy?" — jesli tak, to nie jest bramka.

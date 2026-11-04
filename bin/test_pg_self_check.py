@@ -1,5 +1,6 @@
 """Testy bin/pg-self-check.py na tymczasowym repo: dobor testow, skladnia, stare odwolania, konsumenci, exit 0/1/2."""
 import atexit
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -108,6 +109,22 @@ git(nobin, "add", ".")
 git(nobin, "commit", "-q", "-m", "init")
 r = run(nobin)
 check("repo bez bin/ = exit 2 bez tracebacku", r.returncode == 2 and "Traceback" not in r.stderr, r.stdout + r.stderr)
+
+# Skan eksportu publicznego (2026-11-03, incydenty a2e0118, bfb2e7e: /home/<litera>/ w przykladzie): tylko dla wlasnego --root,
+# bez zapisu (--check-only) i z --out, ktorego nie ma (eksport odmawia niepustego katalogu).
+_spec = importlib.util.spec_from_file_location("pg_self_check", TOOL)
+assert _spec is not None and _spec.loader is not None
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+cmd = _mod.export_check_cmd()
+out_dir = cmd[cmd.index("--out") + 1]
+check("skan eksportu: --check-only, istniejacy skrypt, --out nie istnieje",
+      "--check-only" in cmd and os.path.isfile(cmd[1]) and cmd[1].endswith("pg-export-public.py") and not os.path.exists(out_dir), str(cmd))
+names = [n for n, _ in _mod.checks_for(root, True)]
+check("wlasny --root: skan eksportu wpiety w checki (obok pg-map i claims)", names == ["pg-map --check", "claims-check", "pg-export-public --check-only"], repr(names))
+check("obcy --root: tylko claims-check", [n for n, _ in _mod.checks_for(root, False)] == ["claims-check"])
+r = run(root)
+check("obcy --root: skan eksportu jawnie pominiety (UWAGA)", "skan eksportu i pieczec pominiete" in r.stdout + r.stderr, r.stdout + r.stderr)
 
 print("TESTY pg-self-check: " + ("wszystkie OK" if not fails else f"{len(fails)} FAIL"))
 sys.exit(1 if fails else 0)

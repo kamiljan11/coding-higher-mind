@@ -56,6 +56,9 @@ depend on it?"
 - **Why:** The cheapest architecture usually extends what you already run and what your team already knows. Integrations are where complexity and failure concentrate.
 - **Pushes:** Reuse the known toolbox (see `owner-stack.md`) by default. Each new external dependency adds a failure mode and a maintenance surface — count it.
 
+### Constraint check — the "we must" test
+Every stated constraint ("we must use X", "it has to be real-time") gets three questions before it shapes the design: **source** (law, contract, client, or habit?), **consequence of violating it** (fine, lost client, nothing?), **any other way** to satisfy it. A constraint with no source and no consequence is a preference — treat it as a weighted criterion, not a wall.
+
 ## Turning answers into a leaning
 
 Pattern-match the answers, but treat this as a starting bias to defend or override with the
