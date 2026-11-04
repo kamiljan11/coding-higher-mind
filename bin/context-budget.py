@@ -9,6 +9,8 @@ raz (z cache), więc to on, a nie rozmiar plików pamięci, rośnie po cichu (po
 91k W45; `pg/GLOSSARY.md` › Stały kontekst). `--baseline RRRR-MM-DD` dokłada te same mediany z N sesji rozpoczętych
 przed datą i kolumnę zmiany, czyli odpowiada, SKĄD przyrost. Reszta kontekstu (prompt systemowy i schematy narzędzi
 Claude Code) nie ma załącznika: raport podaje ją jako SZACUNEK „kontekst - załączniki / CHARS_PER_TOKEN".
+Licznik „skille bez opisu": lista skilli ma stały limit znaków (~30k, pomiar 2026-11-04), więc nadmiar skilli nie
+rośnie w kontekście, tylko traci opisy (sama nazwa = model rzadko go wywoła). To jest sygnał, nie znaki.
 Uruchom przed i po zmianie CLAUDE.md, skilli, hooków SessionStart/UserPromptSubmit albo listy serwerów MCP.
 Exit: 0 = raport, 2 = brak sesji z odpowiedzią albo 0 znaków załączników przy niezerowym kontekście (zły --root albo
 zmieniony format transkryptu — nie „kontekst 0"). Nic nie wysyła, nic nie modyfikuje.
@@ -24,6 +26,7 @@ import datetime as dt
 import glob
 import json
 import os
+import re
 import statistics
 import subprocess
 import sys
@@ -31,6 +34,8 @@ import tempfile
 from typing import Any
 
 SKILL_LINE_PREFIX = "- "
+# wiersz listy skilli bez opisu: "- nazwa" (opis zaczyna sie od ": "); slug bez spacji, wiec punktor z opisu nie pasuje
+NO_DESC_RX = re.compile(r"- [A-Za-z0-9_.-]+(?::[A-Za-z0-9_.-]+)?")  # plugin:skill; "- nazwa:" (pusty opis) nie pasuje
 USAGE_KEYS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 SCRIPT_EXT = (".js", ".py", ".sh", ".mjs", ".cjs")
 # Przelicznik znaki -> tokeny tylko dla wiersza „reszta" (szacunek; tekst PL/EN + JSON, nie mierzony tokenizerem).
@@ -75,6 +80,8 @@ def usage_tokens(usage: dict[str, Any]) -> int:
 def preamble(path: str, local_skills: set[str], tracked: set[str] | None = None) -> dict[str, Any] | None:
     """Znaki per źródło przed pierwszą odpowiedzią z niezerowym kontekstem + jej kontekst i start sesji; None = brak."""
     chars: collections.Counter[str] = collections.Counter()
+    listed = 0
+    no_desc: list[tuple[str, str]] = []  # (skill, wlasciciel) w kolejnosci listy
     started = None
     with open(path, encoding="utf-8", errors="replace") as fh:
         for line in fh:
@@ -89,7 +96,8 @@ def preamble(path: str, local_skills: set[str], tracked: set[str] | None = None)
             if rec.get("type") == "assistant" and isinstance(msg, dict) and isinstance(msg.get("usage"), dict):
                 ctx = usage_tokens(msg["usage"])
                 if ctx:  # odpowiedz syntetyczna (model <synthetic>, 0 tokenow) nie jest pierwsza odpowiedzia modelu
-                    return {"context_tokens": ctx, "started": started, "chars": dict(chars)}
+                    return {"context_tokens": ctx, "started": started, "chars": dict(chars),
+                            "skills": {"listed": listed, "no_desc": no_desc} if listed else None}
                 continue
             att = rec.get("attachment")
             if rec.get("type") != "attachment" or not isinstance(att, dict):
@@ -98,7 +106,12 @@ def preamble(path: str, local_skills: set[str], tracked: set[str] | None = None)
             if kind == "skill_listing":
                 for row in str(att.get("content") or "").splitlines():
                     if row.startswith(SKILL_LINE_PREFIX):
-                        chars[skill_owner(row[len(SKILL_LINE_PREFIX):].split(": ", 1)[0], local_skills, tracked)] += len(row) + 1
+                        name = row[len(SKILL_LINE_PREFIX):].split(": ", 1)[0].rstrip()
+                        owner = skill_owner(name, local_skills, tracked)
+                        chars[owner] += len(row) + 1
+                        listed += 1
+                        if NO_DESC_RX.fullmatch(row.rstrip()):
+                            no_desc.append((name, owner))
             elif kind == "deferred_tools_delta":
                 for name in att.get("addedNames") or []:
                     chars[tool_owner(str(name))] += len(str(name)) + 1
@@ -117,8 +130,12 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Mediana kontekstu i mediana znaków per źródło (brak źródła w sesji = 0)."""
     keys = sorted({k for r in rows for k in r["chars"]})
     med = {k: int(statistics.median([r["chars"].get(k, 0) for r in rows])) for k in keys}
+    lists = [r["skills"] for r in rows if r.get("skills")]  # rows z pick(): najnowsza sesja pierwsza
+    skills = {"sessions": len(lists), "listed_median": int(statistics.median([s["listed"] for s in lists])),
+              "no_desc_median": int(statistics.median([len(s["no_desc"]) for s in lists])),
+              "no_desc_local_latest": [n for n, o in lists[0]["no_desc"] if o.startswith("skill ~/.claude/skills")]} if lists else None
     return {"sessions": len(rows), "context_tokens_median": int(statistics.median([r["context_tokens"] for r in rows])) if rows else 0,
-            "chars_median": dict(sorted(med.items(), key=lambda kv: -kv[1]))}
+            "chars_median": dict(sorted(med.items(), key=lambda kv: -kv[1])), "skills": skills}
 
 
 def rest_tokens(summary: dict[str, Any]) -> int:
@@ -139,6 +156,13 @@ def render(summary: dict[str, Any], baseline: dict[str, Any] | None = None, top:
         out.append("uwaga: podzial skilli sledzone/niesledzone/konto wg DZISIEJSZEGO dysku i gita, takze dla sesji bazowych")
     if not tracked_known:
         out.append("uwaga: katalog skilli bez gita -> bez podzialu sledzone/niesledzone")
+    sk = summary.get("skills")
+    if sk:
+        base_sk = (baseline or {}).get("skills")
+        out.append(f"skille na liscie (mediana): {sk['listed_median']}, bez opisu: {sk['no_desc_median']}"
+                   + (f" (baza {base_sk['no_desc_median']} z {base_sk['listed_median']})" if base_sk else ""))
+        if sk["no_desc_local_latest"]:
+            out.append(f"bez opisu z ~/.claude/skills, najnowsza sesja ({len(sk['no_desc_local_latest'])}): " + ", ".join(sk["no_desc_local_latest"]))
     out.append("")
     if baseline:
         base = baseline["chars_median"]
@@ -222,6 +246,19 @@ def self_test() -> int:
         check("preamble: narzedzia per serwer", c.get("narzedzia mcp rea") == len("mcp__rea__a") + 1 and c.get("narzedzia wbudowane") == len("WebFetch") + 1)
         check("preamble: instrukcje i hook po nazwie skryptu, pusta komenda = ?", c.get("instrukcje /x/CLAUDE.md") == 5 and c.get("hook session-context.js") == 3 and c.get("hook ?") == 2)
         check("preamble: lista agentow i instrukcje MCP", c.get("agent_listing_delta", 0) > 0 and c.get("mcp_instructions_delta", 0) > 0)
+        check("preamble: skille na liscie 2, bez opisu 0", got is not None and got["skills"] == {"listed": 2, "no_desc": []})
+        nd = os.path.join(tmp, "n.jsonl")
+        listing = "- pg-review: opis\n- verify-audit \n- legal:x\n- punktor z opisu ze spacjami\n- zly: \nALWAYS use"
+        with open(nd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "attachment", "attachment": {"type": "skill_listing", "content": listing}}) + "\n" + json.dumps(recs[-2]) + "\n")
+        g = preamble(nd, {"pg-review", "verify-audit"})
+        check("preamble: bez opisu = sam slug; punktor ze spacjami i 'nazwa: ' to nie brak opisu",
+              g is not None and g["skills"]["no_desc"] == [("verify-audit", "skill ~/.claude/skills"), ("legal:x", "skill plugin legal")])
+        sm = summarize([g] if g else [])
+        check("summarize/render: licznik bez opisu + lokalne z najnowszej sesji",
+              sm["skills"] == {"sessions": 1, "listed_median": 5, "no_desc_median": 2, "no_desc_local_latest": ["verify-audit"]}
+              and "bez opisu: 2" in render(sm) and "najnowsza sesja (1): verify-audit" in render(sm))
+        check("summarize: sesje bez listy skilli = brak licznika", summarize([{"context_tokens": 1, "chars": {}}])["skills"] is None)
         check("preamble: zalacznik miedzy syntetyczna a 1. odpowiedzia sie liczy, po niej nie", c.get("hook between.js") == 1 and "hook late.js" not in c)
         empty = os.path.join(tmp, "e.jsonl")
         with open(empty, "w", encoding="utf-8") as fh:
