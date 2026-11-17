@@ -12,7 +12,7 @@ PG to działający system stojący za firmą programistyczną jednej osoby: ~40 
 
 To repozytorium jest tym systemem, wyeksportowanym i zsanityzowanym, żeby dało się go zainstalować na własnej maszynie w pięć minut. Długi opis z diagramami: **[kamiljan.com/claude](https://kamiljan.com/claude)**.
 
-> **Języki.** Kod jest jeden; język wybierasz konfiguracją. Protokół wstrzykiwany w każdą sesję ma pełną wersję angielską i polską (`PG_LANG=en|pl` w `~/.claude/settings.json` → `env`; instalator ustawia go z locale maszyny, `--lang=en|pl` nadpisuje). Komunikaty blokad hooków są dwujęzyczne (PL + linia `BLOCKED: …` z wyjątkiem). README jest w dwóch wersjach (`README.md` / `README.pl.md`), dokumentacja w `docs/` po angielsku, protokół VERIFIED także po polsku w `docs/pl/`. Doktryna (`pg/*.md`) i rubryki recenzentów (`agents/*.md`) są po polsku — model czyta je bez problemu.
+> **Języki.** Kod jest jeden; język wybierasz konfiguracją. Protokół wstrzykiwany w każdą sesję ma pełną wersję angielską i polską (`PG_LANG=en|pl` w `~/.claude/settings.json` → `env`; instalator ustawia go z locale maszyny, `--lang=en|pl` nadpisuje). Komunikaty blokad są dwujęzyczne: bramki gita mają linię `BLOCKED: …`, strażnik komend dopisek `(EN: …)`; w obu jest powód i wyjątek (fraza działa też jako `allow ALLOW_X`). README jest w dwóch wersjach (`README.md` / `README.pl.md`), dokumentacja w `docs/` po angielsku, protokół VERIFIED także po polsku w `docs/pl/`. Doktryna (`pg/*.md`) i rubryki recenzentów (`agents/*.md`) są po polsku — model czyta je bez problemu.
 
 ---
 
