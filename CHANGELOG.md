@@ -5,6 +5,31 @@ into these releases.
 
 ## [Unreleased]
 
+## [1.10.0] — 2026-11-17
+
+Two weeks of private work in one export: a knowledge ledger that checks which sources the system actually uses, a
+process map kept as data, a usage loop that proposes rule changes from existing logs, more SQL and review prechecks,
+and two export fixes found while preparing this release.
+
+- **Knowledge ledger.** `bin/ledger-check.py` (closure check with a usage report and an `_ignored` list with reasons),
+  `bin/ledger-search.py` (read entry point with a usage log and `--unused`), `bin/ledger-trend.py` (each measurement
+  against the previous one), `bin/ledger-import-generic.py` (importer that refuses records without a verbatim quote),
+  `bin/ledger-trigger-fill.py` (fills triggers deterministically from evidence cites), `bin/coverage-ledger.py`.
+- **Process map as data.** `pg/process-map.json` with `bin/process-map-lint.py` (holes and orphans) and
+  `bin/process-map-render.py` (owner page).
+- **Usage loop.** `hooks/usage_loop.py` adds a section to `guard_health` with rule-change candidates taken from existing
+  logs; `bin/skill-usage.py` counts real skill use from transcripts, including subagents. Safety rules are never
+  reported as dead.
+- **More checks, observe mode first.** `sql-migration-lint` R15/R16 (bare `auth.uid()` in RLS, bulk grants, FK to a
+  tenant table from a table without an org column); prechecks for HTTP clients beyond `fetch`, inserts without dedup,
+  skipped tests, React index keys, `target=_blank` without `rel`; `merge-integrity` reports one migration version used
+  by two files; `bash-guard` observes commands that destroy Docker volumes; a pre-commit observe gate for the
+  `service_role` key in client code.
+- **Export fixes.** Claude Code routines are exported from an allowlist (`ROUTINES`), like skills: a new routine stays
+  private until it is listed. The export refuses to run when a listed skill is a dead link
+  (`bin/pg-skill-links.py --fix` repairs links after the app moves its plugin folders), instead of shipping fewer skills.
+- **Docs.** Troubleshooting table in both READMEs.
+
 ## [1.9.0] — 2026-11-04
 
 Three weeks of maintenance mode collected into one release: gate measurement, plan-first review, a session index that

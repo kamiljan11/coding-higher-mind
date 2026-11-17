@@ -2,7 +2,7 @@
 
 # Coding Higher Mind — PG (PROMPT-GUARD) dla Claude Code
 
-**Wersja v1.9.0 — ostatnia zmiana 2026-11-04.** 16 wydań publicznych od 1.0.0 (2026-09-12). Każdy system potrzebuje czasu, żeby dojrzeć: ten jest młody, szybko się zmienia i mówi wprost o swoich granicach ([znane granice](pg/known-limits.md)).
+**Wersja v1.10.0 — ostatnia zmiana 2026-11-17.** 17 wydań publicznych od 1.0.0 (2026-09-12). Każdy system potrzebuje czasu, żeby dojrzeć: ten jest młody, szybko się zmienia i mówi wprost o swoich granicach ([znane granice](pg/known-limits.md)).
 
 **Bramki jakości, recenzenci-agenci, rutyny i protokół anty-halucynacyjny dla [Claude Code](https://docs.anthropic.com/en/docs/claude-code) i Claude Desktop — egzekwowane przez zdarzenia, nie przez silną wolę.**
 
@@ -36,7 +36,7 @@ To repozytorium jest tym systemem, wyeksportowanym i zsanityzowanym, żeby dało
 | **Narzędzia floty** | na żądanie / cyklicznie | ścisła ochrona gałęzi z nazw jobów workflow, merge PR tylko na aktualnym merge-ref, rollout pojedynczego pliku jako PR, dowód z produkcji z API Vercela (nigdy z ręcznie wpisanego URL), kopanie sesji i historii gita, cotygodniowe zdrowie strażników, miesięczna kalibracja recenzentów (ten sam defekt w dwóch opakowaniach musi dostać ten sam werdykt) | `bin/mas_*.py`, `scheduled-tasks/` |
 | **Samotesty** | `node bin/pg-selftest.js` | każda bramka ma test **pozytywny** (musi zablokować), pokrycie reguła→bramka sprawdza skrypt; indeks narzędzi w README jest generowany z nagłówków samych narzędzi (narzędzie bez samoopisu pokazuje się jako dług) | `bin/test_*.js`, `bin/pg-rule-coverage.js`, `bin/pg-map.py` |
 
-Policzone przez sam eksport, nie szacowane: 535 plików, 193 blizn, 19 skilli, 8 rutyn kodowych + 7 pulpitowych. Migawka dla 1.4.0 (2026-10-05): ~45 800 linii, 43 narzędzia, 15 zestawów testów, 11 hooków, 3 hooki gita, 9 agentów-recenzentów, 26 plików szablonu.
+Policzone przez sam eksport, nie szacowane: 537 plików, 193 blizn, 19 skilli, 8 rutyn kodowych + 7 pulpitowych. Migawka dla 1.4.0 (2026-10-05): ~45 800 linii, 43 narzędzia, 15 zestawów testów, 11 hooków, 3 hooki gita, 9 agentów-recenzentów, 26 plików szablonu.
 
 ---
 
@@ -52,6 +52,8 @@ claude plugin install higher-mind-skills@coding-higher-mind
 W sesji działa to samo jako `/plugin marketplace add kamiljan11/coding-higher-mind`. Skille uruchamiasz jako `/higher-mind-skills:<nazwa>`, a Claude dobiera je też sam po opisach. Jeden skill: skopiuj `skills/<nazwa>/` do `~/.claude/skills/`. Pełna lista z jednozdaniowymi opisami jest w [`skills.json`](skills.json) i na [kamiljan.com/claude](https://kamiljan.com/claude).
 
 ## Instalacja całego systemu (5 minut)
+
+**Instalacja przez asystenta AI:** powiedz mu *„Zainstaluj Coding Higher Mind na tej maszynie, według INSTALL.md z https://github.com/kamiljan11/coding-higher-mind”*. [INSTALL.md](INSTALL.md) to procedura krok po kroku z oczekiwanym wynikiem każdej komendy i warunkami zatrzymania (po angielsku).
 
 Wymagania: **Node ≥ 20**, **git**, Claude Code. Opcjonalnie: Python 3 + `ruff` + `pyright` (repo w Pythonie), narzędzia każdego innego języka, w którym piszesz (Go, Rust, JDK, gcc, .NET, PHP, shellcheck, Deno; brak jest logowany, nie udawany), `gitleaks` (CI i tak go uruchamia), klient PostgreSQL albo Docker (drill backupu).
 
@@ -75,6 +77,19 @@ Co obiecuje instalator (przeczytaj `install.mjs`, to około 210 linii):
 Deinstalacja: `node uninstall.mjs` (usuwa rejestracje hooków i blok w CLAUDE.md; drukuje komendę `rm` na pliki — kasowanie to Twoja decyzja).
 
 Windows działa przez Git Bash (hooki to `sh`), macOS i Linux natywnie. Jedyny wspierany katalog to `~/.claude`, bo stamtąd czyta Claude Code.
+
+### Gdy coś nie działa
+
+| Widzisz | Przyczyna | Co zrobić |
+|---|---|---|
+| `npm install failed — workflow files will not be linted locally` | `npm` nie jest w PATH powłoki, z której uruchomiono instalator (częste przy nvm albo dowiązanym `node`) | Pominięty jest tylko lokalny lint workflowów GitHuba, reszta jest zainstalowana. Naprawa: `cd ~/.claude/tools/workflow-lint && npm install` |
+| Brak `[PROMPT-GUARD]` w sesji | Claude Code czyta hooki przy starcie sesji | Otwórz **nową** sesję. Dalej nic: `node ~/.claude/bin/pg-selftest.js` sprawdza, czy hooki są w `settings.json` |
+| `pg-selftest` pokazuje czerwoną linię | Test bramki nie przeszedł na tej maszynie (brak narzędzia, ścieżka, uprawnienia) | Linia podaje test; uruchom go osobno, np. `node ~/.claude/bin/test_slop_gates.js`, i przeczytaj pierwszy `FAIL` |
+| Akcja `ZABLOKOWANE / BLOCKED` | Bramka zadziałała celowo | Komunikat podaje regułę i poziom wyjątku. Napraw przyczynę; `--no-verify` jest blokowane z założenia |
+| Pliki `*.pg-new` | Zmieniłeś ten plik, instalator go nie nadpisał | Porównaj i scal ręcznie albo uruchom z `--force` (backup do `~/.claude/_pg-backup-<data>/`) |
+| Protokół w złym języku | Wybrany z locale maszyny | `node install.mjs --lang=pl` (albo `en`); wartość to `env.PG_LANG` w `settings.json` |
+
+Ponowne uruchomienie instalatora jest bezpieczne: niezmienione pliki są raportowane jako `identical`, hooki nie dublują się.
 
 ---
 

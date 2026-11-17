@@ -161,8 +161,13 @@ function mergeClaudeMd() {
   const file = path.join(CLAUDE, 'CLAUDE.md');
   let text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '# CLAUDE.md\n\n';
   const wrapped = `${BEGIN}\n${block}\n${END}`;
-  const present = text.includes(BEGIN) && text.includes(END);
-  text = present ? text.replace(new RegExp(`${BEGIN}[\\s\\S]*?${END}`), wrapped) : text.trimEnd() + '\n\n' + wrapped + '\n';
+  // Markers count only as whole lines: the block itself quotes them inline (`<!-- PG:BEGIN -->` / ...), and a substring
+  // match stopped at that quote, so every re-run left the old tail behind (2026-11-17: 72 -> 145 lines). A file already
+  // damaged that way heals on the next run: the first whole-line END is the real one.
+  const begin = new RegExp(`^${BEGIN}$`, 'm');
+  const block_rx = new RegExp(`^${BEGIN}$[\\s\\S]*?^${END}$`, 'm');
+  const present = begin.test(text) && block_rx.test(text);
+  text = present ? text.replace(block_rx, () => wrapped) : text.trimEnd() + '\n\n' + wrapped + '\n';
   log(`\nCLAUDE.md: PG block ${present ? 'replaced' : 'appended'} (${block.split('\n').length} lines)${DRY ? ' (dry-run)' : ''}`);
   if (!DRY) { if (fs.existsSync(file)) fs.copyFileSync(file, file + '.pg-bak'); fs.writeFileSync(file, text); }
 }
@@ -190,7 +195,10 @@ function workflowLint() {
 function selfTest() {
   if (DRY) { log('\nself-test skipped (dry-run)'); return; }
   log('\nSelf-test (node ~/.claude/bin/pg-selftest.js):');
-  const r = spawnSync(process.execPath, [path.join(CLAUDE, 'bin', 'pg-selftest.js')], { stdio: 'inherit' });
+  // Declining global git hooks is a valid choice, not a failure of the install.
+  const st = [path.join(CLAUDE, 'bin', 'pg-selftest.js'), ...(choices.wireGitHooks ? [] : ['--no-global-git'])];
+  const r = spawnSync(process.execPath, st, { stdio: 'inherit' });
+  if (r.status !== 0) process.exitCode = 1;  // an agent running the installer must see a red self-test in the exit code
   if (r.status === 0) {
     log('\nPG is active on this machine. Next steps:');
     log('  1. Open a new Claude Code session and type any non-trivial prompt — the reply starts with [PG] and the model sees [PROMPT-GUARD].');

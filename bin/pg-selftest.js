@@ -42,7 +42,11 @@ function main() {
     const r = run(t); rows.push({ name: t, ok: r.ok, detail: r.tail });
   }
   const h = hooksRegistered(); rows.push({ name: 'settings.json hooks', ok: h.ok, detail: h.detail });
-  const g = gitHooksPath(); rows.push({ name: 'git core.hooksPath', ok: g.ok, detail: g.detail });
+  // --no-global-git: the person declined global git hooks at install (per-repo wiring is their choice) -> not a FAIL.
+  const g = process.argv.includes('--no-global-git')
+    ? { ok: true, detail: 'pominiete (--no-global-git): hooki gita per repo — git config core.hooksPath ~/.claude/git-hooks' }
+    : gitHooksPath();
+  rows.push({ name: 'git core.hooksPath', ok: g.ok, detail: g.detail });
   let fails = 0;
   for (const r of rows) { if (!r.ok) fails++; console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.name.padEnd(28)} ${r.detail}`); }
   console.log(fails ? `pg-selftest: ${fails} FAIL — PG nie jest w pelni aktywny` : 'pg-selftest: OK — PG aktywny na tej maszynie');
