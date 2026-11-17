@@ -2,7 +2,7 @@
 
 # Coding Higher Mind — PG (PROMPT-GUARD) dla Claude Code
 
-**Wersja v1.9.0 — ostatnia zmiana 2026-11-04.** 16 wydań publicznych od 1.0.0 (2026-09-12). Każdy system potrzebuje czasu, żeby dojrzeć: ten jest młody, szybko się zmienia i mówi wprost o swoich granicach ([znane granice](pg/known-limits.md)).
+**Wersja v1.10.0 — ostatnia zmiana 2026-11-17.** 17 wydań publicznych od 1.0.0 (2026-09-12). Każdy system potrzebuje czasu, żeby dojrzeć: ten jest młody, szybko się zmienia i mówi wprost o swoich granicach ([znane granice](pg/known-limits.md)).
 
 **Bramki jakości, recenzenci-agenci, rutyny i protokół anty-halucynacyjny dla [Claude Code](https://docs.anthropic.com/en/docs/claude-code) i Claude Desktop — egzekwowane przez zdarzenia, nie przez silną wolę.**
 
@@ -75,6 +75,19 @@ Co obiecuje instalator (przeczytaj `install.mjs`, to około 210 linii):
 Deinstalacja: `node uninstall.mjs` (usuwa rejestracje hooków i blok w CLAUDE.md; drukuje komendę `rm` na pliki — kasowanie to Twoja decyzja).
 
 Windows działa przez Git Bash (hooki to `sh`), macOS i Linux natywnie. Jedyny wspierany katalog to `~/.claude`, bo stamtąd czyta Claude Code.
+
+### Gdy coś nie działa
+
+| Widzisz | Przyczyna | Co zrobić |
+|---|---|---|
+| `npm install failed — workflow files will not be linted locally` | `npm` nie jest w PATH powłoki, z której uruchomiono instalator (częste przy nvm albo dowiązanym `node`) | Pominięty jest tylko lokalny lint workflowów GitHuba, reszta jest zainstalowana. Naprawa: `cd ~/.claude/tools/workflow-lint && npm install` |
+| Brak `[PROMPT-GUARD]` w sesji | Claude Code czyta hooki przy starcie sesji | Otwórz **nową** sesję. Dalej nic: `node ~/.claude/bin/pg-selftest.js` sprawdza, czy hooki są w `settings.json` |
+| `pg-selftest` pokazuje czerwoną linię | Test bramki nie przeszedł na tej maszynie (brak narzędzia, ścieżka, uprawnienia) | Linia podaje test; uruchom go osobno, np. `node ~/.claude/bin/test_slop_gates.js`, i przeczytaj pierwszy `FAIL` |
+| Akcja `ZABLOKOWANE / BLOCKED` | Bramka zadziałała celowo | Komunikat podaje regułę i poziom wyjątku. Napraw przyczynę; `--no-verify` jest blokowane z założenia |
+| Pliki `*.pg-new` | Zmieniłeś ten plik, instalator go nie nadpisał | Porównaj i scal ręcznie albo uruchom z `--force` (backup do `~/.claude/_pg-backup-<data>/`) |
+| Protokół w złym języku | Wybrany z locale maszyny | `node install.mjs --lang=pl` (albo `en`); wartość to `env.PG_LANG` w `settings.json` |
+
+Ponowne uruchomienie instalatora jest bezpieczne: niezmienione pliki są raportowane jako `identical`, hooki nie dublują się.
 
 ---
 

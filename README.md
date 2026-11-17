@@ -2,7 +2,7 @@
 
 # Coding Higher Mind — PG (PROMPT-GUARD) for Claude Code
 
-**Version v1.9.0 — last updated 2026-11-04.** 16 public releases since 1.0.0 (2026-09-12). Every system needs time to mature: this one is young, changes fast and is honest about its limits ([known limits](pg/known-limits.md)).
+**Version v1.10.0 — last updated 2026-11-17.** 17 public releases since 1.0.0 (2026-09-12). Every system needs time to mature: this one is young, changes fast and is honest about its limits ([known limits](pg/known-limits.md)).
 
 **Quality gates, reviewer agents, routines and an anti-hallucination protocol for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and Claude Desktop — enforced by events, not by willpower.**
 
@@ -74,6 +74,19 @@ What the installer promises (read `install.mjs`, it is about 210 lines):
 Uninstall: `node uninstall.mjs` (removes hook registrations and the CLAUDE.md block; prints the `rm` command for the files — deleting is your call).
 
 Windows works through Git Bash (hooks are `sh`), macOS and Linux natively. Only `~/.claude` is supported as the install root, because Claude Code reads it from there.
+
+### Troubleshooting
+
+| You see | Cause | Fix |
+|---|---|---|
+| `npm install failed — workflow files will not be linted locally` | `npm` is not on the PATH of the shell that ran the installer (common with nvm or a symlinked `node`) | Only the local GitHub-workflow lint is skipped; everything else is installed. Fix: `cd ~/.claude/tools/workflow-lint && npm install` |
+| No `[PROMPT-GUARD]` in a session | Claude Code reads hooks when a session starts | Open a **new** session. Still nothing: `node ~/.claude/bin/pg-selftest.js` checks that the hooks are registered in `settings.json` |
+| `pg-selftest` reports a red line | A gate test failed on this machine (missing tool, path, permissions) | The line names the test; run it alone, e.g. `node ~/.claude/bin/test_slop_gates.js`, and read the first `FAIL` |
+| An action is `BLOCKED` | A gate fired on purpose | The message names the rule and the escape level. Fix the cause; `--no-verify` is blocked by design |
+| Files named `*.pg-new` | You had changed that file; the installer did not overwrite it | Compare the two and merge by hand, or re-run with `--force` (backup goes to `~/.claude/_pg-backup-<timestamp>/`) |
+| Protocol in the wrong language | Chosen from your machine locale | `node install.mjs --lang=en` (or `pl`); the value is `env.PG_LANG` in `settings.json`. Some gate messages are bilingual (Polish + English) |
+
+Re-running the installer is safe: unchanged files are reported as `identical`, hooks are not added twice.
 
 ---
 
