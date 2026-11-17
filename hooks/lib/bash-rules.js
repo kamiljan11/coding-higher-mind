@@ -1247,5 +1247,42 @@ function evaluate(raw, ctx) {
   return { blocks, observes, tokens: allowTokens(parsed, nqFull), overflow: parsed.overflow, notes: parsed.notes };
 }
 
+// English one-liner per rule id, printed by bash-guard as "(EN: …)" next to the Polish reason (public users, 2026-11-17).
+// Owner of the rule list = this file, so the translations live here; bin/test_hooks_v3.js checks every rule has one.
+const WHY_EN = {
+  'no-verify': 'git --no-verify skips the pre-commit/pre-push gates. Fix the lint/type error instead.',
+  'force-push': 'force-push is not allowed. Make a new commit or a new branch.',
+  'reset-hard': 'git reset --hard deletes uncommitted work. Commit or stash first.',
+  'git-clean': 'git clean -f deletes untracked files for good. Look at `git clean -n` first.',
+  'hooks-bypass': 'changing or disabling core.hooksPath bypasses the global git hooks (secret scan, lint, types).',
+  'remote-sql-destructive': 'destructive or unreadable SQL (file, stdin, heredoc) against a REMOTE database can lose data for good. ' +
+    'Allowed without a phrase: read-only `psql "$URL" -c "select ..."`, `supabase db push` migrations, a local database (localhost / docker exec), bin/backup-drill.py. ' +
+    'Destructive on remote: back up first (bin/backup-drill.py), work on a copy or branch, then the human decides.',
+  'rm-rf': 'recursive delete outside build/cache folders (node_modules, dist, .output, <build>/cache, /tmp…) cannot be undone. ' +
+    'The <build>/cache exception works only in a chain of rm/cd/echo/ls/pwd; split other commands into a separate call. ' +
+    'A target given by a variable or after `cd` is not expanded: use a literal absolute path. Otherwise move it to _to_delete/ or the trash.',
+  'rm-rf-win': 'recursive delete (Remove-Item -Recurse / rmdir /s) outside build/cache folders cannot be undone. Move it to _to_delete/.',
+  'pr-merge': 'merging a PR is the human\'s decision; the agent never merges on its own.',
+  'gh-delete': 'deleting a remote repo, branch or resource through the API cannot be undone and needs the human\'s approval.',
+  'secret-in-cmd': 'a secret in the command line ends up in the transcript and logs. Inject it from your secret store as an env var.',
+  'cred-bypass': 'reading credential stores (gh auth, .git-credentials, SSH/cloud keys) bypasses the one approved token source.',
+  'pipe-to-shell': 'curl|sh (or iwr|iex, base64 -d|sh) runs code nobody read. Download to a file, read it, then run it.',
+  'encoded-ps': 'powershell -EncodedCommand hides the command from review. Write the command in plain text.',
+  'docker-volume-destroy': 'this deletes Docker volumes (container data: databases, vaults) for good. Run `docker volume ls` and back up first.',
+  'chmod-system': 'recursive permission/owner change on a system or home folder cannot be undone safely.',
+  'persistent-env': 'persistent ALLOW_*/PG_* environment variables would bypass the gates and their telemetry permanently.',
+  'pg-env': 'PG_GATE_LOG / PG_OVERRIDES_DIR / PG_TRUSTED_ROOTS_FILE redirect gate telemetry and exceptions; tests only.',
+  'override-mint': 'calling lib/overrides.js from a command would let the agent grant itself an exception.',
+  'control-plane': 'writing, moving or deleting the PG control layer (~/.claude hooks, bin, agents, settings, mods) needs the human\'s phrase.',
+  'config-loosen': 'writing quality config (tsconfig/eslint/ruff/pyright/oxlint) from the shell skips the loosening check. Use the Edit/Write tool.',
+  'git-alias': 'a git alias that hides force-push/--no-verify/reset --hard/hooksPath or runs a shell is a way around the rules.',
+  'self-mint': 'the agent cannot grant itself an exception by starting Claude CLI with an "allow ALLOW_…" prompt.',
+  'source-env': 'sourcing or running a script that sets ALLOW_* or PG_* variables bypasses the gates.',
+  'claude-agent-override': 'Claude CLI flags that swap agents/settings/system prompt (--agents, --plugin-dir, --settings, --system-prompt*) change the control layer.',
+  'claude-plugin-change': 'installing, enabling or updating Claude Code mods/plugins changes the control layer (mods bypass settings hooks). Disabling/uninstalling is free.',
+  'readonly-agent': 'reviewers and the verifier are read-only; they may write only their findings/verdicts file in the run folder.',
+  'unparseable': 'the command cannot be read safely. Split it or write a script file (Write tool) and run the file.',
+};
+
 // MINT_PHRASE_RX tez dla hooks/schedule-guard.js (ten sam wzorzec frazy w promptach budzikow, 2026-11-14).
-module.exports = { evaluate, RULES, allowTokens, isSafeRmTarget, SAFE_DIRS, MINT_PHRASE_RX };
+module.exports = { evaluate, RULES, allowTokens, isSafeRmTarget, SAFE_DIRS, MINT_PHRASE_RX, WHY_EN };

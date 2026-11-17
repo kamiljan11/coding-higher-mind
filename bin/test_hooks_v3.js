@@ -101,6 +101,12 @@ BLOCK.push('rm -rf cache', 'rm -rf ~/cache', 'rm -rf src/cache', 'rm -rf node_mo
     // Dowiazanie tworzone w tym samym lancuchu: lstat go jeszcze nie widzi -> cel absolutny tez blokowany (security etap1f).
     const absCache = path.join(rmRoot, 'fresh', 'build', 'cache');
     check('bash-guard: ln -s + rm -rf <abs>/build/cache/* => blok', runHook('bash-guard.js', { tool_name: 'Bash', tool_input: { command: `ln -s ${HOME} ${absCache} && rm -rf ${absCache}/*` }, cwd: proj }).status === 2);
+    // English reasons for public users (2026-11-17): every rule has one, and a block prints it with the "allow" phrase.
+    const { RULES, WHY_EN } = require(path.join(HOOKS, 'lib', 'bash-rules'));
+    const noEn = [...RULES.map((x) => x.id), 'unparseable'].filter((id) => !WHY_EN[id]);
+    check('bash-rules: kazda regula ma WHY_EN', noEn.length === 0, noEn.join(', '));
+    const enBlock = runHook('bash-guard.js', { tool_name: 'Bash', tool_input: { command: 'git commit --no-verify -m x' }, cwd: proj });
+    check('bash-guard: blokada ma dopisek EN z fraza allow', enBlock.status === 2 && enBlock.stderr.includes('(EN: git --no-verify') && /"allow ALLOW_NOVERIFY"|ALLOW_NOVERIFY=1/.test(enBlock.stderr), enBlock.stderr);
     check('bash-guard: rm -rf <abs>/.next/cache bez dowiazania => wolno', runHook('bash-guard.js', { tool_name: 'Bash', tool_input: { command: `rm -rf ${path.join(proj, '.next', 'cache')}` }, cwd: proj }).status === 0);
     // Dowiazanie inna droga niz `ln -s` (security+code etap1g): kazda komenda spoza rm/cd/echo/ls wylacza wyjatek cache.
     for (const mk of [`ln --sym ${HOME} ${absCache}`, `mv /tmp/l ${absCache}`, `python3 -c "import os; os.symlink('${HOME}', '${absCache}')"`, `node -e "require('fs').symlinkSync('${HOME}', '${absCache}')"`, `printf -v 'a[$(ln -s ${HOME} ${absCache})]' x`]) {

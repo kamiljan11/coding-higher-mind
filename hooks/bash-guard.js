@@ -18,7 +18,7 @@ const FALLBACK = [
 ];
 let lib = null;
 try {
-  lib = { evaluate: require('./lib/bash-rules').evaluate, overrides: require('./lib/overrides'), gateLog: require('./lib/gate-log') };
+  lib = { evaluate: require('./lib/bash-rules').evaluate, whyEn: require('./lib/bash-rules').WHY_EN || {}, overrides: require('./lib/overrides'), gateLog: require('./lib/gate-log') };
   // Syncthing moze dowiezc nowy hook przed nowa biblioteka (data-review 2026-10-02) — brak API = zestaw awaryjny, nie fail-open.
   if (typeof lib.overrides.sourceOf !== 'function' || typeof lib.overrides.repoKey !== 'function') throw new Error('overrides.js bez sourceOf/repoKey (niezsynchronizowana wersja)');
 } catch (e) {
@@ -80,7 +80,8 @@ function main() {
   if (missing.length) {
     log({ hook: HOOK, event: 'blocked', reason: `override-required:${missing.join(',')}`, target: input.cwd || '' });
     process.stderr.write(`[bash-guard:override-required] ZABLOKOWANE / BLOCKED: ${missing.join(', ')} w komendzie bez zatwierdzenia. ` +
-      missing.map(howToGet).join(' ') + ' Jesli to skrot, a nie swiadoma decyzja — napraw przyczyne zamiast omijac bramke.\n');
+      missing.map(howToGet).join(' ') + ' Jesli to skrot, a nie swiadoma decyzja — napraw przyczyne zamiast omijac bramke.' +
+      ` (EN: ${missing.join(', ')} in the command without approval. ${missing.map(howToGetEn).join(' ')} If this is a shortcut, fix the cause instead.)\n`);
     return 2;
   }
   const blocks = result.blocks.filter((b) => !(b.esc && granted.includes(b.esc)));
@@ -89,7 +90,10 @@ function main() {
     log({ hook: HOOK, event: 'blocked', reason: `rule:${blocks.map((x) => x.id).join(',')}`, target: input.cwd || '' });
     const escape = b.esc ? ` ${howToGet(b.esc)}` : ' Brak wyjatku dla tej reguly.';
     const more = blocks.length > 1 ? ` (tez: ${blocks.slice(1).map((x) => x.id).join(', ')})` : '';
-    process.stderr.write(`[bash-guard:${b.id}] ZABLOKOWANE / BLOCKED (rule ${b.id}${more}). ${b.why}${escape}\n`);
+    const en = ((lib && lib.whyEn) || {})[b.id];
+    const escapeEn = b.esc ? ` ${howToGetEn(b.esc)}` : ' No exception for this rule.';
+    process.stderr.write(`[bash-guard:${b.id}] ZABLOKOWANE / BLOCKED (rule ${b.id}${more}). ${b.why}${escape}` +
+      (en ? ` (EN: ${en}${escapeEn})` : '') + '\n');
     return 2;
   }
   // Zuzycie PRZED przepuszczeniem, pod blokada pliku (data-review 2026-09-26: has()+consume() = wyscig rownoleglych komend).
@@ -99,7 +103,8 @@ function main() {
     if (source === 'self-service') { log({ hook: HOOK, event: 'bypass', reason: `${t} (poziom A: agent sam)`, target: input.cwd || '' }); continue; }
     if (!overrides.consume(sid, t)) {
       log({ hook: HOOK, event: 'blocked', reason: `override-exhausted:${t}`, target: input.cwd || '' });
-      process.stderr.write(`[bash-guard:override-exhausted] ZABLOKOWANE: wyjatek ${t} wlasnie sie wyczerpal/wygasl. ${howToGet(t)}\n`);
+      process.stderr.write(`[bash-guard:override-exhausted] ZABLOKOWANE: wyjatek ${t} wlasnie sie wyczerpal/wygasl. ${howToGet(t)}` +
+        ` (EN: exception ${t} just ran out or expired. ${howToGetEn(t)})\n`);
       return 2;
     }
     log({ hook: HOOK, event: 'bypass', reason: `${t} (${source === 'session' ? 'zgoda uzytkownika w czacie' : 'poziom B: samozatwierdzenie po recenzji'})`, target: input.cwd || '' });
@@ -229,6 +234,18 @@ function howToGet(t) {
       `i powtorz komende z ${t}=1 z katalogu repo (bez cd/-C/sciezek poza repo).`;
   }
   return `${t} jest poziomu C: wyjatek wydaje tylko uzytkownik — sama fraza „pozwol ${t}" w czacie, potem komenda z ${t}=1.`;
+}
+
+// Same three tiers in English (public users; the phrase regex accepts "allow" as well as "pozwol", lib/overrides.js PHRASE_RX).
+function howToGetEn(t) {
+  const tier = lib && lib.overrides ? lib.overrides.tierOf(t) : 'C';
+  if (tier === 'A') return `${t} is level A: add ${t}=1 to the command (logged in gates.jsonl).`;
+  if (tier === 'B') {
+    return `${t} is level B (self-approval after review): run the pg-review skill (security-reviewer + code-reviewer subagents) for this repo, ` +
+      `fix the findings, then \`node ~/.claude/bin/pg-self-approve.js --run <RUN> --repo <repo> --allow ${t} --reason "<why>"\` ` +
+      `and repeat the command with ${t}=1 from the repo folder (no cd/-C/paths outside the repo).`;
+  }
+  return `${t} is level C: only the human grants it — the whole chat message "allow ${t}", then the command with ${t}=1.`;
 }
 
 let code = 0;
