@@ -28,7 +28,11 @@ and two export fixes found while preparing this release.
 - **Export fixes.** Claude Code routines are exported from an allowlist (`ROUTINES`), like skills: a new routine stays
   private until it is listed. The export refuses to run when a listed skill is a dead link
   (`bin/pg-skill-links.py --fix` repairs links after the app moves its plugin folders), instead of shipping fewer skills.
-- **Docs.** Troubleshooting table in both READMEs.
+- **Installer.** Re-running `install.mjs` replaces the CLAUDE.md block in place (markers matched as whole lines; a file
+  damaged by the old version heals). Declining global git hooks no longer fails the self-test (`--no-global-git`), and a
+  red self-test makes the installer exit 1. Regression test `bin/test_install.py`.
+- **Docs.** Troubleshooting table in both READMEs; `INSTALL.md`, a step-by-step install procedure for an AI agent with
+  the expected output of every command and stop conditions.
 
 ## [1.9.0] — 2026-11-04
 
