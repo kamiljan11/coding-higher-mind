@@ -1,6 +1,6 @@
 ---
 name: gauntlet-build
-description: Multiagentowa pętla budowy „spec → jednostki → builder/krytyk (świeży kontekst) → bramki deterministyczne → weryfikator → fix → aż do poprzeczki". Użyj, gdy uzytkownik chce zbudować lub dopracować system/moduł/apkę/dokument z istniejącej specyfikacji przy minimum promptów — „zbuduj to multiagentowo", „gauntlet", „loop budowy", „buduj i krytykuj aż będzie dobrze", „rozpisz na agentów z loopowaniem", „jednym promptem", „swarm build", „ulepszaj i krytykuj 3×", „loopuj i samokrytykuj", „zrób to jak te gry z jednego prompta". NIE gdy: chodzi o polerowanie gotowego produktu wieloma wymiarami bez specyfikacji (to `ultra-loop`), o jednorazowy review (`code-review`), o sam research (`Workflow` research) albo zadanie jednoplikowe (rób sam).
+description: "Multi-agent build loop from an existing spec: units -> builder/critic with fresh context -> deterministic gates -> verifier -> fix, until the bar is met. Use for: gauntlet, zbuduj multiagentowo, buduj i krytykuj aż będzie dobrze, swarm build, jednym promptem. NOT for polishing without a spec (ultra-loop), one-off review (code-review) or single-file tasks."
 ---
 
 # Gauntlet Build — spec → poprzeczka → pary builder/krytyk → aż wygra

@@ -35,6 +35,15 @@ Pelny raport: outputs sesji Cowork `quality-pipeline/03-ANTY-HALUCYNACJE-RESEARC
 6. Self-check CoVe-lite w tym samym przebiegu: draft -> pytania weryfikacyjne do
    wlasnych twierdzen -> korekta. Oznaczaj [NIEPEWNE] + poziom pewnosci gdy trzeba.
 
+7. POKRYCIE ANALIZY (anty-wybiorczosc, cases.md SAMPLE-GENERALIZED, 2026-11-07). Analiza zrodla „X vs PG / co nowego / czy mamy”:
+   (a) NAJPIERW inwentarz: wszystkie jednostki w KAZDEJ modalnosci (tekst, transkrypt, slajdy/klatki wideo, obrazy, tabele, dane) +
+   to, co juz istnieje o temacie (vault Obsidian, poprzednie analizy, propozycje i ich stan wdrozenia) — grep vaulta przed pisaniem od zera;
+   (b) rejestr `python3 ~/.claude/bin/coverage-ledger.py init|mark|skip|report` przy >~20 jednostkach albo >1 modalnosci;
+   (c) probka/pilot wolna tylko jako jawny `skip` z powodem; wniosek z pilota o reszcie = HIPOTEZA, ktora sprawdzasz na reszcie
+   W TEJ SAMEJ modalnosci (pilot ze slajdami nie uzasadnia pominiecia slajdow reszty);
+   (d) raport podaje pokrycie per modalnosc (np. „transkrypty 29/29, slajdy 5/29”); `report` exit 1 = wniosek o calosci UNVERIFIED;
+   (e) propozycje z analizy maja stan wdrozenia sprawdzony grepem, nie z pamieci („zmapowane” != „wdrozone”).
+
 ## Techniki REZERWOWE (wysokie stawki, nie kazdy prompt — kosztuja dodatkowe wywolania)
 - Self-Consistency / Best-of-N: 3 niezalezne odpowiedzi, bierz zgodna wiekszosc.
 - LLM-as-judge / subagent-reviewer ze swiezym kontekstem: bramka przed merge/wysylka.

@@ -24,7 +24,8 @@ function check(name, ok, detail) {
 }
 const baseEnv = (extra) => {
   const env = Object.assign({}, process.env, { HOME: FAKE_HOME, GIT_CONFIG_GLOBAL: GIT_CFG, GIT_CONFIG_NOSYSTEM: '1', PG_GATE_LOG: GATE_LOG }, extra || {});
-  for (const k of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT']) if (!(extra && k in extra)) delete env[k];
+  // CLAUDE_CODE_SESSION_ID: gate-log adds `sid` from it (loop pass 4); a test run inside a session must not depend on it.
+  for (const k of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SESSION_ID']) if (!(extra && k in extra)) delete env[k];
   return env;
 };
 const readLog = () => (fs.existsSync(GATE_LOG) ? fs.readFileSync(GATE_LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);

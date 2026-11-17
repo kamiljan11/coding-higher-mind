@@ -1,6 +1,6 @@
 ---
 name: web-bajery
-description: 'Encyklopedia ~230 efektow webowych ("bajerow"): nazwany katalog z fraza do googlowania, biblioteka i tagiem mobile dla kazdego. Uzyj, gdy uzytkownik buduje/poprawia strone i chce dodac efekt, ruch, animacje albo "wow", lub nie wie jak dany efekt sie nazywa. Pokrywa: tekst, scroll/parallax, kursor/hover, tla i gradienty/SVG, slidery i hero slideshow, przelaczniki, micro-interakcje (glow CTA, pulse, floating), przejscia/preloadery, 3D/WebGL, shadery, app-like (Cmd+K, bottom sheet, PWA, streaming UI), nowosci CSS-only i trendy 2026 (Liquid Glass, bento, AR, voice). Laczy sie z mobile-optimization. Triggery: bajer, efekt, jaki efekt, animacja, jak to sie nazywa, marquee, parallax, custom cursor, hover, slider, hero slideshow, toggle, animated gradient, SVG background, particles, page transition, glow button, WebGL, shader, command palette, PWA, generative UI, Liquid Glass, scroll-driven, flagi jezyka. NIE: audyt mobile, pelna budowa strony.'
+description: "Catalog of ~230 named web effects (search phrase, library, mobile tag). Use when adding motion or a 'wow' effect to a site, or when uzytkownik doesn't know an effect's name: bajer, efekt, animacja, parallax, marquee, custom cursor, hover, slider, glow button, page transition, WebGL, shader, Liquid Glass, scroll-driven. NOT for mobile audits or a full site build."
 ---
 
 # Web Bajery — encyklopedia efektów webowych
@@ -66,7 +66,7 @@ Nie sypać bajerami na oślep. Pytania w kolejności:
 
 To są **dwa osobne, uzupełniające się skille**:
 
-- **`web-bajery` (ten)** = *jaki efekt* dodać i *czym* go zrobić. Desktop-first, bo większość wow-efektów żyje na dużym ekranie z myszką.
+- **`web-bajery` (ten)** = *jaki efekt* dodać i *czym* go zrobić. Strona budowana jest mobile-first (najpierw 390 px); bajery to warstwa dodatkowa: większość wow-efektów żyje na dużym ekranie z myszką, więc na telefonie ma działać wersja bez nich.
 - **`mobile-optimization`** = *jak* strona ma działać i czuć się na telefonie (audyt, Core Web Vitals, touch targety, wzorce app-like). To jest autorytet od mobile.
 
 **Reguła pomostu — zanim odpalisz ciężki bajer, sprawdź tag 📱:**
@@ -101,4 +101,8 @@ To są **dwa osobne, uzupełniające się skille**:
 | **Three.js** | 3D/WebGL od zera | ~150KB | standard 3D |
 | **Spline** | 3D bez kodu (embed) | embed | popularny |
 | **tsParticles** | particles, confetti, fireworks, tła | modularny | następca particles.js |
-| **Vanta.js** 
+| **Vanta.js** | animowane tła 3D (waves/net/fog/birds/globe) w kilku liniach | + Three.js lub p5 | stabilny; na mobile wyłączaj |
+| **Lottie** | animacje z After Effects (`lottie-web` / `dotlottie`) | zależnie od pliku | standard |
+| **Rive** | interaktywne animacje ze state machine (GPU) | runtime + plik | rośnie |
+
+Pełna lista, alternatywy i kryteria wyboru → `references/09-biblioteki-toolbox.md`.

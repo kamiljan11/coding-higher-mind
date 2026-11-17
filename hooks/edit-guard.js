@@ -69,6 +69,8 @@ function main() {
   noteInputKeys(HOOK, input);
   const ti = input.tool_input || {};
   const sid = input.session_id || '';
+  // Pochodzenie frazy rozstrzygane PRZED zapisem, ktory moglby przepisac transkrypt (security-review r10).
+  if (typeof overrides.settlePending === 'function') overrides.settlePending(sid);
   const cwd = input.cwd || process.cwd();
   const agentType = input.agent_type || input.agentType || null;
   const targets = targetsOf(tool, ti);

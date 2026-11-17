@@ -20,6 +20,9 @@ wagi w % (suma 100; zaleza od kontekstu — profil z `docs/architecture/quality-
 wagi dopasowuja sie do faworyta) -> ocena 1-5, w KAZDEJ komorce z powodem (`4: retry juz sa, zespol zna technologie, infra dziala`; liczba bez powodu = komorka
 pusta, ocena wymyslona) -> komentarze i ryzyka. Koszt = osobny wiersz, nie ukryty w sumie. Kryterium z waga 0 % usun z tabeli.
 
+**Krok 0 — veto (PRZED punktacja):** warunki konieczne, ktore odrzucaja opcje bez liczenia sumy (np. „RPO = 0 dla potwierdzonych
+platnosci”, „dane w UE”, „utrzyma 1 osoba”). Opcja z veto nie wchodzi do macierzy; jej powod idzie do „Rozwazone alternatywy”.
+
 Profil wag: [MVP / regulowany (finanse, dane osobowe) / wlasny — 1 zdanie dlaczego]
 
 | Kryterium (waga %) | A: nic nie zmieniamy | B: [nudny domyslny] | C: [...] | komentarz / ryzyko |
@@ -37,6 +40,12 @@ Profil wag: [MVP / regulowany (finanse, dane osobowe) / wlasny — 1 zdanie dlac
 
 Mala roznica sumy = remis: suma nie rozstrzyga. Rozstrzyga najpierw kryterium o najwyzszej wadze; gdy i tam rowno — opcja tansza do odwrocenia (drzwi dwukierunkowe).
 
+Dowod i pewnosc ocen: przy ocenach decydujacych o wyniku dopisz zrodlo (pomiar / historia / estymata) i pewnosc (wysoka / niska). Niska pewnosc
+na kryterium o najwyzszej wadze -> **eksperyment** z progiem sukcesu i limitem czasu zapisanym PRZED startem (sekcja Wykonanie).
+Jeden przypadek uzycia (sciezka krytyczna) przejdz przez kazdy wariant, zanim wpiszesz oceny.
+
+**Punkty wrazliwosci** (decyzje o stylu i granicach): | decyzja | co poprawia | co pogarsza | jak sprawdzimy |
+
 **Ryzyka:** Co moze pojsc zle przy wybranej opcji i po czym to poznamy — ID w `docs/architecture/risks.md`.
 
 **Decyzja:** Jedno zdanie bez „rozwazamy” / „byc moze”: „Uzywamy X do Y”. Co wybralismy? Ktoremu priorytetowi z `docs/ARCHITECTURE.md › Cel architektury` sluzy (nr) i czego kosztem?
@@ -50,10 +59,17 @@ sukcesu) / kontrolowane obciazenie (realistyczne dane pod nadzorem) / canary (og
 
 **Koszt cykliczny:** [0 / kwota per miesiac + kto placi; nowa usluga chmurowa bez tej linii = ADR niekompletny, PRR P9]
 
+**TCO (decyzje o stylu, podziale na uslugi, nowym magazynie):** budowa + migracja + eksploatacja + wycofanie. Przy 1-2 osobach zysk
+„mniej koordynacji miedzy zespolami” = 0, wiec to argument przeciw podzialowi (`skills/architecture-advisor/references/sd/style-architektury.md`).
+
+**Odwracalnosc / plan powrotu:** jak wracamy do poprzedniego stanu i ile to kosztuje (dni pracy); brak planu = drzwi jednokierunkowe.
+
 **Pulapki dla przyszlego siebie:** 1-2 rzeczy, ktore maintainer musi wiedziec.
 
 **Powrot do zalozen:**
 - Sygnal powrotu: [mierzalny prog albo zdarzenie, po ktorym ta decyzja przestaje obowiazywac]; odroczone rzeczy -> `docs/architecture/roadmap.md › Jeszcze nie`.
+- Fitness function (jak sprawdzamy automatycznie, ze decyzja nadal obowiazuje): [komenda/test/bramka, np. `module-boundaries.js --repo .`, limit liczby deployable'i] + kto reaguje na czerwone.
+- Wyjatki od decyzji/stylu: [zakres, powod, termin przegladu] — wyjatek bez terminu = nowa decyzja, nie wyjatek.
 - Przeglad skutkow (data w naglowku): latencja [cel], error rate [cel], koszt [cel], czy utrzymujemy to bez wysilku [tak/nie]. Wynik dopisz tutaj.
 
 <!-- Drzwi dwukierunkowe: max ~20 linii, macierz tylko gdy sa >= 2 realne opcje. Drzwi jednokierunkowe (model danych, baza, auth,

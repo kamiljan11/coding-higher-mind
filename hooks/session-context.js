@@ -142,7 +142,7 @@ try {
     const { CHILD_ENV } = require('./lib/lint-file');
     const r = require('child_process').spawnSync(process.execPath, [path.join(__dirname, '..', 'bin', 'arch-check.js'), '--repo', cwd, '--brief'], { encoding: 'utf8', timeout: 4000, windowsHide: true, env: CHILD_ENV });
     const txt = String(r.stdout || '').trim();
-    if ((r.status === 0 || r.status === 1) && txt) tail.push(txt.slice(0, 900)); // exit 0 + tekst = sam cel architektury
+    if ((r.status === 0 || r.status === 1) && txt) tail.push(txt.slice(0, 1200)); // exit 0 + tekst = sam cel architektury; 1200: cel + problemy + linia [ARCH-STYLE] (2026-11-07)
     else if (r.status !== 0) require('./lib/gate-log').log({ hook: 'session-context', event: 'skipped', reason: `arch-check: ${r.error ? r.error.code : 'exit ' + r.status} ${String(r.stderr || '').slice(0, 100)}`, target: cwd });
     // Petla decyzji (OODA Act -> Observe, 2026-11-02): ADR po terminie przegladu / „proponowane” po wdrozeniu. Observe, 1 linia.
     const a = require('child_process').spawnSync(process.execPath, [path.join(__dirname, '..', 'bin', 'adr-review-due.js'), '--repo', cwd], { encoding: 'utf8', timeout: 4000, windowsHide: true, env: CHILD_ENV });

@@ -46,6 +46,74 @@ function pyDeps(text) {
   return out;
 }
 
+// Dependencies of pyproject.toml, read with a real TOML parser (python3 stdlib tomllib, no new dependency).
+// Loop pass 10 (2026-11-15): pyDeps read every `key = value` line, so `[tool.ruff] line-length = 120` was looked up on
+// PyPI and the commit was blocked as a hallucinated dependency. A regex section list (first fix) then missed uv, pdm,
+// hatch, dotted keys, poetry sub-tables and `[[array.of.tables]]` (pg-review pass10 code-1, security-1). Rule now: any key
+// named *dependencies / *requires / dependency-groups anywhere in the tree holds dependencies, either as PEP 508 strings
+// (array) or as a table of name -> spec (poetry) or of group -> array (optional-dependencies, pdm). Invalid TOML = an
+// error (the commit is blocked with the parser message: a broken file must not pass unchecked); no python3 = the old
+// line parser.
+const PY_DEP_KEY = /^(.*[-_])?(dependencies|requires)$|^dependency-groups$/i;
+const PEP508_NAME = /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)/;
+
+function parseToml(text) {
+  // parse_float=str: inf/nan would otherwise become Infinity/NaN, which JSON.parse rejects (pass10b security-2).
+  const code = 'import sys, json, tomllib; print(json.dumps(tomllib.loads(sys.stdin.read(), parse_float=str)))';
+  let raw;
+  try {
+    raw = execFileSync('python3', ['-I', '-c', code], { input: text, encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] });
+  } catch (e) {
+    const err = String(e.stderr || e.message);
+    // No python3, or python3 < 3.11 without tomllib: not a verdict on the file, so the caller uses the line parser.
+    if (e.code === 'ENOENT' || /No module named 'tomllib'/.test(err)) {
+      console.error('dep-exists: python3 with tomllib (>= 3.11) not found; pyproject.toml read line by line, tool settings may be flagged');
+      return null;
+    }
+    if (e.code === 'ETIMEDOUT' || e.signal) throw new Error(`pyproject.toml parse timed out or was killed (${e.code || e.signal})`);
+    throw new Error(`pyproject.toml is not valid TOML (${err.trim().split('\n').pop()})`);
+  }
+  return JSON.parse(raw);
+}
+
+// [tool.setuptools.dynamic] dependencies = {file = [...]} names files, not packages; a bare URL has no package name.
+const NOT_A_SPEC = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
+
+/** Package names from pyproject.toml dependency keys. Throws on invalid TOML; line parser only without python3. */
+function pyprojectDeps(text) {
+  const tree = parseToml(text);
+  if (!tree) return pyDeps(text);
+  const out = new Set();
+  const addSpec = (s) => {
+    if (NOT_A_SPEC.test(String(s).trim())) return;
+    const m = PEP508_NAME.exec(String(s));
+    if (m) out.add(m[1].toLowerCase());
+  };
+  const collect = (v) => {
+    if (Array.isArray(v)) { for (const x of v) if (typeof x === 'string') addSpec(x); return; }
+    if (v && typeof v === 'object') {
+      for (const [k, sub] of Object.entries(v)) {
+        if (k.toLowerCase() === 'python') continue;
+        // group -> ["spec", ...] (optional-dependencies, pdm); poetry multiple constraints name -> [{version}, ...] (pass10b code-2)
+        // PEP 735 groups mix specs with {include-group = ...} tables (pass10c code-1): any string = a group.
+        if (Array.isArray(sub) && (sub.length === 0 || sub.some((x) => typeof x === 'string'))) collect(sub);
+        else addSpec(k); // name -> version / {version, git, path} / [{...}, ...]
+      }
+    }
+  };
+  const walk = (node, parentKey) => {
+    if (Array.isArray(node)) { for (const x of node) walk(x, parentKey); return; }
+    if (!node || typeof node !== 'object') return;
+    for (const [k, v] of Object.entries(node)) {
+      if (parentKey === 'setuptools' && k === 'dynamic') continue;
+      if (PY_DEP_KEY.test(k) && k.toLowerCase() !== 'requires-python') collect(v);
+      else walk(v, k);
+    }
+  };
+  walk(tree, '');
+  return out;
+}
+
 function fetchJson(url) {
   return new Promise((resolve) => {
     const req = https.get(url, { headers: { 'user-agent': 'mas-dep-exists/1.0', accept: 'application/json' }, timeout: 8000 }, (res) => {
@@ -105,8 +173,9 @@ async function main() {
     if (!eco) continue;
     const before = fileAt(staged ? 'HEAD' : base, file);
     const after = staged ? git(['show', `:${file}`]) : fileAt('HEAD', file);
-    const parse = eco === 'npm' ? npmDeps : pyDeps;
-    const was = parse(before);
+    const parse = eco === 'npm' ? npmDeps : /(^|\/)pyproject\.toml$/.test(file) ? pyprojectDeps : pyDeps;
+    let was;
+    try { was = parse(before); } catch (e) { was = new Set(); /* broken base version: every current name counts as new and is checked */ }
     for (const name of parse(after)) if (!was.has(name)) newDeps.push({ name, eco, file });
   }
   const results = [];
@@ -131,4 +200,4 @@ async function main() {
 }
 
 if (require.main === module) main().then((c) => process.exit(c), (err) => { console.error('dep-exists: ' + err.message.split('\n')[0]); process.exit(2); });
-module.exports = { npmDeps, pyDeps, editDistance1 };
+module.exports = { npmDeps, pyDeps, pyprojectDeps, editDistance1 };

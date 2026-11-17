@@ -46,7 +46,8 @@ CREATE_ONLY+=(docs/designs/TEMPLATE.md)  # plik designu T2+ (pg/design.md, P2+P9
 CREATE_ONLY+=(docs/architecture/README.md docs/architecture/quality-attributes.md docs/architecture/capacity.md docs/architecture/risks.md docs/architecture/roadmap.md docs/architecture/failure-modes.md)
 [ "$DEPLOY_GATE" = 1 ] && CREATE_ONLY+=(.github/deploy/probes.json)
 # Szablony Node tylko przy package.json (martwy e2e w statycznym repo, finding 2026-09-05).
-if [ -e "$REPO/package.json" ]; then CREATE_ONLY+=(e2e/smoke.spec.ts tsconfig.base.json)
+# T6 (2026-11-07): playwright.config + a11y/cta specs + lighthouserc (observe) -> e2e i lighthouse w quality.yml naprawde biegna.
+if [ -e "$REPO/package.json" ]; then CREATE_ONLY+=(e2e/smoke.spec.ts e2e/a11y.spec.ts e2e/cta.spec.ts playwright.config.ts lighthouserc.json tsconfig.base.json)
 else echo "[=] brak package.json: pomijam e2e/smoke.spec.ts i tsconfig.base.json (szablony Node)"; fi
 for rel in "${CREATE_ONLY[@]}"; do
   if [ ! -e "$REPO/$rel" ]; then mkdir -p "$(dirname "$REPO/$rel")"; cp "$TPL/$rel" "$REPO/$rel"; echo "[+] $rel dodany"; fi
@@ -95,6 +96,7 @@ if [ -d "$REPO/supabase/migrations" ] && [ -e "$BIN/sql-migration-lint.js" ]; th
   node "$BIN/sql-migration-lint.js" --repo "$REPO" --min-severity high 2>&1 | tail -n 15 || true
   echo "[i] sql-migration-lint: HIGH powyzej = dlug T3; pre-commit blokuje tylko HIGH w nowych/stagowanych plikach"
 fi
+[ -e "$REPO/playwright.config.ts" ] && ! grep -q '"@axe-core/playwright"' "$REPO/package.json" 2>/dev/null && echo "[i] E2E: npm i -D @playwright/test @axe-core/playwright playwright-core (ta sama wersja co @playwright/test, inaczej tsc zglosi rozne typy Page; config domyslnie: npm run build && npm run preview na 4173; inny stack -> E2E_WEB_SERVER, lighthouserc startServerCommand)"
 echo "[+] Bootstrap PG v3 gotowy. Nastepne: git add -A; commit 'chore(quality): PG v3 bootstrap' (commit-msg wymaga conventional commits)"
 [ "$DEPLOY_GATE" = 1 ] && echo "[i] Pipeline wdrozenia (Vercel): checklista docs/RUNBOOK.md › Pipeline wdrozenia — Deployment Checks pg/bake, bypass secret, VERCEL_TOKEN, vars, probes.json allowedHosts, drill rollbacku"
 echo "[i] Sekret repo (raz): CLAUDE_CODE_OAUTH_TOKEN — wymagany dla auto-merge T1/T2 (check pg-review), opcjonalny dla claude-review; bez niego oba sie pomijaja (SKIPPED)"

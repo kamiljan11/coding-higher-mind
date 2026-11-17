@@ -23,8 +23,10 @@ Regul, progow i liczb tu nie ma (parafraza dryfuje) — przed decyzja otworz pli
 | `hooks/postcompact-summary.js` | PostCompact hook: streszczenie kompakcji (compact_summary) zapisane na dysk obok migawki sesji (kompakcja L3, 2026-11-02, pg/GLOSSARY.md › Kompakcja L0-L6). |
 | `hooks/precompact-snapshot.js` | PreCompact hook: migawka sesji + indeks (wszystkie polecenia, pliki, agenci, wklejki) przed kompakcja (2026-09-26, kompakcja L2 2026-11-01, pg/GLOSSARY.md › … |
 | `hooks/prompt-guard.js` | UserPromptSubmit hook — wstrzykuje PG-core do KAZDEGO niebanalnego promptu w Claude Code. |
+| `hooks/schedule-guard.js` | PreToolUse hook (matcher: MATCHER nizej) — ENFORCE (2026-11-14). Prompt budzika/zadania zaplanowanego nie moze zawierac frazy wyjatku `pozwol ALLOW_X`. |
 | `hooks/session-context.js` | SessionStart hook (startup/resume/clear/compact) — wstrzykuje pamiec sesyjna z Obsidiana do kontekstu DETERMINISTYCZNIE (stdout => kontekst). |
 | `hooks/stop-gate.js` | Stop hook (globalny) v3 (2026-09-05). Claude Code nie moze zakonczyc odpowiedzi, gdy w repo, ktorego DOTYKAL w tej sesji, sa: (1) bledy lintu/typow w … |
+| `hooks/usage_loop.py` | Petla uzycia: tygodniowa lista kandydatow do zmiany regul PG liczona z danych, ktore PG juz zapisuje (0 tokenow). |
 
 ## hooks/lib/
 
@@ -42,6 +44,7 @@ Regul, progow i liczb tu nie ma (parafraza dryfuje) — przed decyzja otworz pli
 | `hooks/lib/protected-paths.js` | Jedno zrodlo prawdy „co jest warstwa kontrolna PG" dla bash-guard (komendy) i edit-guard (Edit/Write/MCP). |
 | `hooks/lib/risk-tier.js` | Router ryzyka (deterministyczny, 0 tokenow). Klasyfikuje zmiane do tieru T0..T3 na podstawie |
 | `hooks/lib/shell-parse.js` | Parser powloki dla bash-guard (landscape #13). Reguly regexowe na SUROWEJ komendzie dawaly exit 0 na: `sh -c "rm -rf src"`, `x=$(rm -rf src)`, `'r'm -rf src` … |
+| `hooks/lib/turn-origin.js` | turn-origin: kto napisal biezacy prompt — czlowiek czy agent (budzik, sesja potomna, wiadomosc innej sesji). |
 
 ## git-hooks/
 
@@ -71,6 +74,7 @@ Regul, progow i liczb tu nie ma (parafraza dryfuje) — przed decyzja otworz pli
 | Plik | Wlasciciel czego |
 |---|---|
 | `pg/GLOSSARY.md` | Slownik terminow PG i procedura dodania bramki — dla obcego seniora przejmujacego ~/.claude |
+| `pg/ai-patterns.md` | Wzorce zachowan agentow AI: zmierzona liczba -> przeciwwaga w PG |
 | `pg/cases.md` | PG · CASES — biblioteka przypadkow floty (blizny -> bramki) (2026-09-05) |
 | `pg/council.md` | PG · COUNCIL — narada dzialow i wspolne decydowanie (2026-09-12) |
 | `pg/design.md` | PG · DESIGN — przed pierwsza linia kodu (2026-09-05) |
@@ -81,6 +85,7 @@ Regul, progow i liczb tu nie ma (parafraza dryfuje) — przed decyzja otworz pli
 | `pg/paradigm.md` | PG · Paradygmat i „sztuka" kodu floty PG (2026-09-05) |
 | `pg/plan-rubric.md` | Rubryka oceny planu/designu PRZED kodem (P1-lite) — samoocena autora T2+, swiezy recenzent przy pieniadzach/auth/tenantach |
 | `pg/postmortem.md` | PG · POSTMORTEM — incydent zamienia sie w bramke; naprawa instrukcji agenta (2026-09-05, 2026-11-03) |
+| `pg/process-map.md` | Jak pracujemy z PG: mapa procesu |
 | `pg/prr.md` | PG · PRODUCTION READINESS REVIEW — przed deployem / release (T2, T3) (2026-09-05) |
 | `pg/ref-pg-internals.md` | ref-pg-internals — Senior Quality Pipeline 1-9 + PG v3 (pełny opis) |
 | `pg/retro-2026-09-06.md` | PG · Retrospektywa 2026-09-06 — moje własne pętle „wracam i naprawiam" vs system |
@@ -99,4 +104,7 @@ Regul, progow i liczb tu nie ma (parafraza dryfuje) — przed decyzja otworz pli
 | `pg/adr/0009-wiedza-raz-kotwice-indeks-i-tryb-pracy-nad-pg.md` | ADR-0009: Wiedza raz w samym PG — kotwice liczb, generowany indeks właścicieli, pg-self-check |
 | `pg/adr/0010-sprawdzacze-jezykow-i-kod-na-zapas-observe.md` | ADR-0010: Sprawdzacze top języków w hookach i bramka „kod na zapas” (observe) |
 | `pg/adr/0011-kanaly-observe-wysylka-mcp-i-panel-terminal.md` | ADR-0011: Kanaly observe dla wysylki MCP i panelu Terminal |
+| `pg/adr/0012-adopcje-z-everything-claude-code.md` | ADR-0012: Adopcje z everything-claude-code (ECC) po porownaniu 2026-11 |
+| `pg/adr/0013-petla-uzycia-raport-kandydatow.md` | ADR-0013: Petla uzycia — tygodniowy raport kandydatow do zmiany regul |
+| `pg/adr/0014-wyzwalacze-z-blizn-observe.md` | ADR-0014: Wyzwalacze z blizn — 8 mechanizmow w trybie observe i 3 linie rubryk |
 

@@ -1,6 +1,6 @@
 ---
 name: book-typesetting
-description: Turn raw text/markdown (including messy webpage captures) into a professionally typeset, navigable book PDF — without changing a word of the author's content. Use when building or fixing book/ebook/guide PDFs, "złóż książkę", "napraw formatowanie PDF", "book layout", "typeset this", "PDF z nawigacją", chapter/TOC/widow-orphan problems, or when a generated book "rozsypuje się". Covers: cleaning web-capture junk, structure detection, ReportLab implementation (keepWithNext, widows/orphans, hyphenation, clickable TOC + PDF outline), image placement, and a mandatory render-and-look QA loop. Content is untouchable: fix FORM only; if a content edit slipped in, revert to the original.
+description: "Typeset raw text or markdown (incl. messy web captures) into a navigable book PDF without changing a word: structure, ReportLab, widows/orphans, hyphenation, clickable TOC, images, render-and-look QA. Use for: złóż książkę, napraw formatowanie PDF, book layout, typeset this, PDF z nawigacją, a book that 'rozsypuje się'."
 ---
 
 # Book Typesetting

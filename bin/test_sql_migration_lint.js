@@ -222,5 +222,39 @@ ok('R14: bez falszywych alarmow (rename constraint, drop not null, alter index, 
   } finally { fs.rmSync(R, { recursive: true, force: true }); }
 }
 
+// ---------------------------------------------------------------------------
+// R15 (INFO): bare auth.uid() in a policy vs wrapped in (select ...). Fixture built in tmpdir (no dependency on ~/.claude).
+// ---------------------------------------------------------------------------
+{
+  const fs = require('fs');
+  const R = fs.mkdtempSync(path.join(require('os').tmpdir(), 'pg-sql-r15-'));
+  try {
+    const dir = path.join(R, 'supabase', 'migrations');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, '20260101000001_r15.sql'), [
+      'create table public.notes (id uuid primary key, owner uuid not null);',
+      'alter table public.notes enable row level security;',
+      'create policy notes_bare on public.notes for select using (owner = auth.uid());',
+      'create policy notes_wrapped on public.notes for update using (owner = (select auth.uid())) with check (owner = (SELECT  auth.uid()));',
+      'create policy notes_mixed on public.notes for delete using (owner = (select auth.uid()) and auth.role() = \'authenticated\');',
+      'alter policy notes_bare on public.notes using (owner = auth.uid());',
+      'create function public.whoami() returns uuid language sql as $$ select auth.uid() $$;',
+      'create index notes_owner_idx on public.notes (owner);',
+      'create policy notes_paren on public.notes for select using (owner = (select (auth.uid())));',
+      'create policy notes_coalesce on public.notes for select using (owner = (select coalesce(auth.uid(), owner)));',
+      "create policy notes_literal on public.notes for select using ('auth.uid()' = 'x' /* auth.uid() */);",
+      'create policy docs_exists on public.docs for select using (exists (select 1 from public.members m where m.uid = auth.uid()));',
+      'create policy docs_exists_ok on public.docs for select using (exists (select 1 from public.members m where m.uid = (select auth.uid())));',
+    ].join('\n') + '\n');
+    const r15 =runChecks(R).findings.filter((f) => f.id === 'R15');
+    ok('R15: flags bare auth.uid() in CREATE POLICY and ALTER POLICY', r15.filter((f) => /auth\.uid\(\)/.test(f.message) && /notes/.test(f.message)).length === 2);
+    ok('R15: flags bare auth.role() next to a wrapped auth.uid()', r15.some((f) => /auth\.role\(\)/.test(f.message)));
+    ok('R15: wrapped (select auth.uid()) policy and a function body are not flagged', r15.length === 4 && !r15.some((f) => f.line === 4 || f.line === 7));
+    ok('R15: (select (auth.uid())), select coalesce(auth.uid(), ..) and a call inside a literal/comment are not flagged', !r15.some((f) => f.line >= 9 && f.line <= 11));
+    ok('R15: bare call inside a correlated exists (select .. from ..) is flagged, the wrapped variant is not', r15.some((f) => f.line === 12) && !r15.some((f) => f.line === 13));
+    ok('R15: severity INFO (never blocks --strict)', r15.every((f) => f.severity === SEVERITY.INFO));
+  } finally { fs.rmSync(R, { recursive: true, force: true }); }
+}
+
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} FAILURE(S)`}`);
 process.exit(failures === 0 ? 0 : 1);

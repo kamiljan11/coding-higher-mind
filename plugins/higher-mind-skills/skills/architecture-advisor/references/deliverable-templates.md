@@ -61,6 +61,8 @@ forces, not generic ones. Make costs visible columns, never hide them in a total
 
 ```markdown
 ## Decision: <what we're choosing>
+Veto first (must-haves that drop an option before scoring): <e.g. RPO = 0 for confirmed payments; EU data; one maintainer can run it>
+Evidence + confidence on the deciding scores (measured / history / estimate; high / low). Low confidence on the top-weight criterion -> time-boxed experiment with a success threshold written BEFORE it starts.
 Weighted by what matters here: <e.g. changeability ×3, time-to-ship ×3, scale-headroom ×1, ops-simplicity ×2>
 
 | Criterion (weight) | Option A: <simple default> | Option B: <…> | Option C: <…> |

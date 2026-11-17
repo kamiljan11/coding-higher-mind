@@ -18,14 +18,14 @@ Konwencje (`~`, `[NIEPEWNE]`, zmienne ścieżek, odsyłacze `NN › Karta`) — 
 | mikroserwisy | tracing, sagi, N pipeline'ów, N dyżurów | rośnie liniowo | wysoki — nie |
 
 **Awarie i detekcja.**
-- *deployable'i liczniejsze niż osoby utrzymujące* — `ls -d supabase/functions/*/ | wc -l`; `ls Dockerfile* docker-compose*.yml wrangler.* vercel.json 2>/dev/null`
+- *deployable'i liczniejsze niż osoby utrzymujące* (liczone jako jednostki z własnymi danymi albo własnym rytmem wydań; edge functions z jednego repo i jednego potoku = jeden kwant) — `ls -d apps/*/ services/*/ 2>/dev/null`, a dla funkcji `ls -d supabase/functions/*/ | wc -l` + czy deploy jest w CI; `ls Dockerfile* docker-compose*.yml wrangler.* vercel.json 2>/dev/null`
 - *ukryty rozproszony system: funkcja woła funkcję* — `rg -n "functions\.invoke|/functions/v1/" supabase/functions`. Werdykt: synchroniczny łańcuch edge fn dłuższy niż 2 kroki (próg jak slice → slice, 01 › Dekompozycja wewnątrz monolitu, pkt 6c) = jedna jednostka awarii i wdrożenia (rozproszony monolit) -> ADR z powodem, kolejka (`background_jobs`) albo scal w jedną funkcję
 - *import w głąb cudzego modułu / cykle* — `node ~/.claude/bin/module-boundaries.js --help` (uruchom na repo); `rg -n "from ['\"]\.\./\.\./[a-z-]+/(internal|lib)" src`
 - *wspólny kod kopiowany między funkcjami* — `ls supabase/functions/_shared 2>/dev/null; rg -n "^import .* from ['\"]\.\./[a-z-]+/" supabase/functions`
 - *jedna zmiana biznesowa dotyka wielu katalogów (change amplification)* — `node ~/.claude/bin/module-boundaries.js --repo . --report` (linia „Change amplification"; szczegóły → 01 › Dekompozycja wewnątrz monolitu)
 
 **Audyt „czy się trzymamy".**
-1. Czy liczba deployable'i nie przekracza liczby osób, które je utrzymują? → pierwsza komenda.
+1. Czy liczba niezależnie wydawanych jednostek (własne dane albo własny rytm wydań) nie przekracza liczby osób, które je utrzymują? → pierwsza komenda. Edge functions jednego repo, z jedną bazą i jednym potokiem wdrożenia, to części jednego kwantu ("monolit serverless"), nie osobne usługi. Bezpiecznik liczy jednostki z własnymi danymi albo własnym rytmem wydań. Wiele funkcji wdrażanych ręcznie to koszt operacyjny: napraw go automatycznym deployem w CI, nie scalaniem i nie podziałem.
 2. Czy moduły mają granice i brak cykli? → `module-boundaries.js`.
 3. Czy wywołania między funkcjami/usługami mają timeout, retry i idempotencję? → 05 › Zależności zewnętrzne.
 4. Czy podział/wydzielenie ma ADR z obecną przyczyną i sygnałem powrotu? → `rg -n -i "revisit|sygnał powrotu|wróć gdy" docs/adr`.

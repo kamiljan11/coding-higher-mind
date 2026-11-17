@@ -44,13 +44,21 @@ function current() {
 // (prompt-guard) w ciagu 60 min przed `sealed_at`. Weryfikator 2026-09-26: kopia pg-seal.js w %TEMP% przepieczetowywala
 // hooki bez zadnej bramki — zapisu nie zablokujemy (dowolny proces moze pisac plik), ale WYKRYJEMY pieczec bez zgody.
 const GRANT_WINDOW_MS = 60 * 60000;
-function sealAuthorized(sealedAt) {
+function sealAuthorized(sealedAt, logsText = null) {
   const t = Date.parse(sealedAt);
   if (!t) return false;
-  const logs = ['gates.1.jsonl', 'gates.jsonl'].map((f) => { try { return fs.readFileSync(path.join(CLAUDE_DIR, 'logs', f), 'utf8'); } catch (e) { return ''; } }).join('\n');
-  return logs.split('\n').some((line) => {
-    if (!line.includes(CONTROL_PLANE) || !line.includes('minted')) return false;
-    try { const e = JSON.parse(line); const m = Date.parse(e.ts); return e.hook === 'prompt-guard' && !e.redirected && m <= t && t - m <= GRANT_WINDOW_MS; } catch (e) { return false; }
+  const logs = logsText !== null ? String(logsText)
+    : ['gates.1.jsonl', 'gates.jsonl'].map((f) => { try { return fs.readFileSync(path.join(CLAUDE_DIR, 'logs', f), 'utf8'); } catch (e) { return ''; } }).join('\n');
+  const entries = logs.split('\n').filter((l) => l.includes(CONTROL_PLANE)).map((l) => { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean);
+  // Mint „pochodzenie sprawdzi 1. uzycie" jest TYMCZASOWY (security-review r8): okno pieczeci otwiera dopiero potwierdzenie
+  // pochodzenia (hook overrides) miedzy mintem a pieczecia — fraza z promptu agenta (anulowana przy uzyciu) okna nie daje.
+  const verifiedAt = entries.filter((e) => e.hook === 'overrides' && !e.redirected && String(e.reason || '').startsWith(CONTROL_PLANE + ': pochodzenie frazy potwierdzone'))
+    .map((e) => Date.parse(e.ts));
+  return entries.some((e) => {
+    const m = Date.parse(e.ts);
+    const reason = String(e.reason || '');
+    if (e.hook !== 'prompt-guard' || e.redirected || !reason.includes('minted') || !(m <= t && t - m <= GRANT_WINDOW_MS)) return false;
+    return !/sprawdzi 1\. uzycie/.test(reason) || verifiedAt.some((v) => v >= m && v <= t);
   });
 }
 
@@ -79,5 +87,5 @@ function write() {
   return 0;
 }
 
-module.exports = { current, sealedFiles, SEAL };
+module.exports = { current, sealedFiles, sealAuthorized, SEAL };
 if (require.main === module) process.exit(process.argv.includes('--check') ? check() : write());

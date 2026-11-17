@@ -1,5 +1,5 @@
 {
-  "$comment": "Baseline permissions.deny (landscape #10, 2026-09-26). Warstwa 1 = harness Claude Code (dziala takze w bypassPermissions), niezaleznie od parserow hookow. guard_health: settings.json permissions.deny MUSI zawierac wszystkie ponizsze wpisy; sciezki absolutne w skladni //dysk/... (inaczej CC traktuje je jako wzgledne). Odczyt przez Bash pilnuje bash-guard (regula cred-bypass).",
+  "$comment": "Baseline permissions.deny (landscape #10, 2026-09-26). Warstwa 1 = harness Claude Code (dziala takze w bypassPermissions), niezaleznie od parserow hookow. guard_health: settings.json permissions.deny MUSI zawierac wszystkie ponizsze wpisy; sciezki absolutne w skladni //dysk/... (inaczej CC traktuje je jako wzgledne). Odczyt przez Bash pilnuje bash-guard (regula cred-bypass). 2026-11-07: usuniete Write(~/...) — CC 2.1.296 ich nie dopasowuje (ostrzezenie na starcie), Edit(path) obejmuje wszystkie narzedzia edycji plikow; nie dodawac z powrotem.",
   "deny": [
     "Read(~/.ssh/**)",
     "Read(~/.aws/**)",
@@ -10,10 +10,6 @@
     "Edit(~/.bashrc)",
     "Edit(~/.bash_profile)",
     "Edit(~/.profile)",
-    "Edit(~/.gitconfig)",
-    "Write(~/.bashrc)",
-    "Write(~/.bash_profile)",
-    "Write(~/.profile)",
-    "Write(~/.gitconfig)"
+    "Edit(~/.gitconfig)"
   ]
 }

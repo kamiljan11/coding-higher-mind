@@ -40,7 +40,10 @@ const CHECKS = {
   R11: { severity: SEVERITY.MEDIUM, why: 'USING (true) on a non-obviously-public table -> unrestricted row access' },
   R12: { severity: SEVERITY.MEDIUM, why: 'migration filename does not sort deterministically (bad prefix or duplicate timestamp)' },
   R13: { severity: SEVERITY.INFO, why: 'function left at default EXECUTE-to-PUBLIC (no REVOKE/GRANT tightening seen)' },
+  R15: { severity: SEVERITY.INFO, why: 'RLS policy calls auth.uid()/auth.jwt()/auth.role() bare: evaluated per row; `(select auth.uid())` is evaluated once per statement (performance, not security)' },
   R14: { severity: SEVERITY.HIGH, noDowngrade: true, why: 'backward-incompatible schema change (RENAME / DROP / SET NOT NULL / TYPE / SET SCHEMA on an existing table, function, view, type or schema): the previous app version runs on the new schema during BAKE and after a rollback — split into expand/contract, or put `-- pg:contract <reason>` in the file header (before the first statement)' },
+  R16: { severity: SEVERITY.MEDIUM, why: 'bulk grant (default privileges to anon, ON ALL FUNCTIONS, or grant built in a DO loop) silently widens access and undoes earlier REVOKEs' },
+  R17: { severity: SEVERITY.MEDIUM, why: 'FK to a tenant-scoped table from a table with no org/tenant column and no same_org trigger (cross-tenant rows reachable through the child)' },
 };
 
 // ---------------------------------------------------------------------------
@@ -621,6 +624,34 @@ function checkR9_missingTenantScope(allStmts) {
   return findings;
 }
 
+// R17 (2026-11-15, MEDIUM = raport bez blokady): uogolnienie R9. R9 zna cztery nazwy kolumn FK (job/note/order/customer);
+// blizna TENANT-FK-NO-ORG powstaje przy kazdym FK do tabeli najemcy. Tu: tabela bez kolumny org/tenant i bez triggera
+// same_org, ktora ma FK (`references`) do tabeli MAJACEJ taka kolumne. Tabele juz zgloszone przez R9 sa pomijane.
+function checkR17_fkToTenantTable(allStmts) {
+  const scoped = new Set();
+  const sameOrg = new Set();
+  const refs = new Map(); // table -> [{target, file, line}]
+  for (const s of allStmts) {
+    const cm = RE.createTable.exec(s.text);
+    const am = RE.alterTableName.exec(s.text);
+    const table = cm ? normalizeTable(cm[1]) : am ? normalizeTable(am[1]) : null;
+    const tm = RE.createTrigger.exec(s.text);
+    if (tm && RE.sameOrgTrigger.test(tm[1])) sameOrg.add(normalizeTable(tm[2]));
+    if (!table) continue;
+    if (RE.tenantScopeCol.test(s.text)) scoped.add(table);
+    for (const m of s.text.matchAll(/\breferences\s+("?[\w.]+"?(?:\."?\w+"?)?)/gi)) {
+      refs.set(table, (refs.get(table) || []).concat({ target: normalizeTable(m[1]), file: s.file, line: s.startLine, r9: RE.tenantFkCol.test(s.text) }));
+    }
+  }
+  const findings = [];
+  for (const [table, list] of refs) {
+    if (scoped.has(table) || sameOrg.has(table) || list.some((r) => r.r9)) continue;
+    const hit = list.find((r) => r.target !== table && scoped.has(r.target));
+    if (hit) findings.push({ id: 'R17', file: hit.file, line: hit.line, message: `table "${table}" references tenant-scoped table "${hit.target}" but has no org/tenant column and no same_org trigger` });
+  }
+  return findings;
+}
+
 function checkR10_definerRpcNoAuthCheck(allStmts) {
   const findings = [];
   for (const s of allStmts) {
@@ -649,6 +680,40 @@ function checkR11_usingTrue(allStmts) {
     const table = tm ? normalizeTable(tm[1]) : '?';
     if (PUBLIC_NAME_HINT.test(table)) continue; // likely intentionally public content
     findings.push({ id: 'R11', file: s.file, line: s.startLine, message: `policy on "${table}" is USING (true) and table name gives no public-content hint` });
+  }
+  return findings;
+}
+
+// R16 (2026-11-15, MEDIUM = raport bez blokady): granty hurtowe. Blizny RLS-ANON-WRITE i GRANT-BULK-UNDOES-REVOKE
+// (petla po katalogu nadala `execute` wszystkim funkcjom i cofnela 8 jawnych `revoke`). Trzy ksztalty:
+// ALTER DEFAULT PRIVILEGES ... TO anon z zapisem; GRANT ... ON ALL FUNCTIONS|TABLES IN SCHEMA; `execute format('grant` w bloku DO.
+const BULK_GRANT_RE = {
+  defaultPrivs: /alter\s+default\s+privileges[\s\S]*?\bgrant\s+([\s\S]+?)\s+on\s+(tables|functions|routines|sequences)\s+to\s+([\s\S]+?)(?:\s+with\s+grant\s+option)?$/i,
+  onAll: /^grant\s+([\s\S]+?)\s+on\s+all\s+(tables|functions|routines|procedures|sequences)\s+in\s+schema\s+[\s\S]+?\s+to\s+([\s\S]+?)(?:\s+with\s+grant\s+option)?$/i,
+  dynamic: /\bexecute\s+format\s*\(\s*(?:E?'|\$\w*\$)[^;]*?\bgrant\b/i,
+};
+function checkR16_bulkGrant(allStmts) {
+  const findings = [];
+  const writes = (privs) => privs.split(',').map((p) => p.trim().toLowerCase()).filter((p) => p && p !== 'select' && p !== 'usage');
+  for (const s of allStmts) {
+    const text = s.text.trim();
+    const add = (message) => findings.push({ id: 'R16', file: s.file, line: s.startLine, message });
+    const dm = BULK_GRANT_RE.defaultPrivs.exec(text);
+    if (dm) {
+      // PUBLIC obejmuje anon (kazda rola dziedziczy z PUBLIC) — recenzja integracji r1.
+      if (rolesFromClause(dm[3]).some((r) => r === 'anon' || r === 'public') && writes(dm[1]).length) add(`ALTER DEFAULT PRIVILEGES grants ${writes(dm[1]).join(',')} on future ${dm[2].toLowerCase()} TO anon/public`);
+      continue;
+    }
+    const am = BULK_GRANT_RE.onAll.exec(text);
+    if (am) {
+      const roles = rolesFromClause(am[3]);
+      const kind = am[2].toLowerCase();
+      const callable = kind !== 'tables' && kind !== 'sequences';
+      if (callable && roles.some((r) => r === 'anon' || r === 'authenticated' || r === 'public')) add(`GRANT ${am[1].trim()} ON ALL ${kind.toUpperCase()} TO ${roles.join(',')} undoes earlier per-function REVOKE`);
+      else if (!callable && roles.some((r) => r === 'anon' || r === 'public') && writes(am[1]).length) add(`GRANT ${writes(am[1]).join(',')} ON ALL ${kind.toUpperCase()} TO anon/public`);
+      continue;
+    }
+    if (/^do\b/i.test(text) && BULK_GRANT_RE.dynamic.test(text)) add('GRANT built with execute format() inside a DO block (bulk grant over the catalog)');
   }
   return findings;
 }
@@ -814,6 +879,44 @@ function checkR14_backwardIncompatible(rawStmts, fileRecords) {
   return findings;
 }
 
+// R15 (INFO, observe): bare auth.*() in a policy is re-evaluated for every row; wrapped in a scalar sub-select the planner
+// caches it (initPlan). INFO only: `--since` keeps it to migrations of the current change, old policies are not debt to clean.
+// Idea adapted from everything-claude-code agents/database-reviewer.md (MIT, Copyright (c) 2026 Affaan Mustafa); pg/adr/0012.
+const AUTH_CALL = /\bauth\.(uid|jwt|role)\s*\(\s*\)/gi;
+const ALTER_POLICY_TABLE = /alter\s+policy\s+(?:"[^"]+"|\S+)\s+on\s+"?([a-zA-Z0-9_.]+)"?/i;
+// Comments and string literals are blanked (same length) so `-- auth.uid()` or 'auth.uid()' is not a call.
+const blankNonCode = (sql) => sql.replace(/--[^\n]*|\/\*[\s\S]*?\*\/|'(?:[^']|'')*'/g, (m) => ' '.repeat(m.length));
+// First auth.*() call that is not inside a SCALAR sub-select. Wrapped = the innermost enclosing `( select ...` group has no
+// FROM before the call: (select auth.uid()), (select (auth.uid())), (select coalesce(auth.uid(), x)). A correlated
+// sub-query `exists (select 1 from m where m.uid = auth.uid())` has a FROM, so the call there is still per row = bare.
+function firstBareAuthCall(sql) {
+  const code = blankNonCode(sql);
+  AUTH_CALL.lastIndex = 0;
+  let m;
+  while ((m = AUTH_CALL.exec(code))) {
+    const opens = []; // offsets of still-open parentheses before the call
+    for (let i = 0; i < m.index; i++) {
+      if (code[i] === '(') opens.push(i);
+      else if (code[i] === ')') opens.pop();
+    }
+    const selectAt = opens.reverse().find((at) => /^\(\s*select\b/i.test(code.slice(at, at + 40)));
+    if (selectAt === undefined || /\bfrom\b/i.test(code.slice(selectAt, m.index))) return m;
+  }
+  return null;
+}
+function checkR15_policyBareAuthCall(allStmts) {
+  const findings = [];
+  for (const s of allStmts) {
+    if (!/^\s*(create|alter)\s+policy\b/i.test(s.text)) continue;
+    const m = firstBareAuthCall(s.text);
+    if (!m) continue;
+    const tm = RE.createPolicyTable.exec(s.text) || ALTER_POLICY_TABLE.exec(s.text);
+    const fn = `auth.${m[1].toLowerCase()}()`;
+    findings.push({ id: 'R15', file: s.file, line: s.startLine, message: `policy on "${tm ? normalizeTable(tm[1]) : '?'}" calls ${fn} per row; wrap it: (select ${fn})` });
+  }
+  return findings;
+}
+
 // ---------------------------------------------------------------------------
 // Orchestration
 // ---------------------------------------------------------------------------
@@ -838,6 +941,9 @@ function runChecks(repoPath) {
     ...checkR12_fileNaming(filesMeta),
     ...checkR13_functionDefaultExecute(allStmts),
     ...checkR14_backwardIncompatible(allStmts, fileRecords),
+    ...checkR15_policyBareAuthCall(allStmts),
+    ...checkR16_bulkGrant(allStmts),
+    ...checkR17_fkToTenantTable(allStmts),
   ];
 
   // Suppression: `-- lint-ignore Rn` on the line directly above the finding.

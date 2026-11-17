@@ -67,6 +67,9 @@ Zasada przewodnia (z `SKILL.md`): burden of proof leży po stronie złożoności
 | Faktury, umowy, numeracja, PDF, KSeF | `06 › Dokumenty, faktury i numeracja` |
 | Po czym dzielić kod na moduły; ta sama tabela/SDK w wielu miejscach; cohesion, coupling, connascence; Parnas vs slice vs DDD vs hexagonal | `01 › Dekompozycja wewnątrz monolitu` |
 | Podział na usługi/repo/funkcje | `07 › Monolit modularny vs usługi` |
+| Jaki styl całego systemu (layered, modular monolith, microkernel, pipeline, service-based, event-driven, microservices, SOA, space-based); partycjonowanie techniczne vs domenowe; kwant architektury; „jaki to styl naprawdę” w audycie | `style-architektury.md` |
+| Głęboko jeden ze stylów: reguły konstrukcyjne, antywzorce z komendą, fitness functions, ewolucja, mapowanie na Supabase/Vercel | `styl-layered.md`, `styl-modular-monolith.md`, `styl-microservices.md` (+ audyt „mały rozproszony monolit”), `styl-event-driven.md`; z researchu w sieci (źródła w karcie): `styl-pipeline.md`, `styl-service-based.md`, `styl-microkernel.md` |
+| Kalibracja: „jaki styl dla tego kontekstu” — 9 scenariuszy z liczbami, oczekiwanym stylem, pułapką i sygnałem zmiany; co widzi automat (`arch-check` `[ARCH-STYLE]`), a czego nie | `style-eval.md` |
 | „Co robi push", hosting, edge functions, Lovable | `07 › Platforma i ścieżka wdrożenia` |
 | CI zielone, ale nic nie testuje; rollback; wydania | `07 › CI/CD i wydania` |
 | Bezpieczne wydanie: canary, blue/green, rolling, feature flags, smoke + automatyczny rollback | `07 › Strategie wdrożeń i rollback` |

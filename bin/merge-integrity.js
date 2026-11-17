@@ -6,7 +6,8 @@
 //  (a) bilans nawiasow {} w .css/.scss (wersja z --head) — JS/TS/JSON sprawdza kompilator i lint; heurystyka
 //      nawiasow dla JS dawala falszywe alarmy (apostrof w JSX, `i++ / 2`) — pg-review 2026-10-06,
 //  (b) ze kazda niepusta linia dodana w kazdej galezi wzgledem base (diff base...galaz) istnieje w --head
-//      (multizbior per plik, porownanie po trim) — lista zgubionych linii.
+//      (multizbior per plik, porownanie po trim) — lista zgubionych linii,
+//  (c) ze zadna wersja migracji (14 cyfr) nie wystepuje w --head w dwoch plikach po scaleniu (2026-11-15).
 // Uzycie: node merge-integrity.js --repo <dir> --base <ref> --branches a,b[,c] [--head HEAD] [--json]
 //         node merge-integrity.js --repo <dir> --merges-of <rev> [--json]   (kazdy merge-commit z <rev> spoza
 //         remote'ow: base = merge-base rodzicow, galezie = rodzice; uzywa git-hooks/pre-push). Exit 1 tylko gdy CSS
@@ -118,12 +119,33 @@ function check(opts) {
     const err = checkFile(file, text);
     if (err) unbalanced.push(Object.assign({ file }, err));
   }
-  return { repo: opts.repo, base: opts.base, head: opts.head, branches: opts.branches, filesChecked: files.size, unbalanced, lost };
+  const collisions = migrationCollisions(git(opts.repo, ['ls-tree', '-r', '--name-only', opts.head]).split('\n'), files);
+  return { repo: opts.repo, base: opts.base, head: opts.head, branches: opts.branches, filesChecked: files.size, unbalanced, lost, collisions };
+}
+
+/** (c) Ta sama 14-cyfrowa wersja migracji w dwoch plikach po scaleniu, z ktorych choc jeden przyszedl w tym scaleniu.
+ * Blizna MIGRATION-VERSION-COLLISION-AFTER-MERGE: linter na jednej galezi widzi tylko swoj zbior, kolizja powstaje
+ * dopiero w sumie galezi (`supabase db reset` pada na duplicate key). Czysta funkcja: (pliki w head, pliki scalenia). */
+function migrationCollisions(headFiles, mergedFiles) {
+  const byVersion = new Map();
+  for (const f of headFiles) {
+    const m = /^(.*(?:^|\/)migrations)\/(\d{14})[^/]*\.sql$/.exec(f);
+    if (!m) continue;
+    const key = `${m[1]}/${m[2]}`;
+    byVersion.set(key, (byVersion.get(key) || []).concat(f));
+  }
+  return [...byVersion.entries()].filter(([, fs]) => fs.length > 1 && fs.some((f) => mergedFiles.has(f)))
+    .map(([key, fs]) => ({ version: key.split('/').pop(), files: fs.sort() }));
 }
 
 function render(r) {
   const lines = [`merge-integrity: ${r.head} vs base ${r.base}, galezie: ${r.branches.join(', ')} · plikow: ${r.filesChecked}`];
-  if (!r.unbalanced.length && !r.lost.length) { lines.push('OK — nawiasy zbilansowane, kazda dodana linia z galezi jest w head'); return lines.join('\n') + '\n'; }
+  const collisions = r.collisions || [];
+  if (!r.unbalanced.length && !r.lost.length && !collisions.length) { lines.push('OK — nawiasy zbilansowane, kazda dodana linia z galezi jest w head'); return lines.join('\n') + '\n'; }
+  if (collisions.length) {
+    lines.push('', `Kolizja wersji migracji (${collisions.length}) — ta sama wersja w dwoch plikach, zmien numer jednej przed wdrozeniem:`);
+    for (const c of collisions) lines.push(`  ${c.version}: ${c.files.join(' + ')}`);
+  }
   if (r.unbalanced.length) {
     lines.push('', `Niezbilansowane nawiasy (${r.unbalanced.length}):`);
     for (const u of r.unbalanced) lines.push(`  ${u.file}:${u.line}: ${u.message}`);
@@ -173,14 +195,14 @@ function main(argv) {
     process.stdout.write(opts.json ? JSON.stringify(reports, null, 2) + '\n' : reports.filter((r) => !r.error).map(render).join('') || (reports.length ? 'merge-integrity: zadne scalenie nie zostalo sprawdzone (bledy gita wyzej)\n' : 'merge-integrity: brak merge-commitow do sprawdzenia\n'));
     const broken = reports.flatMap((r) => r.stillBroken.map((u) => `${u.file}:${u.line} (scalenie ${r.head.slice(0, 8)})`));
     if (broken.length) process.stderr.write(`merge-integrity: CSS rozbity w scaleniu i nadal niezbilansowany w ${opts.mergesOf}: ${broken.join(', ')}\n`);
-    else if (reports.some((r) => r.unbalanced.length || r.lost.length)) process.stderr.write('merge-integrity: uwagi wyzej dotycza scalen poprawionych pozniej albo zgubionych linii — ostrzezenie, nie blokada\n');
+    else if (reports.some((r) => r.unbalanced.length || r.lost.length || (r.collisions || []).length)) process.stderr.write('merge-integrity: uwagi wyzej dotycza scalen poprawionych pozniej, zgubionych linii albo kolizji wersji migracji — ostrzezenie, nie blokada\n');
     return mergesExit(reports);
   }
   let report;
   try { report = check(opts); } catch (e) { process.stderr.write(`merge-integrity: blad gita: ${String(e.stderr || e.message).trim().split('\n')[0]}\n`); return EXIT.USAGE; }
   process.stdout.write(opts.json ? JSON.stringify(report, null, 2) + '\n' : render(report));
-  return report.unbalanced.length || report.lost.length ? EXIT.PROBLEMS : EXIT.OK;
+  return report.unbalanced.length || report.lost.length || report.collisions.length ? EXIT.PROBLEMS : EXIT.OK;
 }
 
-module.exports = { parseArgs, addedLinesByFile, lostLines, check, checkMerges, mergesExit, render, EXIT };
+module.exports = { parseArgs, addedLinesByFile, lostLines, migrationCollisions, check, checkMerges, mergesExit, render, EXIT };
 if (require.main === module) process.exit(main(process.argv.slice(2)));

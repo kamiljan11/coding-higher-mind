@@ -1,0 +1,309 @@
+{
+  "version": 1,
+  "about": "Mapa procesu pracy z PG jako dane. Kazdy krok ma guards (co go wymusza lub wspiera) albo unguarded_reason (nic go nie pilnuje i dlaczego). Pilnuje tego bin/process-map-lint.py; strone dla wlasciciela generuje bin/process-map-render.py do pg/process-map.md.",
+  "stages": [
+    {
+      "id": "request",
+      "title_pl": "Prośba lub pomysł",
+      "starts_when": "uzytkownik wpisuje prośbę w sesji (albo budzik czy zadanie zaplanowane budzi sesję).",
+      "cost": "0 tokenów na bramki; pamięć sesji zajmuje miejsce w kontekście",
+      "steps": [
+        {
+          "text": "Na starcie sesji pamięć z notatek trafia do kontekstu sama, bez czytania plików przez agenta.",
+          "guards": ["hooks/session-context.js"],
+          "cost": "0 tokenów na bramkę (sama treść pamięci wchodzi do kontekstu)"
+        },
+        {
+          "text": "Każda niebanalna prośba dostaje protokół przeciw zmyślaniu: nie wiem zamiast wymyślania, dowód zamiast deklaracji.",
+          "guards": ["hooks/prompt-guard.js", "prompt-protocol.md"],
+          "cost": "0 tokenów na bramkę (protokół to kilkanaście linii w kontekście)"
+        },
+        {
+          "text": "Jeśli prośbę napisał agent (budzik, sesja potomna), a nie człowiek -> nie wolno przez nią przemycić frazy wyjątku od bramek.",
+          "guards": ["hooks/lib/turn-origin.js", "hooks/schedule-guard.js"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Jeśli prośba jest niejasna albo krok jest kosztowny lub nieodwracalny -> najpierw 1-3 pytania, dopiero potem działanie.",
+          "unguarded_reason": "To instrukcja protokołu dla modelu; żaden skrypt nie sprawdza, że model faktycznie zapytał, zamiast zgadywać.",
+          "cost": "kilka linii rozmowy"
+        }
+      ]
+    },
+    {
+      "id": "design",
+      "title_pl": "Projekt przed kodem",
+      "starts_when": "Prośba oznacza dużą zmianę, nowy projekt albo nowy katalog, tabelę, endpoint, zależność lub integrację.",
+      "cost": "T0-T1 kilka linii; T2+ plik projektu; narada tylko przy decyzji trudnej do cofnięcia",
+      "steps": [
+        {
+          "text": "Przed pierwszą linią kodu powstaje projekt: do T1 kilka linii w odpowiedzi, od T2 plik docs/designs z szablonu (problem, kryterium akceptacji, czego nie robimy, ryzyka).",
+          "guards": ["pg/design.md", "templates/repo/docs/designs/TEMPLATE.md"],
+          "cost": "0 tokenów na bramkę; czas na napisanie projektu"
+        },
+        {
+          "text": "Projekt T2+ przechodzi samoocenę wg rubryki planu, a ścieżki i funkcje wymienione w planie muszą istnieć w repo.",
+          "guards": ["pg/plan-rubric.md", "bin/plan-refs-check.js"],
+          "cost": "0 tokenów (sprawdzenie ścieżek); samoocena autora"
+        },
+        {
+          "text": "Jeśli zmiana zmienia architekturę (nowy obszar, złamany niezmiennik) -> sygnał architektury i ADR przed kodem.",
+          "guards": ["hooks/lib/arch-signals.js", "bin/arch-check.js", "pg/adr/0005-cel-architektury-i-bramka-expand-contract.md"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Jeśli decyzja jest trudna do cofnięcia (nowy dostawca, tabela, auth, płatności) -> narada działów jako protokół, z dysydentem, z ADR i zapisanym sprzeciwem.",
+          "guards": ["skills/pg-council/SKILL.md", "pg/council.md", "bin/pg-council.js", "agents/catfish.md"],
+          "cost": "3-5 agentów działowych + 1 dysydent (catfish); T3 na modelu opus"
+        }
+      ]
+    },
+    {
+      "id": "build",
+      "title_pl": "Pisanie kodu",
+      "starts_when": "Projekt jest gotowy (albo zmiana jest mała) i agent zaczyna zmieniać pliki lub uruchamiać komendy.",
+      "cost": "0 tokenów na wszystkie bramki tego etapu",
+      "steps": [
+        {
+          "text": "Przed zapisem pliku i przed uruchomieniem komendy bramki blokują to, czego nie wolno: warstwę kontrolną PG, sekret w komendzie, kasowanie, obejścia bramek.",
+          "guards": ["hooks/edit-guard.js", "hooks/bash-guard.js", "hooks/lib/protected-paths.js", "hooks/lib/bash-rules.js", "hooks/lib/shell-parse.js", "hooks/memory-guard.js"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Po każdej edycji (także przez sed, heredoc, przekierowanie) lint i typy sprawdzają zmieniony plik.",
+          "guards": ["hooks/post-edit-check.js", "hooks/post-bash-edit-check.js", "hooks/lib/lint-file.js", "hooks/lib/lang-checkers.js", "hooks/lib/css-balance.js"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Jeśli to samo narzędzie zwraca ten sam błąd drugi raz -> agent ma zmienić podejście, nie powtarzać.",
+          "guards": ["hooks/loop-monitor.js"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Jeśli sesja dobija do końca okna kontekstu -> migawka przed kompakcją i zapis streszczenia po niej, żeby polecenia i zakazy nie zginęły.",
+          "guards": ["hooks/context-checkpoint.js", "hooks/precompact-snapshot.js", "hooks/postcompact-summary.js", "bin/precompact-paste-scan.js"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Przy commicie bramki git: sekrety, SQL, lint i typy, zakomentowany kod, powtórzone stałe, nowe zależności, dane osobowe, TODO bez wpisu; wiadomość w Conventional Commits.",
+          "guards": ["git-hooks/pre-commit", "git-hooks/commit-msg", "bin/dup-literals.js", "bin/commented-code-gate.js", "bin/dep-exists.js", "bin/sql-migration-lint.js", "bin/service-role-gate.js", "bin/todo-ledger-gate.js", "bin/pii-inventory-gate.js", "bin/base-check.js"],
+          "cost": "0 tokenów"
+        }
+      ]
+    },
+    {
+      "id": "review",
+      "title_pl": "Recenzja",
+      "starts_when": "Agent chce zakończyć odpowiedź po zmianie kodu, stop-gate zgłasza [review] albo zbliża się PR.",
+      "cost": "bramki 0 tokenów; recenzja działowa T1 ok. 1x, T2 ok. 4x, T3 ok. 8-10x kosztu jednej recenzji diffu",
+      "steps": [
+        {
+          "text": "Agent nie może skończyć, dopóki w repo, którego dotykał, są błędy lintu, typów lub czerwone testy.",
+          "guards": ["hooks/stop-gate.js", "hooks/lib/changed-lines.js"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Poziom ryzyka zmiany (T0-T3) liczy skrypt ze ścieżek i rozmiaru diffu i on wyznacza, którzy recenzenci są wymagani.",
+          "guards": ["hooks/lib/risk-tier.js", "pg/dod.md"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Jeśli poziom to T2 lub wyżej -> działy czytają diff niezależnie, werdykty łączy kod (nie model), a weryfikator próbuje je obalić.",
+          "guards": ["skills/pg-review/SKILL.md", "bin/pg-slice.js", "bin/pg-prechecks.js", "bin/pg-aggregate.js", "agents/code-reviewer.md", "agents/security-reviewer.md", "agents/data-reviewer.md", "agents/ops-reviewer.md", "agents/ux-reviewer.md", "agents/product-reviewer.md", "agents/verifier.md"],
+          "cost": "T2 ok. 4x, T3 ok. 8-10x kosztu jednej recenzji; agregacja 0 tokenów"
+        },
+        {
+          "text": "Jeśli to T3 z interfejsem, a repo ma ścieżki krytyczne i adres QA -> dodatkowo test na żywej aplikacji.",
+          "guards": ["agents/qa-reviewer.md", "bin/qa-matrix.js", "pg/adr/0002-qa-reviewer-warunkowo-obowiazkowy.md"],
+          "cost": "qa-matrix 0 tokenów; agent QA na zadanie"
+        },
+        {
+          "text": "Poprawki robi sesja główna; odrzucenie uwagi wymaga dowodu, a wynik każdej decyzji trafia do rejestru, z którego kalibruje się działy.",
+          "guards": ["bin/pg-outcome.js", "bin/pg-cases.js", "pg/cases.md", "scheduled-tasks/pg-reviewer-calibration/SKILL.md"],
+          "cost": "0 tokenów (rejestr)"
+        }
+      ]
+    },
+    {
+      "id": "merge",
+      "title_pl": "Wysłanie i scalenie",
+      "starts_when": "Zmiana ma zielone bramki i recenzję, a agent wypycha gałąź albo scala PR.",
+      "cost": "0 tokenów na bramki; dowód recenzji liczy kod",
+      "steps": [
+        {
+          "text": "Push: nie na główną gałąź, nie diff większy niż 1500 linii, scalenie nie może zostawić rozbitego CSS ani nowego cyklu importów.",
+          "guards": ["git-hooks/pre-push", "bin/diff-size-gate.js", "bin/merge-integrity.js", "bin/module-boundaries.js"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Na PR działa CI repo (jakość, recenzja pg-review jako dowód) i ochrona gałęzi głównej.",
+          "guards": ["templates/repo/.github/workflows/quality.yml", "templates/repo/.github/workflows/pg-review.yml", "bin/mas_branch_protect.py"],
+          "cost": "0 tokenów w quality.yml; recenzja w CI wymaga sekretu subskrypcji"
+        },
+        {
+          "text": "Jeśli zmiana jest rutynowa i w pełni sprawdzona (T1/T2 z dowodem recenzji) -> skrypt scala sam; jeśli T3, zależności lub CI, kod wrażliwy albo instrukcje agentów -> scalenie tylko za frazą uzytkownika.",
+          "guards": ["bin/pg-merge-bezpieczny.py", "bin/pg-merge-dowod.js", "bin/mas_merge_prs.py"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Ten sam temat idzie do istniejącego PR, nie do nowego; przed nowym PR sprawdza się listę otwartych PR i worktree.",
+          "unguarded_reason": "To reguła z instrukcji (CLAUDE.md); żaden skrypt nie sprawdza, czy temat ma już otwarty PR.",
+          "cost": "jedno zapytanie o listę PR"
+        }
+      ]
+    },
+    {
+      "id": "deploy",
+      "title_pl": "Wdrożenie na produkcję",
+      "starts_when": "Zmiana T2 lub T3 ma trafić na produkcję (deploy, release, publikacja) albo repo przechodzi w fazę production.",
+      "cost": "lista PRR i sondy 0 tokenów; recenzja ops-reviewer w ramach pg-review",
+      "steps": [
+        {
+          "text": "Przed wdrożeniem przechodzi się listę gotowości produkcyjnej: ścieżka deployu, flagi testowe, sekrety, migracja, rollback, runbook, koszt.",
+          "guards": ["pg/prr.md", "agents/ops-reviewer.md", "bin/sql-migration-lint.js", "bin/env-ref-gate.js", "bin/backup-drill.py"],
+          "cost": "komendy 0 tokenów; przegląd ops w pg-review"
+        },
+        {
+          "text": "Jeśli repo przechodzi w fazę production -> w tym samym commicie musi być wypełniony docs/prr z datą.",
+          "guards": ["bin/phase-gate.js", "git-hooks/pre-commit"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Ścieżki krytyczne (logowanie, zlecenie, płatność, formularz) sprawdza się na podglądzie, dla każdej persony i rozmiaru ekranu.",
+          "guards": ["bin/qa-matrix.js", "pg/prr.md"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Po wdrożeniu sondy podglądu, bake przed promocją i obserwacja produkcji z automatycznym rollbackiem po serii czerwonych sond.",
+          "guards": ["pg/adr/0004-bramki-wdrozenia-bake-watch-rollback.md", "templates/repo/.github/workflows/deploy-gate.yml", "templates/repo/.github/scripts/deploy-probe.mjs"],
+          "cost": "0 tokenów; minuty runnera CI",
+          "unguarded_reason": "Pilnuje tego tylko szablon workflow w repo klienta; ten repo nie sprawdza, że dany projekt go ma, a POST rollbacku jest w ADR-0004 oznaczony jako nieprzećwiczony."
+        }
+      ]
+    },
+    {
+      "id": "incident",
+      "title_pl": "Incydent",
+      "starts_when": "Coś padło na produkcji, klient zgłosił błąd albo bramka przepuściła to, czego nie powinna.",
+      "cost": "ok. 15 minut na szablon; nowa bramka 0 tokenów na stałe",
+      "steps": [
+        {
+          "text": "Incydent opisuje się w szablonie postmortem (wpływ, wykrycie, 5x dlaczego, przyczyna w systemie, nie w osobie).",
+          "guards": ["pg/postmortem.md"],
+          "cost": "ok. 15 minut"
+        },
+        {
+          "text": "Jeśli przyczynę da się wykryć skryptem -> nowa bramka; jeśli wymaga osądu -> blizna w cases.md i punkt rubryki recenzenta; jeśli to proces -> punkt listy PRR; jeśli zachowanie AI -> protokół albo uwaga dla modelu.",
+          "guards": ["pg/postmortem.md", "pg/cases.md", "pg/prr.md", "pg/models.md", "pg/GLOSSARY.md"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Nowa bramka dostaje test w parze: przypadek, który łapie, i bliski przypadek, który ma przepuścić.",
+          "guards": ["bin/pg-eval.js", "pg/eval/cases.json", "bin/test_prompt_guard.js"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Incydent jest otwarty, dopóki bramka lub case nie trafi do repo; przejście z OPEN na CLOSED robi człowiek.",
+          "unguarded_reason": "Status w dzienniku incydentów (poza repo, w notatkach) zmienia się ręcznie; żaden skrypt nie wyszukuje incydentów bez wdrożonego action itemu.",
+          "cost": "1 linia w dzienniku"
+        }
+      ]
+    },
+    {
+      "id": "improvement",
+      "title_pl": "Poprawa systemu z użycia",
+      "starts_when": "Raz w tygodniu (gdy cykliczne uruchomienie jest włączone) albo gdy ktoś ręcznie odpali raport zdrowia.",
+      "cost": "0 tokenów i poniżej sekundy na raport; człowiek do 5 pozycji tygodniowo",
+      "steps": [
+        {
+          "text": "Raport zdrowia liczy z logów, które PG i tak zapisuje, jak działają bramki i recenzenci.",
+          "guards": ["hooks/guard_health.py", "hooks/gate_effectiveness.py", "hooks/lang_gap_health.py", "hooks/outbound_health.py"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Pętla użycia wybiera najwyżej 5 kandydatów do zmiany reguł: martwa reguła, bramka obchodzona po blokadzie, powtarzający się finding.",
+          "guards": ["hooks/usage_loop.py", "pg/usage-loop.json", "pg/adr/0013-petla-uzycia-raport-kandydatow.md"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Jeśli kandydat jest sensowny -> właściciel zapisuje accepted albo rejected z datą i powodem w pliku progów; kandydat z decyzją znika z raportu.",
+          "guards": ["pg/usage-loop.json"],
+          "cost": "1 linia JSON na decyzję"
+        },
+        {
+          "text": "Cykliczne uruchamianie raportu zdrowia (bez niego migawki nie powstają i okno sześciu tygodni się nie zbiera).",
+          "unguarded_reason": "Zaplanowane zadanie guard-health jest wyłączone, a żaden timer ani hook nie odpala raportu (ADR-0013, Warunek działania); raport powstaje tylko po ręcznym uruchomieniu.",
+          "cost": "0 tokenów po włączeniu timera"
+        },
+        {
+          "text": "Raz w miesiącu skan otoczenia: obce repo z listy obserwowanych czyta wąski agent bez dostępu do plików.",
+          "unguarded_reason": "Wyłączone 2026-11-15 (decyzja delegowana przez uzytkownika): zadanie pg-landscape-watch ma enabled=false, ostatni przebieg 2026-10-02 na Windows; PG uczy się z użycia, nie z nowych rund materiału z zewnątrz. Pliki zostają (bin/pg-landscape-watch.py, agents/landscape-reader.md), powrót = enabled=true i guards jak przed tą zmianą.",
+          "cost": "0 tokenów (wyłączone); po włączeniu 1 agent czytający niezaufaną treść na skan"
+        }
+      ]
+    },
+    {
+      "id": "knowledge",
+      "title_pl": "Wiedza z kursów: rejestr tez",
+      "starts_when": "Przed projektowaniem (czytanie rejestru) albo gdy do PG ma wejść nowy materiał źródłowy (rzadko; domyślnie system uczy się z użycia, nie z nowych kursów).",
+      "cost": "0 tokenów na czytanie i kontrole; nowy materiał = praca agentów wg playbooka",
+      "steps": [
+        {
+          "text": "Przed projektem wyszukaj 2-3 słowami kluczowymi, co kursy mówią na dany temat i który plik PG tego pilnuje; każde wyszukanie zapisuje się w logu użycia.",
+          "guards": ["bin/ledger-search.py", "pg/knowledge-ledger.jsonl", "pg/design.md"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Jeśli wchodzi nowy materiał -> playbook krok po kroku: wyciąg tez z cytatem, import, potwierdzenie przeczytania, kontrola próbki przez świeżego weryfikatora.",
+          "guards": ["pg/playbooks/knowledge-ingest.json", "bin/ledger-import-generic.py", "bin/ledger-import-devsteer.py", "bin/ack-check.py", "pg/knowledge-sources.json"],
+          "cost": "agenci wg playbooka; kontrole 0 tokenów"
+        },
+        {
+          "text": "Kontrola rejestru liczy luki (teza ważna bez wyzwalacza, źródło bez tez) i pokazuje trend; pole wyzwalacza wypełnia skrypt tam, gdzie dowód wskazuje istniejący plik.",
+          "guards": ["bin/ledger-check.py", "bin/ledger-trend.py", "bin/ledger-trigger-fill.py"],
+          "cost": "0 tokenów",
+          "unguarded_reason": "Kontrola kończy się kodem 1 na dzisiejszych danych (0 tez ma pole place), więc nie jest wpięta jako bramka; uruchamiana ręcznie."
+        },
+        {
+          "text": "Znane skłonności modeli (np. sukces bez dowodu, czas z pamięci) mają spis z przypisanym mechanizmem albo jawnym brakiem.",
+          "guards": ["pg/ai-patterns.md"],
+          "cost": "0 tokenów; czytane przy pracy nad PG"
+        }
+      ]
+    },
+    {
+      "id": "maintenance",
+      "title_pl": "Utrzymanie samego PG",
+      "starts_when": "Zmiana dotyczy samego systemu jakości: hooka, bramki, rubryki recenzenta, karty, szablonu repo albo ADR PG.",
+      "cost": "0 tokenów na kontrole; recenzja pg-review wg poziomu zmiany",
+      "steps": [
+        {
+          "text": "Najpierw indeks właścicieli: zmianę robi się u właściciela tematu, a nie przez kopię reguły u konsumenta.",
+          "guards": ["skills/pg-maintain/SKILL.md", "pg/INDEX.md", "bin/pg-map.py", "bin/README.md"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Przed commitem jedna komenda sprawdza składnię, testy konsumentów, mapy, streszczenia i liczby cytowane w instrukcjach; wpięcia hooków w settings.json muszą zgadzać się z zapisaną migawką, inaczej commit jest zablokowany.",
+          "guards": ["bin/pg-self-check.py", "bin/claims-check.py", "bin/pg-rule-coverage.js", "bin/pg-wire.js", "pg/settings-hooks.json", "git-hooks/pre-commit"],
+          "cost": "0 tokenów"
+        },
+        {
+          "text": "Jeśli zmiana dotyka warstwy kontrolnej -> tylko w oknie frazy uzytkownika; po recenzji pieczęć sha256 pokazuje każdą zmianę poza oknem.",
+          "guards": ["hooks/lib/protected-paths.js", "hooks/lib/overrides.js", "bin/pg-seal.js", "bin/pg-self-approve.js"],
+          "cost": "0 tokenów; pg-review wg poziomu"
+        },
+        {
+          "text": "Ta mapa procesu jest sprawdzana komendą: dziury (krok bez ochrony i bez uzasadnienia, nieistniejąca ścieżka) dają błąd, sieroty (pliki, do których żaden krok nie prowadzi) tylko listę.",
+          "guards": ["pg/process-map.json", "bin/process-map-lint.py", "bin/process-map-render.py"],
+          "cost": "0 tokenów",
+          "unguarded_reason": "Komenda jest odpalana ręcznie; żaden hook, pre-commit ani CI jej nie wywołuje, więc mapa może się zestarzeć bez alarmu."
+        },
+        {
+          "text": "Po zmianie kopia PG idzie na prywatne repo; pobieranie z powrotem tylko za frazą uzytkownika.",
+          "guards": ["bin/pg-sync.js", "bin/pg-selftest.js"],
+          "cost": "0 tokenów"
+        }
+      ]
+    }
+  ]
+}
