@@ -28,8 +28,11 @@ def candidates(root: str, name: str) -> list[str]:
     return sorted(set(found))
 
 
+TMP_SUFFIX = ".pg-skill-links.tmp"
+
+
 def relink(link: str, target: str) -> None:
-    tmp = link + ".pg-skill-links.tmp"
+    tmp = link + TMP_SUFFIX
     if os.path.lexists(tmp):
         os.unlink(tmp)
     os.symlink(target, tmp)
@@ -40,6 +43,11 @@ def run(skills_dir: str, root: str, fix: bool) -> int:
     broken_left = 0
     for name in sorted(os.listdir(skills_dir)):
         link = os.path.join(skills_dir, name)
+        if name.endswith(TMP_SUFFIX):  # own leftover of an interrupted relink: not a skill, never counted as dead
+            if fix and os.path.islink(link):
+                os.unlink(link)
+                print(f"usuniete {name} (pozostalosc przerwanego przepiecia)")
+            continue
         if not os.path.islink(link) or os.path.isfile(os.path.join(link, "SKILL.md")):
             continue
         cands = candidates(root, name)

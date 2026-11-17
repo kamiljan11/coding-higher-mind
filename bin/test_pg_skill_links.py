@@ -40,10 +40,13 @@ with tempfile.TemporaryDirectory() as td:
     os.symlink(os.path.join(root, "gone/orphan"), os.path.join(skills, "orphan"))
     os.symlink(alive, os.path.join(skills, "alive"))
     skill(skills, "real-dir")
+    # Leftover of an interrupted relink (review note STALE-TMP-LINK): not a skill, never a dead link.
+    os.symlink(os.path.join(root, "gone/moved"), os.path.join(skills, "moved.pg-skill-links.tmp"))
     a = ["--skills-dir", skills, "--plugins-root", root]
 
     r = tool(*a)
     check("raport: martwe zostaja, exit 1, nic nie zmienia", r.returncode == 1 and os.readlink(os.path.join(skills, "moved")).endswith("skills-plugin/o/u/skills/moved"), r.stdout)
+    check("raport: pozostalosc *.pg-skill-links.tmp nie liczy sie jako martwe", "martwych dowiazan: 3" in r.stdout and "MARTWE moved.pg-skill-links.tmp" not in r.stdout, r.stdout)
     r = tool("--fix", *a)
     check("--fix: jeden kandydat -> przepiete na nowy uklad rpm", os.readlink(os.path.join(skills, "moved")) == new_a, r.stdout)
     check("--fix: 2 kandydatow -> bez zmian (wybor reczny)", os.readlink(os.path.join(skills, "twice")) == os.path.join(root, "gone/twice"), r.stdout)
