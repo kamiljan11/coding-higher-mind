@@ -32,7 +32,8 @@ if (fs.existsSync(settingsFile)) {
 const claudeMd = path.join(CLAUDE, 'CLAUDE.md');
 if (fs.existsSync(claudeMd)) {
   const t = fs.readFileSync(claudeMd, 'utf8');
-  const out = t.replace(/\n*<!-- PG:BEGIN -->[\s\S]*?<!-- PG:END -->\n?/, '\n');
+  // Whole-line markers only: the block quotes them inline (same rule as install.mjs mergeClaudeMd).
+  const out = t.replace(/\n*^<!-- PG:BEGIN -->$[\s\S]*?^<!-- PG:END -->$\n?/m, '\n');
   if (out !== t) { fs.copyFileSync(claudeMd, claudeMd + '.pg-bak'); fs.writeFileSync(claudeMd, out); console.log('CLAUDE.md: PG block removed (backup: CLAUDE.md.pg-bak)'); }
   else console.log('CLAUDE.md: no PG block found');
 }
