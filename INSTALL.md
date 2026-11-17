@@ -64,13 +64,15 @@ not overwrite it; it writes `<file>.pg-new` next to it.
 1. **Language of the protocol** injected into every prompt: `en` or `pl`?
 2. **Global git hooks?** "Should every git repository on this machine run the PG checks on commit and push?
    This sets `git config --global core.hooksPath ~/.claude/git-hooks`. If you already use global git hooks
-   (husky with core.hooksPath, a company hooks path), say no." Yes → add `--yes`. No → leave it out.
+   (husky with core.hooksPath, a company hooks path), say no." Yes → add `--yes`. No → add `--no-git-hooks`.
 
 ## Step 4 — install
 
+Always pass both flags: in a real terminal the installer otherwise stops at its own `(y/N)` question and waits.
+
 ```bash
-node install.mjs --lang=<en|pl>            # answer "no" to git hooks
-node install.mjs --lang=<en|pl> --yes      # answer "yes" to git hooks
+node install.mjs --lang=<en|pl> --no-git-hooks   # answer "no" to git hooks
+node install.mjs --lang=<en|pl> --yes            # answer "yes" to git hooks
 ```
 
 Expected, in this order:
@@ -90,14 +92,14 @@ Running the installer again is safe: unchanged files are reported as `identical`
 ## Step 5 — verify
 
 ```bash
-node ~/.claude/bin/pg-selftest.js | tail -1                    # person said YES to git hooks
-node ~/.claude/bin/pg-selftest.js --no-global-git | tail -1    # person said NO to git hooks
+node ~/.claude/bin/pg-selftest.js > /tmp/pg-selftest.txt; echo "exit=$?"; tail -1 /tmp/pg-selftest.txt                  # YES to git hooks
+node ~/.claude/bin/pg-selftest.js --no-global-git > /tmp/pg-selftest.txt; echo "exit=$?"; tail -1 /tmp/pg-selftest.txt  # NO to git hooks
 grep -c '^<!-- PG:BEGIN -->$' ~/.claude/CLAUDE.md
 ls ~/.claude/skills/pg-review/SKILL.md ~/.claude/skills/pg-maintain/SKILL.md
 git config --global core.hooksPath     # only if the person said yes in step 3
 ```
 
-Expected: `pg-selftest: OK …`, `1`, both SKILL.md paths printed without an error, and (only with yes) the path ending in `/.claude/git-hooks`.
+Expected: `exit=0` and `pg-selftest: OK …`, `1`, both SKILL.md paths printed without an error, and (only with yes) the path ending in `/.claude/git-hooks`.
 Without `--no-global-git` a "no" answer shows `FAIL git core.hooksPath` — that is the wrong command, not a broken install.
 
 ## Step 6 — tell the person what to do next
@@ -119,7 +121,7 @@ Stop, show the exact output, and ask the person. Do not retry with other flags.
 | What happened | Meaning |
 |---|---|
 | `Node >= 20 and git are required. Aborting.` (exit 1) | Preflight failed: install Node 20+ / git first. |
-| A self-test line other than `ok` | A gate test failed on this machine. Run that test alone (the line names it) and show the first `FAIL`. |
+| Last line `pg-selftest: <N> FAIL — …` (exit 1) | A row starting `FAIL` names the failing check. For a `test_*.js` row run `node ~/.claude/bin/<that file>` alone and show its first `FAIL`. |
 | `FAIL settings.json hooks … brak w settings.json: <names>` | `settings.json` could not be merged (invalid JSON?). Run `node -e "JSON.parse(require('fs').readFileSync(process.env.HOME+'/.claude/settings.json','utf8'))"`, show the error, do not rewrite the file. |
 | Any other non-zero exit code | Show the last 20 lines of output. |
 
