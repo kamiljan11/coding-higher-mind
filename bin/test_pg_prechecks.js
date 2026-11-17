@@ -70,6 +70,31 @@ try {
   write('src/server/radar/chain.ts', chain);
   fs.writeFileSync(path.join(runDir, 'diff.patch'), diff + fileDiff('src/server/radar/chain.ts', chain, [5, 9]));
 
+  // ---------- reguly 2026-11-15: insert bez deduplikacji, pominiety test ----------
+  const http = [
+    'const a = await axios.get("https://x.test/a");',                              // 1 + trafienie
+    'const c = await got("https://x.test/c");',                                    // 2 + trafienie
+    'if (forgot(password)) reset();',                                              // 3 `forgot(` to nie `got(` => brak
+    'await supabase.from("customers").insert({ email });',                         // 4 + INSERT-NO-DEDUP
+    'await supabase.from("audit_log").insert({ action });',                        // 5 tabela spoza listy => brak
+  ];
+  write('src/server/radar/http.ts', http);
+  // Osobny plik: okno `near` siega 6 linii w dol, wiec poprawne wywolania obok zlych zgasilyby trafienia.
+  const httpOk = [
+    'const b = await axios.get("https://x.test/b", { timeout: 5000 });',           // 1 timeout => brak
+    'await supabase.from("customers").insert({ email }, { onConflict: "email" });',// 2 onConflict => brak
+  ];
+  write('src/server/radar/http-ok.ts', httpOk);
+  const skipped = ['it.skip("charges once", () => {});', 'it("charges once", () => { expect(1).toBe(1); });'];
+  write('src/server/radar/pay.test.ts', skipped);
+  const res1115 = prechecks(fileDiff('src/server/radar/http.ts', http, [1, 2, 3, 4, 5]) + fileDiff('src/server/radar/http-ok.ts', httpOk, [1, 2])
+    + fileDiff('src/server/radar/pay.test.ts', skipped, [1, 2]), repo);
+  const lines1115 = (role, rule) => res1115[role].filter((h) => h.rule === rule).map((h) => `${path.basename(h.file)}:${h.line}`).join();
+  // axios/got/ky wycofane po recenzji 2026-11-15 (0 uzyc we flocie): regula widzi tylko `fetch(`, wiec te linie nie daja trafien.
+  check('FETCH-NO-TIMEOUT: axios/got nie sa objete regula (tylko fetch)', lines1115('ops', 'FETCH-NO-TIMEOUT') === '', lines1115('ops', 'FETCH-NO-TIMEOUT'));
+  check('INSERT-NO-DEDUP: insert do customers bez onConflict => trafienie; z onConflict i inna tabela => brak', lines1115('data', 'INSERT-NO-DEDUP') === 'http.ts:4', lines1115('data', 'INSERT-NO-DEDUP'));
+  check('TEST-SKIPPED: it.skip w pliku testu => trafienie; zwykly test => brak', lines1115('code', 'TEST-SKIPPED') === 'pay.test.ts:1', lines1115('code', 'TEST-SKIPPED'));
+
   // ---------- addedLines ----------
   const al = addedLines(diff, repo);
   check('addedLines: numery linii dodanych po stronie b/', [...al['src/server/radar/list.ts'].added].join() === '3,4,5,6,7,8,9,10', [...al['src/server/radar/list.ts'].added].join());
@@ -97,6 +122,24 @@ try {
   check('TODO -> code (plik kodu nie jest w wycinku product => pierwsza rola z wycinka)', hit('code', 'TODO', L, 10));
   check('INLINE-STYLE-HEX -> ux', hit('ux', 'INLINE-STYLE-HEX', 'src/components/Card.tsx', 1));
   check('DANGEROUS-SINK -> code (komponent poza wycinkiem security)', hit('code', 'DANGEROUS-SINK', 'src/components/Card.tsx', 1));
+  {
+    const list = [
+      'export const List = ({ rows }) => (<ul>',                                  // 1
+      '  {rows.map((r, index) => <li key={index}>{r.name}</li>)}',                // 2 + REACT-KEY-INDEX
+      '  {rows.map((r) => <li key={r.id}>{r.name}</li>)}',                        // 3 + stabilny klucz => brak
+      '  <a href={u} target="_blank">doc</a>',                                    // 4 + TARGET-BLANK-NO-REL
+      '  <a href={u}',                                                            // 5
+      '    target="_blank"',                                                      // 6 + rel dwie linie nizej => brak
+      '    className="x"',                                                        // 7
+      '    rel="noopener noreferrer">ok</a>',                                     // 8
+      '</ul>);',                                                                  // 9
+    ];
+    write('src/components/List.tsx', list);
+    const resReact = prechecks(fileDiff('src/components/List.tsx', list, [1, 2, 3, 4, 5, 6, 7, 8, 9]), repo);
+    const at = (rule) => Object.values(resReact).flat().filter((h) => h.rule === rule && h.file === 'src/components/List.tsx').map((h) => h.line);
+    check('REACT-KEY-INDEX: key={index} trafia, key={r.id} nie', [...new Set(at('REACT-KEY-INDEX'))].join() === '2', at('REACT-KEY-INDEX').join());
+    check('TARGET-BLANK-NO-REL: bez rel trafia, rel w oknie 3 linii nie', [...new Set(at('TARGET-BLANK-NO-REL'))].join() === '4', at('TARGET-BLANK-NO-REL').join());
+  }
   check('SQL-DESTRUCTIVE -> data + security', hit('data', 'SQL-DESTRUCTIVE', 'supabase/migrations/20261006_x.sql', 1) && hit('security', 'SQL-DESTRUCTIVE', 'supabase/migrations/20261006_x.sql', 1));
   check('DEFINER-NO-SEARCH-PATH -> security', hit('security', 'DEFINER-NO-SEARCH-PATH', 'supabase/migrations/20261006_x.sql', 2));
   check('SECRET-LITERAL w docs -> ops (fallback: pierwsza rola reguly)', hit('ops', 'SECRET-LITERAL', 'docs/adr/0003.md', 2));

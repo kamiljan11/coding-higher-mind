@@ -61,6 +61,8 @@ function main() {
   const { evaluate, overrides } = lib;
   lib.gateLog.noteInputKeys(HOOK, input);
   const sid = input.session_id || '';
+  // Pochodzenie frazy rozstrzygane PRZED wykonaniem komendy, ktora moglaby przepisac transkrypt (security-review r10).
+  if (typeof overrides.settlePending === 'function') overrides.settlePending(sid);
   const agentType = input.agent_type || input.agentType || null;
   const result = evaluate(cmd, { dialect: tool === 'PowerShell' ? 'ps' : 'sh', cwd: input.cwd || process.cwd(), agentType });
 

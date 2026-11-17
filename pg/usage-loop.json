@@ -1,0 +1,14 @@
+{
+  "dead_weeks": 6,
+  "dead_min_active_days": 20,
+  "safety_prefixes": ["bash-guard|rule:rm", "bash-guard|rule:secret", "bash-guard|rule:pr-merge", "bash-guard|override-required", "bash-guard|rule:docker-volume-destroy", "pre-commit|SERVICE_ROLE_CLIENT", "bash-guard|observe-channel:rule:rm", "bash-guard|observe-channel:rule:secret", "bash-guard|observe-channel:rule:pr-merge", "bash-guard|observe-channel:rule:docker-volume-destroy"],
+  "noisy_reviewer_pct": 30,
+  "noisy_reviewer_min_n": 10,
+  "noisy_hook_pct": 50,
+  "noisy_hook_min_n": 10,
+  "recurring_fixed_min": 10,
+  "recurring_min_repos": 2,
+  "recurring_window_days": 28,
+  "max_candidates": 5,
+  "decisions": {}
+}

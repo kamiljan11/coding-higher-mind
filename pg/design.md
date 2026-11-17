@@ -5,6 +5,7 @@ zaleznosc lub integracje. Wynik: T0-T1 = 8-15 linii W ODPOWIEDZI (nie w glowie);
 ze szablonu `templates/repo/docs/designs/TEMPLATE.md`** (P2+P9, 2026-11-01: czat ginie po kompakcji, plik przezywa i da sie go
 zrecenzowac; sekcje „Zalozenia, ktore zmiana uniewaznia” i „Ryzyka” obowiazkowe) + ADR, gdy decyzja jest nieodwracalna.
 Przed planem przeczytaj `docs/ARCHITECTURE.md` › Niezmienniki (jesli repo ja ma); plan lamiacy niezmiennik = design + ADR.
+Przed projektowaniem uruchom `python3 ~/.claude/bin/ledger-search.py "<2-3 slowa kluczowe>"` (nie cale zdanie: pomiar 2026-11-15, pytanie zdaniem trafia 8/15, slowa kluczowe 8/9; tezy W z kursow, status i mechanizm; 0 tokenow).
 Po zapisaniu pliku designu T2+: samoocena wg `pg/plan-rubric.md` (P1-lite; m.in. `bin/plan-refs-check.js`), wynik w jego
 sekcji „Status recenzji”, PRZED kodem.
 Dlaczego: „tygodnie kodowania oszczedzaja godziny planowania"; koszt bledu rosnie z faza; 7D bylo proza

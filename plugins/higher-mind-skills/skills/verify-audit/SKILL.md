@@ -1,23 +1,6 @@
 ---
 name: verify-audit
-description: >
-  Adversarial verification protocol. Use whenever uzytkownik asks to verify, double-check,
-  confirm, or "make sure" a claim, bug report, audit finding, fact, spec, or piece of copy
-  is actually true — ESPECIALLY before acting on it or shipping it. Defaults to assuming the
-  claim is FALSE until proven true by reading the actual source. Replaces the ~200-line
-  "adversarially verify this finding" prompt uzytkownik pastes by hand dozens of times a week.
-  Trigger on: "verify", "adversarially verify", "double-check this", "is this actually true",
-  "confirm this bug", "check this claim", "REFUTE", "make sure", "sprawdź czy to prawda",
-  "zweryfikuj", "potwierdź", "czy to na pewno działa", "verify this audit finding",
-  "check the file yourself", "don't trust the report". Also trigger proactively before
-  asserting a fact about a client's offer, a spec, a price, or code behaviour that came from
-  memory/notes rather than the live source.
-  ALSO trigger proactively at agency-site/Lovable build session endings — before the
-  output is sent to the client. Phrases that signal this: "lovable build done", "site is ready",
-  "ready to send to client", "pushed to GitHub", "wycena package complete", "export done",
-  "build complete", "strona gotowa", "gotowe do wysłania", "send to client", "zakończone",
-  "package ready", "gotowy do wysłania", "deliver to client", "wysyłamy klientowi". After any
-  wycena-agency-site or lovable-build completion, run one verify pass: spec vs. delivered output.
+description: "Adversarial verification: treat a claim as FALSE until the live source proves it. Use when uzytkownik says verify, double-check, confirm, zweryfikuj, sprawdź czy to prawda, REFUTE, don't trust the report; before asserting an offer, price, spec or code behaviour from memory; and before any agency-site/Lovable delivery goes to the client (spec vs delivered output)."
 ---
 
 # Verify-Audit — Adversarial Verification Protocol

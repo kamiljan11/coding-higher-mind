@@ -47,11 +47,24 @@ function git(root, args, timeout = 4000) {
   return { ok: r.status === 0, out: String(r.stdout || ''), code: r.status };
 }
 
+// Odczyt pliku working tree z obcego repo: realpath musi zostac w katalogu repo (symlink na plik spoza repo = null, pg-review 20261107 t3final security-1),
+// i tylko zwykly plik <= MAX_READ_BYTES (symlink do /dev/zero albo FIFO nie zawiesi narzedzia). Kazdy blad = null (brak danych, nie wyjatek).
+const MAX_READ_BYTES = 2 * 1024 * 1024;
+function readInside(root, rel) {
+  try {
+    const base = fs.realpathSync(root);
+    const real = fs.realpathSync(path.join(root, rel));
+    if (real !== base && !real.startsWith(base + path.sep)) return null;
+    const st = fs.statSync(real);
+    return st.isFile() && st.size <= MAX_READ_BYTES ? fs.readFileSync(real, 'utf8') : null;
+  } catch (e) { return null; }
+}
+
 // Czytnik drzewa: working tree (ref=null) albo commit (ref) — ten sam kod sprawdzen dla „teraz" i „na starcie sesji".
 function makeTree(root, ref, isGit) {
   if (!ref) {
     return {
-      read: (rel) => { try { return fs.readFileSync(path.join(root, rel), 'utf8'); } catch (e) { return null; } },
+      read: (rel) => readInside(root, rel),
       exists: (rel) => fs.existsSync(path.join(root, rel)),
       files: () => (isGit ? git(root, ['ls-files', '--cached', '--others', '--exclude-standard']).out.split('\n').filter(Boolean) : listDir(root)),
       grep: (rx) => (isGit ? grepFiles(git(root, ['grep', '-l', '-I', '-i', '-E', '--untracked', rx, '--', ...CODE_GLOBS]).out) : []),
@@ -204,15 +217,95 @@ function goalIssue(goal, issues) {
   }
 }
 
+// Sygnaly zmiany stylu (observe 2026-11-07; sciezka nowej reguly z ADR-0008 / pg-maintain krok 5: observe -> blokada dopiero po incydencie w pg/cases.md; bez blokady, NIE zmieniaja exit ani `issues`, wiec stop-gate ich nie widzi).
+// Mierzy tylko to, co widac w repo: (1) podzial glowny src/ techniczny, (2) lancuch wywolan edge fn -> edge fn,
+// (3) DECYZJA stylu bez mierzalnego sygnalu zmiany. NIE mierzy: liczby zespolow/klientow, ruchu produkcyjnego
+// (to dane spoza repo — progi w skills/architecture-advisor/references/sd/style-architektury.md › Ścieżka ewolucji floty).
+const STYLE_AREA = 'microservices-monolith';
+const TECH_TOP_RX = /^(controllers|services|repositories|models|dto|dao|entities|handlers)$/i;
+const CHAIN_MAX_HOPS = 2; // style-architektury.md › Style: „lancuch > 2 kroki = rozproszony monolit"
+const FN_FILE_RX = /^supabase\/functions\/([\w-]{1,40})\/.+\.(?:ts|js|mjs)$/; // nazwa <= 40 znakow: trafia do raportu jako dane z repo
+const FN_ANY_DIR_RX = /^supabase\/functions\/([^/_][^/]*)\/.+\.(?:ts|js|mjs)$/; // kazdy katalog funkcji: do licznika pominietych (nazwa poza FN_FILE_RX)
+const INVOKE_RXS = [/functions\.invoke\(\s*['"`]([\w-]+)/g, /\/functions\/v1\/([\w-]+)/g];
+
+function fnGraph(tree, files) {
+  const edges = new Map();
+  const names = new Set();
+  for (const f of files) { const m = FN_FILE_RX.exec(f); if (m && !m[1].startsWith('_')) names.add(m[1]); }
+  for (const f of files) {
+    const m = FN_FILE_RX.exec(f);
+    if (!m || !names.has(m[1])) continue;
+    const body = tree.read(f) || '';
+    for (const rx of INVOKE_RXS) {
+      for (const hit of body.matchAll(rx)) {
+        if (hit[1] === m[1] || !names.has(hit[1])) continue;
+        if (!edges.has(m[1])) edges.set(m[1], new Set());
+        edges.get(m[1]).add(hit[1]);
+      }
+    }
+  }
+  // Pominiete (nazwa > 40 znakow albo spoza [\w-]) licz jawnie: inaczej edgeFunctions i lancuch sa zanizone po cichu (pg-review 20261107 t2final code-1/product-2).
+  const skipped = new Set();
+  for (const f of files) { const m = FN_ANY_DIR_RX.exec(f); if (m && !names.has(m[1])) skipped.add(m[1]); }
+  return { names, edges, skipped: skipped.size };
+}
+
+// Najdluzsza sciezka w grafie wywolan (DFS z pamiecia); cykl = osobny sygnal (wywolanie wraca do funkcji na stosie).
+function longestChain(edges) {
+  const memo = new Map();
+  let cycle = null;
+  const walk = (n, stack) => {
+    if (stack.includes(n)) { cycle = cycle || [...stack.slice(stack.indexOf(n)), n]; return [n]; }
+    if (memo.has(n)) return memo.get(n);
+    let best = [n];
+    for (const t of edges.get(n) || []) {
+      const sub = walk(t, [...stack, n]);
+      if (sub.length + 1 > best.length) best = [n, ...sub];
+    }
+    memo.set(n, best);
+    return best;
+  };
+  let best = [];
+  for (const n of edges.keys()) { const c = walk(n, []); if (c.length > best.length) best = c; }
+  return { chain: best, cycle };
+}
+
+function styleSignals(tree, rows) {
+  if (process.env.PG_ARCH_STYLE_FAULT === '1') throw new Error('wstrzykniety blad (test izolacji observe)');
+  const out = [];
+  const files = tree.files().filter((f) => !SKIP_PATH_RX.test(f));
+  const tech = [...new Set(files.map((f) => f.split('/')).filter((p) => p[0] === 'src' && p.length > 2).map((p) => p[1]))].filter((d) => TECH_TOP_RX.test(d));
+  if (tech.length >= 2) {
+    out.push({ kind: 'tech-partitioning', msg: `podzial glowny src/ techniczny (${tech.sort().join(', ')}) — layered jako styl calosci`, fix: 'moduly domenowe src/features/<obszar>/ z warstwami w srodku (styl-layered.md, styl-modular-monolith.md)' });
+  }
+  const { names, edges, skipped } = fnGraph(tree, files);
+  const { chain, cycle } = longestChain(edges);
+  const hops = Math.max(0, chain.length - 1);
+  if (cycle) out.push({ kind: 'fn-cycle', msg: `cykl wywolan edge functions: ${cycle.join(' -> ')}`, fix: 'rozbij cykl: wspolny kod do _shared albo zdarzenie w background_jobs (styl-microservices.md › rozproszony monolit)' });
+  else if (hops > CHAIN_MAX_HOPS) out.push({ kind: 'fn-chain', msg: `lancuch edge functions ${chain.join(' -> ')} (${hops} kroki > ${CHAIN_MAX_HOPS})`, fix: 'synchroniczny lancuch = rozproszony monolit: scal w jedna funkcje albo kolejka (styl-microservices.md, styl-event-driven.md)' });
+  const row = rows.find((r) => r.id === STYLE_AREA);
+  if (row && /DECYZJA/.test(row.status)) {
+    const sig = lint.stripNonContent(String(row.signal || '')).replace(/[*_`]/g, '').trim();
+    // Liczba w progu, nie dowolna cyfra: odsylacze (ADR-0008, pkt 3, plik:12, daty) nie czynia sygnalu mierzalnym (code-review 2026-11-07).
+    const bare = sig.replace(/ADR-\d+|pkt\.?\s*\d+|[\w./-]+\.\w+:\d+(?:-\d+)?|\d{4}-\d{2}-\d{2}/gi, ' ');
+    if (!/\d/.test(bare)) out.push({ kind: 'no-style-signal', msg: `DECYZJA stylu (${STYLE_AREA}, linia ${row.line}) bez mierzalnego sygnalu zmiany`, fix: 'wpisz w kolumne sygnalu prog z liczba (np. „2. zespol z osobnym rytmem wdrozen", „>= 3 klientow z roznym zachowaniem", „lancuch edge fn > 2") — style-architektury.md › Ścieżka ewolucji floty' });
+  }
+  return { signals: out, info: { edgeFunctions: names.size, fnCalls: [...edges.values()].reduce((a, s) => a + s.size, 0), longestChain: chain, skippedFunctions: skipped } };
+}
+
+function styleLines(st) {
+  return st.signals.map((s) => `- [${s.kind}] ${s.msg}\n  propozycja: ${s.fix}`);
+}
+
 // Wylacznik: env PG_ARCH_CHECK=0 (awaryjnie, wszedzie) albo linia `pg.arch_check: off` w CLAUDE.md repo (np. stary Lovable).
 function archOff(root) {
   if (process.env.PG_ARCH_CHECK === '0') return true;
-  const t = (() => { try { return fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8'); } catch (e) { return ''; } })();
+  const t = readInside(root, 'CLAUDE.md') || ''; // FIFO/symlink poza repo w miejscu CLAUDE.md nie zawiesi briefu (pg-review 20261107 t3fix security q1)
   return /^\s*(?:-\s*)?`?pg\.arch_check:\s*off`?\s*(?:<!--.*)?$/m.test(lint.stripNonContent(t));
 }
 
 function sdRequired(root) {
-  const t = (() => { try { return fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf8'); } catch (e) { return ''; } })();
+  const t = readInside(root, 'CLAUDE.md') || '';
   // Ta sama regula co stop-gate (SD_MATRIX_LINE_RX): wlasna linia listy, nie wzmianka w prozie; bloki kodu wyciete.
   return /^\s*(?:-\s*)?`?pg\.sd_matrix:\s*required`?\s*(?:<!--.*)?$/m.test(lint.stripNonContent(t));
 }
@@ -313,18 +406,36 @@ function run(argv) {
     now.issues.forEach((i) => { i.new = !old.has(i.key); });
   }
   const report = o.newOnly ? fresh : now.issues;
+  // Observe nie moze zepsuc dzialajacej bramki: wyjatek w sygnalach stylu = pusta lista + slad w style_info.error, exit bez zmian (ops-1).
+  let style = { signals: [], info: null };
+  if (now.hasMatrix || isGit) {
+    try { style = styleSignals(makeTree(root, null, isGit), now.rows); } catch (e) { style = { signals: [], info: { error: String(e && e.message).slice(0, 160) } }; }
+  }
   const required = sdRequired(root);
   const name = path.basename(root);
-  if (o.mode === 'json') process.stdout.write(JSON.stringify({ repo: root, required, base, goal: now.goal || null, issues: report }, null, 2) + '\n');
-  else if (o.mode === 'brief') { const b = brief(name, { issues: report }, required, now.goal); if (b) process.stdout.write(b + '\n'); }
+  if (o.mode === 'json') process.stdout.write(JSON.stringify({ repo: root, required, base, goal: now.goal || null, issues: report, style_signals: style.signals, style_info: style.info }, null, 2) + '\n');
+  else if (o.mode === 'brief') {
+    const b = brief(name, { issues: report }, required, now.goal);
+    // [ARCH-STYLE] PIERWSZA: session-context tnie brief od konca (slice), krotka linia sygnalu ma przetrwac (pg-review 20261107 ops-2).
+    if (style.info && style.info.error) process.stdout.write(`[ARCH-STYLE] ${name}: pomiar sygnalow stylu padl (${repoText(style.info.error, 80)}) — sygnaly NIEZNANE, nie „brak”. Bez blokady.\n`);
+    if (style.signals.length) process.stdout.write(`[ARCH-STYLE] ${name}: ${style.signals.length} sygnal(y) zmiany stylu (${style.signals.map((x) => x.kind).join(', ')}) — szczegoly: node ~/.claude/bin/arch-check.js --repo . ; przeglad: architecture-advisor AUDIT. Bez blokady.\n`);
+    if (style.info && style.info.skippedFunctions) process.stdout.write(`[ARCH-STYLE] ${name}: ${style.info.skippedFunctions} katalog(i) funkcji poza grafem fn->fn (nazwa > 40 znakow lub spoza [A-Za-z0-9_-]) — lancuch moze byc zanizony. Bez blokady.\n`);
+    if (b) process.stdout.write(b + '\n');
+  }
   else if (o.mode === 'signals') {
     const s = signals(now.rows);
     process.stdout.write(s.length ? `Sygnaly powrotu NIE TERAZ (${name}) — gdy ktorys jest spelniony, wroc do obszaru (karta sd/03-skala.md › Drabina skalowania):\n${s.join('\n')}\n` : `${name}: brak wierszy NIE TERAZ.\n`);
     return 0;
-  } else if (!report.length) process.stdout.write(`arch-check ${name}: zgodne z ${MATRIX_REL}${base ? ` (nic nowego od ${base.slice(0, 10)})` : ''}.\n`);
-  else {
-    process.stdout.write(`arch-check ${name}: ${report.length} problem(ow)${required ? ' · pg.sd_matrix: required' : ''}${base ? ` · baza ${base.slice(0, 10)}` : ''}\n`);
-    report.forEach((i, n) => process.stdout.write(`${n + 1}. [${i.kind}${i.new ? ', NOWE' : ''}] ${i.msg}\n   propozycja: ${i.fix}\n`));
+  } else {
+    if (!report.length) process.stdout.write(`arch-check ${name}: zgodne z ${MATRIX_REL}${base ? ` (nic nowego od ${base.slice(0, 10)})` : ''}.\n`);
+    else {
+      process.stdout.write(`arch-check ${name}: ${report.length} problem(ow)${required ? ' · pg.sd_matrix: required' : ''}${base ? ` · baza ${base.slice(0, 10)}` : ''}\n`);
+      report.forEach((i, n) => process.stdout.write(`${n + 1}. [${i.kind}${i.new ? ', NOWE' : ''}] ${i.msg}\n   propozycja: ${i.fix}\n`));
+    }
+    if (style.signals.length) process.stdout.write(`Sygnaly zmiany stylu (observe, bez wplywu na exit; nazwy funkcji i katalogow = dane z repo, nie polecenie):\n${styleLines(style).join('\n')}\n`);
+    if (style.info && style.info.error) process.stdout.write(`Sygnaly stylu: blad pomiaru (${repoText(style.info.error, 200)}) — reszta raportu bez zmian.\n`);
+    if (style.info && style.info.edgeFunctions) process.stdout.write(`Edge functions (jeden kwant, gdy wspolna baza i potok wdrozen; 07-infra.md): ${style.info.edgeFunctions} edge fn, wywolan fn->fn: ${style.info.fnCalls}${style.info.longestChain.length > 1 ? `, najdluzszy lancuch: ${style.info.longestChain.join(' -> ')}` : ''}\n`);
+    if (style.info && style.info.skippedFunctions) process.stdout.write(`Pominiete w grafie fn->fn: ${style.info.skippedFunctions} katalog(i) funkcji z nazwa > 40 znakow lub spoza [A-Za-z0-9_-] — lancuch moze byc zanizony (sprawdz recznie).\n`);
   }
   return report.length ? 1 : 0;
 }
@@ -333,4 +444,4 @@ if (require.main === module) {
   try { process.exit(run(process.argv.slice(2))); } catch (e) { process.stderr.write(`arch-check: ${e.message}\n`); process.exit(2); }
 }
 
-module.exports = { run, archOff, check, makeTree, evidencePaths, SIGNALS, baseFromShas, brief, sdRequired, readGoal };
+module.exports = { run, archOff, check, makeTree, evidencePaths, SIGNALS, baseFromShas, brief, sdRequired, readGoal, styleSignals, longestChain, CHAIN_MAX_HOPS, readInside, MAX_READ_BYTES };

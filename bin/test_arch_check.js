@@ -28,6 +28,7 @@ const SPECIAL = {
   caching: '| Caching (caching) | DECYZJA | brak cache wspoldzielonego, odczyt z Postgresa | `src/lib/db.ts:2` | — |',
   'docker-containers': '| Docker (docker-containers) | NIE DOTYCZY | serverless, brak obrazow | | |',
   'real-time': '| Real-time (real-time) | NIE TERAZ | brak live | — | > 50 jednoczesnych edycji |',
+  'microservices-monolith': '| Styl (microservices-monolith) | DECYZJA | monolit modularny + edge fn | `src/lib/db.ts` | 2. zespol z osobnym rytmem wdrozen |',
 };
 const GOAL_DOC = '# ARCHITECTURE\n\n## Cel architektury\n<!-- szablon: Cel: <...> -->\nCel: mechanik zamyka zlecenie z telefonu w 2 min, a klient dostaje fakture tego samego dnia\n1. Izolacja danych warsztatow (RLS) — zero wyciekow miedzy organizacjami\n2. Szybkosc zmian tresci przez klienta (dane, nie kod)\n3. Koszt infrastruktury < 200 zl/mies\nSwiadomie poswiecamy: tryb offline i skale > 50 warsztatow\n\n## Stack\n1. to nie jest priorytet\n';
 const matrix = () => HEAD + areas.map((a) => SPECIAL[a.id] || `| ${a.name} (${a.id}) | DECYZJA | Postgres/Supabase | \`src/app/(app)/radar/actions.ts\`, profil/actions.ts | — |`).join('\n') + '\n';
@@ -193,6 +194,80 @@ try {
     bm = run3('--brief').stdout;
     ok('repo bez macierzy i bez celu: jedna linia „brak macierzy obszarow i celu architektury”', /brak macierzy obszarow i celu architektury/.test(bm), bm);
   } finally { fs.rmSync(R3, { recursive: true, force: true }); }
+  // --- sygnaly zmiany stylu (observe 2026-11-07): osobne od issues, exit bez zmian ---
+  {
+    const fake = (map) => ({ files: () => Object.keys(map), read: (f) => (f in map ? map[f] : null) });
+    const fn = (name, ...targets) => ({ [`supabase/functions/${name}/index.ts`]: targets.map((t) => `await supabase.functions.invoke('${t}', {})`).join('\n') });
+    const kindsOf = (map, rows = []) => A.styleSignals(fake(map), rows).signals.map((x) => x.kind);
+    ok('lancuch a->b->c->d (3 kroki > 2) -> fn-chain', kindsOf({ ...fn('a', 'b'), ...fn('b', 'c'), ...fn('c', 'd'), ...fn('d') }).includes('fn-chain'));
+    ok('lancuch a->b->c (2 kroki) -> brak sygnalu (prog z karty: > 2)', kindsOf({ ...fn('a', 'b'), ...fn('b', 'c'), ...fn('c') }).length === 0);
+    ok('cykl a->b->a -> fn-cycle (nie fn-chain)', (() => { const k = kindsOf({ ...fn('a', 'b'), ...fn('b', 'a') }); return k.includes('fn-cycle') && !k.includes('fn-chain'); })());
+    ok('wywolanie przez fetch /functions/v1/<nazwa> tez liczone', kindsOf({ 'supabase/functions/a/index.ts': "fetch(`${URL}/functions/v1/b`)", 'supabase/functions/b/index.ts': "fetch(`${URL}/functions/v1/c`)", 'supabase/functions/c/x/y.ts': "fetch(`${URL}/functions/v1/d`)", ...fn('d') }).includes('fn-chain'));
+    ok('_shared, samowywolanie i nieznany cel nie tworza krawedzi', kindsOf({ 'supabase/functions/_shared/x.ts': "functions.invoke('a')\nfunctions.invoke('b')", ...fn('a', 'a', 'zewn'), ...fn('b', 'zewn2') }).length === 0);
+    ok('src/controllers + src/services -> tech-partitioning', kindsOf({ 'src/controllers/a.ts': '', 'src/services/b.ts': '' }).includes('tech-partitioning'));
+    ok('jeden katalog techniczny (src/services) + features -> brak sygnalu', kindsOf({ 'src/services/b.ts': '', 'src/features/x/index.ts': '' }).length === 0);
+    ok('plik src/models.ts (nie katalog) nie liczy sie jako warstwa', kindsOf({ 'src/models.ts': '', 'src/services/b.ts': '' }).length === 0);
+    const row = (signal) => [{ id: 'microservices-monolith', status: 'DECYZJA', line: 9, signal }];
+    ok('DECYZJA stylu z sygnalem „—” -> no-style-signal', kindsOf({}, row('—')).includes('no-style-signal'));
+    ok('DECYZJA stylu z progiem liczbowym -> brak sygnalu', kindsOf({}, row('>= 3 klientow z roznym zachowaniem')).length === 0);
+    ok('cyfra tylko w odsylaczu (ADR-0008, pkt 3, plik.md:12, data) -> nadal no-style-signal', kindsOf({}, row('patrz ADR-0008, pkt 3, docs/ARCHITECTURE.md:12, 2026-11-07')).includes('no-style-signal'));
+    ok('nazwa funkcji > 40 znakow nie wchodzi do grafu (raport)', kindsOf({ ...fn('a', 'b'), ...fn('b', 'c'), ...fn('c', 'x'.repeat(41)), ['supabase/functions/' + 'x'.repeat(41) + '/index.ts']: '' }).length === 0);
+    ok('pominieta funkcja > 40 znakow jest liczona jawnie (skippedFunctions=1)', A.styleSignals(fake({ ...fn('a'), ['supabase/functions/' + 'x'.repeat(41) + '/index.ts']: '' }), []).info.skippedFunctions === 1);
+    ok('bez dlugich nazw skippedFunctions=0', A.styleSignals(fake({ ...fn('a', 'b'), ...fn('b') }), []).info.skippedFunctions === 0);
+    {
+      // Guard odczytu obcego repo (pg-review 20261107 t3final code-1/ops-1/security-1): zwykly plik tak; >2 MB, FIFO, symlink poza repo = null.
+      const G = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-archread-'));
+      const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-archout-'));
+      try {
+        fs.writeFileSync(path.join(G, 'ok.md'), 'cel');
+        fs.writeFileSync(path.join(G, 'big.md'), Buffer.alloc(A.MAX_READ_BYTES + 1, 97));
+        fs.writeFileSync(path.join(OUT, 'secret.md'), 'spoza repo');
+        fs.symlinkSync(path.join(OUT, 'secret.md'), path.join(G, 'link-out.md'));
+        fs.symlinkSync(path.join(G, 'ok.md'), path.join(G, 'link-in.md'));
+        const t = A.makeTree(G, null, false);
+        ok('read: zwykly plik w repo -> tresc', t.read('ok.md') === 'cel');
+        ok('read: plik > MAX_READ_BYTES -> null', t.read('big.md') === null);
+        ok('read: symlink na plik spoza repo -> null', t.read('link-out.md') === null);
+        ok('read: symlink na plik w repo -> tresc', t.read('link-in.md') === 'cel');
+        ok('read: sciezka z .. poza repo -> null', t.read('../' + path.basename(OUT) + '/secret.md') === null);
+        ok('read: brak pliku -> null (bez wyjatku)', t.read('nie-ma.md') === null);
+        const ff = spawnSync('mkfifo', [path.join(G, 'pipe.md')]);
+        if (ff.status === 0) { const t0 = Date.now(); ok('read: FIFO -> null bez zawieszenia', t.read('pipe.md') === null && Date.now() - t0 < 2000); }
+        else console.log('SKIP: mkfifo niedostepne — test FIFO pominiety');
+      } finally { fs.rmSync(G, { recursive: true, force: true }); fs.rmSync(OUT, { recursive: true, force: true }); }
+    }
+    ok('NIE TERAZ w wierszu stylu nie jest oceniany tu (robi to sd-matrix-lint)', kindsOf({}, [{ id: 'microservices-monolith', status: 'NIE TERAZ', line: 9, signal: '' }]).length === 0);
+    const R4 = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-archstyle-'));
+    try {
+      const w4 = (rel, c) => { const f = path.join(R4, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, c); };
+      spawnSync('git', ['-C', R4, 'init', '-q']);
+      w4('docs/architecture/obszary.md', matrix());
+      w4('docs/ARCHITECTURE.md', GOAL_DOC);
+      w4('package.json', '{}\n');
+      w4('src/lib/db.ts', 'a\nb\nc\n'); w4('src/app/(app)/radar/actions.ts', ''); w4('src/app/(app)/profil/actions.ts', '');
+      for (const [n, t] of [['a', 'b'], ['b', 'c'], ['c', 'd'], ['d', null]]) w4(`supabase/functions/${n}/index.ts`, t ? `functions.invoke('${t}')` : '');
+      const j4 = spawnSync(process.execPath, [CHECK, '--repo', R4, '--json'], { encoding: 'utf8' });
+      const o4 = JSON.parse(j4.stdout);
+      ok('CLI: sygnal stylu w style_signals, issues puste, exit 0 (observe nie zmienia exit, stop-gate filtruje tylko issues)', j4.status === 0 && o4.issues.length === 0 && o4.style_signals.some((x) => x.kind === 'fn-chain') && o4.style_info.edgeFunctions === 4, j4.stdout.slice(0, 600));
+      const b4 = spawnSync(process.execPath, [CHECK, '--repo', R4, '--brief'], { encoding: 'utf8' });
+      ok('CLI --brief: linia [ARCH-STYLE] z rodzajem sygnalu, exit 0', b4.status === 0 && /\[ARCH-STYLE\] [^\n]+1 sygnal\(y\) zmiany stylu \(fn-chain\)[^\n]+Bez blokady/.test(b4.stdout), b4.stdout);
+      ok('CLI --brief: [ARCH-STYLE] jako PIERWSZA linia (przetrwa obciecie briefu od konca w session-context)', b4.stdout.startsWith('[ARCH-STYLE] '), b4.stdout);
+      const fj = spawnSync(process.execPath, [CHECK, '--repo', R4, '--json'], { encoding: 'utf8', env: { ...process.env, PG_ARCH_STYLE_FAULT: '1' } });
+      const fo = JSON.parse(fj.stdout || '{}');
+      ok('wyjatek w sygnalach stylu: exit 0 (nie 2), issues bez zmian, blad w style_info.error (observe nie psuje bramki)', fj.status === 0 && Array.isArray(fo.issues) && fo.issues.length === 0 && fo.style_signals.length === 0 && /wstrzykniety/.test(fo.style_info.error), fj.stdout.slice(0, 400) + fj.stderr);
+      const fb = spawnSync(process.execPath, [CHECK, '--repo', R4, '--brief'], { encoding: 'utf8', env: { ...process.env, PG_ARCH_STYLE_FAULT: '1' } });
+      ok('wyjatek w sygnalach stylu: --brief drukuje cel + jawna linie „pomiar padl” (nie cisza), exit 0', fb.status === 0 && /cel architektury/.test(fb.stdout) && /\[ARCH-STYLE\][^\n]+pomiar sygnalow stylu padl[^\n]+NIEZNANE/.test(fb.stdout), fb.stdout + fb.stderr);
+      const f4 = spawnSync(process.execPath, [CHECK, '--repo', R4], { encoding: 'utf8' });
+      {
+        const LONG = 'y'.repeat(41);
+        w4(`supabase/functions/${LONG}/index.ts`, '');
+        const b5 = spawnSync(process.execPath, [CHECK, '--repo', R4, '--brief'], { encoding: 'utf8', timeout: 20000 });
+        ok('CLI --brief: linia [ARCH-STYLE] o funkcjach poza grafem, exit 0', b5.status === 0 && /\[ARCH-STYLE\][^\n]*1 katalog\(i\) funkcji poza grafem/.test(b5.stdout), b5.stdout + b5.stderr);
+        fs.rmSync(path.join(R4, 'supabase/functions', LONG), { recursive: true, force: true });
+      }
+      ok('CLI pelny: sekcja sygnalow + liczba jednostek wdrazanych', f4.status === 0 && /Sygnaly zmiany stylu/.test(f4.stdout) && /4 edge fn, wywolan fn->fn: 3, najdluzszy lancuch: a -> b -> c -> d/.test(f4.stdout), f4.stdout);
+    } finally { fs.rmSync(R4, { recursive: true, force: true }); }
+  }
 } finally {
   fs.rmSync(FIX, { recursive: true, force: true });
 }

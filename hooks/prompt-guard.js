@@ -13,6 +13,9 @@ const fs = require('fs');
 let input = {};
 try { input = JSON.parse(fs.readFileSync(0, 'utf8') || '{}'); } catch (e) { process.exit(0); }
 const p = String(input.prompt || '').trim();
+// Krotki sid w kazdym wpisie gates.jsonl: dwie sesje w tym samym cwd byly w logu nie do odroznienia (dyspozytor 4ccadfad,
+// 2026-11-14: mint 15:23:41Z i 15:35:30Z w scratch-...-6d1b42). 8 znakow = prefiks nazwy pliku transkryptu.
+const SID = String(input.session_id || '').replace(/[^\w-]/g, '').slice(0, 8);
 const LANG = /^en/i.test(String(process.env.PG_LANG || '')) ? 'en' : 'pl';
 
 // Wyjatek od bramki wydaje CZLOWIEK (landscape #12): caly prompt = `pozwol ALLOW_X [ALLOW_Y]`. MUSI stac przed wyjsciem
@@ -20,14 +23,73 @@ const LANG = /^en/i.test(String(process.env.PG_LANG || '')) ? 'en' : 'pl';
 // nigdy nie pasuja w calosci, wiec agent nie wybije sobie wyjatku przez echo komunikatu blokady.
 try {
   const overrides = require('./lib/overrides');
-  const names = overrides.namesFromPrompt(p);
-  if (names.length) {
-    const minted = overrides.mint(input.session_id || '', names);
-    require('./lib/gate-log').log({ hook: 'prompt-guard', event: 'bypass', reason: `minted ${names.join(',')} (fraza uzytkownika)`, target: input.cwd || '' });
+  // Notki aplikacji zdejmowane tylko poza 1. wiadomoscia sesji (sesja potomna: 1. prompt pisze agent-rodzic).
+  // Surowy prompt, nie `p` po trim(): limit dlugosci frazy liczy to, co trafi do transkryptu (pg-review security F2 —
+  // trim ukrywal dopelnienie spacjami, ktore wypychalo wpis promptu poza czytany ogon). PHRASE_RX sam toleruje biale znaki.
+  const names = overrides.namesFromPrompt(String(input.prompt || ''), { hasPriorTurn: () => overrides.transcriptHasAssistantTurn(input.transcript_path) });
+  const gateLog = require('./lib/gate-log');
+  const turnOrigin = require('./lib/turn-origin');
+  // Prompt pisany przez agenta (ScheduleWakeup/CronCreate wraca do WLASNEJ sesji bez koperty, 1. prompt sesji potomnej,
+  // zadanie zaplanowane) nie wydaje wyjatku — pochodzenie z wpisu transkryptu (lib/turn-origin.js, luka 2026-11-14).
+  // Tylko wpis SAMEJ frazy (nie dowolny wpis tury): fraza uzytkownika wpisana w trakcie tury zaczetej przez peer = falszywa odmowa (15:55:17Z).
+  const isPhrase = (text) => overrides.namesFromPrompt(text, { hasPriorTurn: () => true }).some((n) => names.includes(n));
+  const origin = names.length ? turnOrigin.promptOrigin(input, undefined, isPhrase) : null;
+  if (names.length) gateLog.noteInputKeys('prompt-guard', input); // format wejscia UserPromptSubmit potwierdzany na zywo
+  if (names.length && turnOrigin.isNonHuman(origin)) {
+    gateLog.log({ hook: 'prompt-guard', sid: SID, event: 'blocked', reason: `mint ${names.join(',')} odmowiony: turnOrigin=${origin.turnOrigin}${origin.isMeta ? ', isMeta' : ''} (prompt nie od uzytkownika)`, target: input.cwd || '' });
+    process.stdout.write(`[PG] Fraza NIE wydala wyjatku: ten prompt nie pochodzi od uzytkownika (turnOrigin=${origin.turnOrigin}). Wyjatek wydaje tylko wiadomosc wpisana przez czlowieka.\n`);
+  } else if (names.length) {
+    // Na zywo wpis promptu powstaje PO tym hooku (origin = null) — rozstrzyga pierwsze consume() po prompt_id (fail-closed).
+    // Takze gdy (B) znalazl wpis `human`: (B) czyta wpis TURY, a fraza wchlonieta w trakcie tury uzytkownika ma jej promptId —
+    // werdykt z wpisu samej frazy daje dopiero (C) (security-review r12 F1), wiec origin_check zapisujemy zawsze.
+    const check = input.prompt_id && input.transcript_path ? { prompt_id: input.prompt_id, transcript_path: input.transcript_path } : null;
+    const minted = overrides.mint(input.session_id || '', names, Date.now(), check);
+    // Audyt: mint po zdjeciu notek aplikacji = osobna sciezka (security-review r3) — widoczna w gates.jsonl.
+    const viaNotices = overrides.stripLeadingReminders(p) !== p ? ', po notkach aplikacji' : '';
+    // „pochodzenie nieznane" = brak prompt_id/transcript_path (stary CC) — grant bez sprawdzenia; miara w known-limits.
+    const originNote = check ? ', pochodzenie sprawdzi 1. uzycie' : (origin ? '' : ', pochodzenie nieznane');
+    gateLog.log({ hook: 'prompt-guard', sid: SID, event: 'bypass', reason: `minted ${names.join(',')} (fraza uzytkownika${viaNotices}${originNote})`, target: input.cwd || '' });
     process.stdout.write(`[PG] Wyjatek od bramki wydany przez uzytkownika: ${minted.map((g) => `${g.name} (${g.uses_left} uzycia, do ${new Date(g.expires).toISOString().slice(11, 16)} UTC)`).join(', ')}. ` +
       `Uzyj go TYLKO do akcji, o ktora chodzilo (komenda z ${names[0]}=1). Kazde uzycie trafia do logu bramek.\n`);
   }
-} catch (e) { /* wyjatek to wygoda, nie bramka — blad tu nie moze blokowac promptu */ }
+} catch (e) { noteHookError('mint', e); /* wyjatek to wygoda, nie bramka — blad tu nie moze blokowac promptu */ }
+
+// Blad sekcji frazy byl cichy (pusty catch) — teraz slad w gates.jsonl wg kontraktu ADR-0008 („blad narzedzia").
+// Fail-open zostaje: prompt idzie dalej, wyjatek po prostu nie powstaje.
+function noteHookError(where, e) {
+  try {
+    require('./lib/gate-log').log({ hook: 'prompt-guard', sid: SID, event: 'skipped', reason: `prompt-guard: blad narzedzia (${where}: ${String((e && e.message) || e).slice(0, 200)})`, target: input.cwd || '' });
+  } catch (e2) { /* log to obserwacja; jego blad nie moze blokowac promptu */ }
+}
+
+// Fraza odrzucona PO CICHU (incydent 2026-11-14 15:15Z, pg/cases.md): ostatnia linia promptu to fraza, ale namesFromPrompt
+// jej nie przyjal — np. przed nia notka „The session ... finished a turn" spoza allowlisty APP_NOTICE_HEADERS (celowo:
+// niesie tekst agenta). Odmowa ZOSTAJE; dochodzi slad w gates.jsonl i komunikat, zeby uzytkownik wyslal fraze jeszcze raz.
+// Liczone tylko, gdy ostatnia linia ma ksztalt frazy — zwykly prompt nie placi za odczyt transkryptu.
+const MAX_PHRASE_LINE = 512;
+try {
+  const overrides = require('./lib/overrides');
+  const raw = String(input.prompt || '');
+  const trimmed = raw.trimEnd();
+  const lastLine = trimmed.slice(trimmed.lastIndexOf('\n') + 1);
+  // PHRASE_RX (`\s*[.!]?\s*$`) cofa sie kwadratowo na dlugiej linii ze spacjami (security-review r1: 40k spacji = 2,3 s),
+  // a ten blok biegnie przed limitem MAX_PHRASE_PROMPT — fraza ma kilkadziesiat znakow, dluzsza linia to nie fraza.
+  const tail = lastLine.length <= MAX_PHRASE_LINE ? overrides.PHRASE_RX.exec(lastLine) : null;
+  const hasPriorTurn = () => overrides.transcriptHasAssistantTurn(input.transcript_path);
+  if (tail && raw.trim() !== lastLine.trim() && !overrides.namesFromPrompt(raw, { hasPriorTurn }).length) {
+    const stripped = overrides.stripLeadingReminders(raw);
+    const header = /^\s*<system-reminder>\s*([^\n]*)/.exec(stripped);
+    const cause = raw.length > overrides.MAX_PHRASE_PROMPT ? 'prompt dluzszy niz limit frazy'
+      : stripped !== raw && overrides.PHRASE_RX.test(stripped) ? '1. wiadomosc sesji albo brak transkryptu (notki nie sa zdejmowane)'
+        : header ? `notka spoza allowlisty: "${header[1].replace(/[^\w .,:'"()/-]/g, '').slice(0, 60)}"`
+          : 'fraza nie jest cala trescia promptu';
+    const names = [...new Set(tail[1].toUpperCase().split(/[\s,]+/).filter(Boolean))].join(',');
+    require('./lib/gate-log').log({ hook: 'prompt-guard', sid: SID, event: 'blocked', reason: `mint ${names} odmowiony: ${cause}`, target: input.cwd || '' });
+    // Do kontekstu modelu tylko przyczyna bez tresci notki (naglowek pisze agent — zostaje w gates.jsonl; code-review r1).
+    const said = header && !cause.startsWith('prompt') && !cause.startsWith('1.') ? 'przed nia notka aplikacji spoza listy' : cause;
+    process.stdout.write(`[PG] Fraza ${names} NIE wydala wyjatku (${said}). uzytkownik: wyslij sama fraze jeszcze raz, jako osobna wiadomosc.\n`);
+  }
+} catch (e) { noteHookError('odmowa', e); }
 
 const TEXT = {
   pl: {
@@ -40,7 +102,7 @@ const TEXT = {
     r4: '4. Tylko materialy zrodlowe; brak pokrycia -> usun albo [NIEPEWNE]. Dlugi dokument -> najpierw cytaty.',
     r5: '5. DOWOD, NIE PROZA: "gotowe/dziala" = komenda + exit code + obserwowany stan (diff/wiersz/HTTP). 75,8 % falszywych "sukcesow" agentow to deklaracje bez dowodu (arXiv 2606.09863). Pominiete czesci nazwij wprost. BLOKER (brak dostepu / decyzji / danych / sekretu / padle narzedzie) = PIERWSZA linia raportu, nie sekcja na koncu — kazda godzina blokera to zmarnowany czas kilku osob (slownik SH). RAPORT DLA SPONSORA (software-house 2027): na „jak idzie?" nie ma odpowiedzi „dobrze" — jest: czy zmierzamy do celu, co zjada budzet/limit, jakie ryzyka widze, ktore decyzje sa TWOJE (wypisane osobno); „u mnie dziala" != dziala u klienta klienta.',
     r6: '6. Self-check (CoVe-lite) przed wyslaniem: "zaloz, ze jest tu blad — znajdz go". Status raportu: VERIFIED / UNVERIFIED (czego brakuje) / FAILED.',
-    r7: '7. KOD: grep-first (istniejacy util > nowy; duplikacja +81 % to udokumentowana tendencja LLM); lockfile-first — przed pisaniem pod biblioteke sprawdz zainstalowana wersje, a dla Tailwind 4 / Zod 4 / React 19 / ESLint 9 / TanStack Start / payment-gateway / Supabase RLS sciagnij docs do kontekstu; ZERO nowych zaleznosci bez wpisu w manifescie + uzasadnienia (halucynowane pakiety = slopsquatting); male atomowe zmiany; testy w TEJ SAMEJ zmianie; SUPPRESSION-AS-FIX ZABRONIONE: nowy eslint-disable / @ts-ignore / noqa / pusty catch / luzowanie tsconfig / edycja testu razem z kodem, ktory testuje = blocker, nie fix; SIMPLICITY FIRST + YAGNI (feature-y, NIGDY granice modulow); HIGIENA REPO (kazde repo jak publiczne: sekrety tylko env/vault, dane syntetyczne, zero placeholderow "na potem"). PARADYGMAT: ~/.claude/pg/paradigm.md — domyslnie funkcje + moduly + typy (functional core / imperative shell), klasy tylko dla stanu z niezmiennikami; kryterium nadrzedne: obcy senior przejmuje repo w 1 dzien bez nas. BAZA (retro 2026-09-06): przed PIERWSZA edycja w repo `git fetch origin && git merge-base HEAD origin/main` — pusty wynik = inna historia, licznik >0 = pracujesz na innym kodzie niz CI; Write/Edit pliku tylko po jego Read; tekst z markdownem do GitHuba ZAWSZE z pliku, nigdy w `python -c "..."`.',
+    r7: '7. KOD: grep-first (istniejacy util > nowy; duplikacja +81 % to udokumentowana tendencja LLM); lockfile-first — przed pisaniem pod biblioteke sprawdz zainstalowana wersje, a dla Tailwind 4 / Zod 4 / React 19 / ESLint 9 / TanStack Start / payment-gateway / Supabase RLS sciagnij docs do kontekstu (najpierw MCP context7: resolve-library-id -> query-docs); ZERO nowych zaleznosci bez wpisu w manifescie + uzasadnienia (halucynowane pakiety = slopsquatting); male atomowe zmiany; testy w TEJ SAMEJ zmianie; SUPPRESSION-AS-FIX ZABRONIONE: nowy eslint-disable / @ts-ignore / noqa / pusty catch / luzowanie tsconfig / edycja testu razem z kodem, ktory testuje = blocker, nie fix; SIMPLICITY FIRST + YAGNI (feature-y, NIGDY granice modulow); HIGIENA REPO (kazde repo jak publiczne: sekrety tylko env/vault, dane syntetyczne, zero placeholderow "na potem"). PARADYGMAT: ~/.claude/pg/paradigm.md — domyslnie funkcje + moduly + typy (functional core / imperative shell), klasy tylko dla stanu z niezmiennikami; kryterium nadrzedne: obcy senior przejmuje repo w 1 dzien bez nas. BAZA (retro 2026-09-06): przed PIERWSZA edycja w repo `git fetch origin && git merge-base HEAD origin/main` — pusty wynik = inna historia, licznik >0 = pracujesz na innym kodzie niz CI; Write/Edit pliku tylko po jego Read; tekst z markdownem do GitHuba ZAWSZE z pliku, nigdy w `python -c "..."`.',
     r7o: '7O. OBSERVABILITY: nowa logika = widoczne bledy (kazda sciezka bledu zlogowana z kontekstem: co, dla kogo, dlaczego; bez danych wrazliwych), user dostaje sensowny komunikat, nie cichy fail. Czego nie da sie zdebugowac o 3 w nocy = NIEDOKONCZONE.',
     r7n: '7N. START PROJEKTU -> PRZECZYTAJ ~/.claude/pg/design.md (sekcja "Dzien 0") + skill architecture-advisor PRZED kodem; bootstrap: mas-quality-init.sh (tworzy docs/architecture/obszary.md). STACK (od pg.phase mvp; prototype/poc = tylko 9 drzwi jednokierunkowych w ADR albo obszary.md): kazda z 25 warstw stack-* rozstrzygnieta (DECYZJA/NIE TERAZ/NIE DOTYCZY) — artefakt Stack Picker https://claude.ai/artifact/CaWzJDJ4iikuxtnh2FZooD albo `node ~/.claude/bin/sd-matrix-lint.js --template --groups stack`. Najdrozsze bledy powstaja w dniu 0 (auth, multi-tenancy/RLS, platnosci, i18n, granice modulow).',
     r7d: '7D. DUZA ZMIANA -> PRZECZYTAJ ~/.claude/pg/design.md i wypelnij mini-design (cel+kryterium, odrzucona alternatywa, blast radius, rollback, logi, threat-model-lite) W ODPOWIEDZI przed pierwsza linia kodu. Zmiana architektoniczna -> ADR w docs/adr/. Deploy bez sciezki rollbacku = zablokowany.',
@@ -69,7 +131,7 @@ const TEXT = {
     r4: '4. Source material only; no coverage -> remove or mark [UNCERTAIN]. Long document -> quotes first.',
     r5: '5. PROOF, NOT PROSE: "done/works" = command + exit code + observed state (diff/row/HTTP). 75.8 % of agent "successes" are claims without evidence (arXiv 2606.09863). Name what was skipped explicitly. A BLOCKER (missing access / decision / data / secret / broken tool) = the FIRST line of the report, never a closing section — every blocked hour wastes several people\'s time. REPORT FOR A SPONSOR: "how is it going?" never gets "fine" — it gets: on track to the goal?, what eats the budget/limit, which risks I see, which decisions are YOURS (listed separately); "works on my machine" != works for the client\'s customer.',
     r6: '6. Self-check (CoVe-lite) before sending: "assume there is an error here — find it". Report status: VERIFIED / UNVERIFIED (what is missing) / FAILED.',
-    r7: '7. CODE: grep-first (an existing util > a new one; +81 % duplication is a documented LLM tendency); lockfile-first — check the installed version before writing against a library, and for Tailwind 4 / Zod 4 / React 19 / ESLint 9 / TanStack Start / payment-gateway / Supabase RLS pull the docs into context; ZERO new dependencies without a manifest entry + justification (hallucinated packages = slopsquatting); small atomic changes; tests in the SAME change; SUPPRESSION-AS-FIX IS FORBIDDEN: a new eslint-disable / @ts-ignore / noqa / empty catch / loosened tsconfig / a test edited together with the code it tests = blocker, not a fix; SIMPLICITY FIRST + YAGNI (for features, NEVER for module boundaries); REPO HYGIENE (every repo as if public: secrets only in env/vault, synthetic data, zero "later" placeholders). PARADIGM: ~/.claude/pg/paradigm.md — functions + modules + types by default (functional core / imperative shell), classes only for state with invariants; the overriding criterion: a stranger senior takes the repo over in 1 day without us. BASE (retro 2026-09-06): before the FIRST edit in a repo `git fetch origin && git merge-base HEAD origin/main` — empty result = a different history, a counter > 0 = you work on code CI does not run; Write/Edit a file only after Read; markdown for GitHub ALWAYS from a file, never inside `python -c "..."`.',
+    r7: '7. CODE: grep-first (an existing util > a new one; +81 % duplication is a documented LLM tendency); lockfile-first — check the installed version before writing against a library, and for Tailwind 4 / Zod 4 / React 19 / ESLint 9 / TanStack Start / payment-gateway / Supabase RLS pull the docs into context (MCP context7 first: resolve-library-id -> query-docs); ZERO new dependencies without a manifest entry + justification (hallucinated packages = slopsquatting); small atomic changes; tests in the SAME change; SUPPRESSION-AS-FIX IS FORBIDDEN: a new eslint-disable / @ts-ignore / noqa / empty catch / loosened tsconfig / a test edited together with the code it tests = blocker, not a fix; SIMPLICITY FIRST + YAGNI (for features, NEVER for module boundaries); REPO HYGIENE (every repo as if public: secrets only in env/vault, synthetic data, zero "later" placeholders). PARADIGM: ~/.claude/pg/paradigm.md — functions + modules + types by default (functional core / imperative shell), classes only for state with invariants; the overriding criterion: a stranger senior takes the repo over in 1 day without us. BASE (retro 2026-09-06): before the FIRST edit in a repo `git fetch origin && git merge-base HEAD origin/main` — empty result = a different history, a counter > 0 = you work on code CI does not run; Write/Edit a file only after Read; markdown for GitHub ALWAYS from a file, never inside `python -c "..."`.',
     r7o: '7O. OBSERVABILITY: new logic = visible errors (every error path logged with context: what, for whom, why; no sensitive data), the user gets a meaningful message, not a silent failure. What cannot be debugged at 3 a.m. = UNFINISHED.',
     r7n: '7N. NEW PROJECT -> READ ~/.claude/pg/design.md (section "Day 0") + the architecture-advisor skill BEFORE code; bootstrap: mas-quality-init.sh (creates docs/architecture/obszary.md). STACK (from pg.phase mvp; prototype/poc = only the 9 one-way doors in an ADR or obszary.md): every one of the 25 stack-* layers decided (DECYZJA/NIE TERAZ/NIE DOTYCZY) — Stack Picker artifact https://claude.ai/artifact/CaWzJDJ4iikuxtnh2FZooD or `node ~/.claude/bin/sd-matrix-lint.js --template --groups stack`. The most expensive mistakes are made on day 0 (auth, multi-tenancy/RLS, payments, i18n, module boundaries).',
     r7d: '7D. BIG CHANGE -> READ ~/.claude/pg/design.md and fill in the mini-design (goal + acceptance criterion, rejected alternative, blast radius, rollback, logs, threat-model-lite) IN THE REPLY before the first line of code. Architectural change -> ADR in docs/adr/. Deploy without a rollback path = blocked.',

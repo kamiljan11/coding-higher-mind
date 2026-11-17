@@ -57,6 +57,15 @@ function findHits(text, ref) {
   return hits;
 }
 
+/** Does the repo use Supabase at all: a supabase/ directory, an @supabase/* dependency or SUPABASE_URL in an env
+ *  template or in one of the local env files this gate scans (a repo with only .env.local still talks to Supabase). */
+function usesSupabase(repo) {
+  if (fs.existsSync(path.join(repo, 'supabase'))) return true;
+  if (/"@supabase\//.test(readIf(path.join(repo, 'package.json')))) return true;
+  const envText = ['.env.example', '.env.sample', ...DEV_ENV_FILES].map((n) => readIf(path.join(repo, n))).join('\n');
+  return /SUPABASE_URL/.test(envText);
+}
+
 function check(repo) {
   const claude = stripFences(readIf(path.join(repo, 'CLAUDE.md')));
   if (SINGLE_ENV_RX.test(claude)) return { status: 'skipped', reason: 'pg.single_env: true w CLAUDE.md (swiadoma decyzja)', hits: [] };
@@ -67,7 +76,13 @@ function check(repo) {
     configToml: readIf(path.join(repo, 'supabase', 'config.toml')),
   });
   if (prod && prod.placeholder) return { status: 'skipped', reason: `placeholder \`${TEMPLATE_PLACEHOLDER}\` z szablonu NIE podmieniony w .env.example — wpisz ref prod (20 znakow z URL Supabase) albo \`supabase link\`; do tego czasu bramka nie chroni`, hits: [] };
-  if (!prod) return { status: 'skipped', reason: 'brak deklaracji SUPABASE_PROJECT_REF_PROD (.env.example/README) ani supabase/config.toml — bramka nie wie, co jest prodem', hits: [] };
+  if (!prod) {
+    // 2026-11-15 measurement: 733/733 runs ended here, in repos with and without Supabase alike, so the gate never evaluated
+    // and the silence looked like "fine". A repo without Supabase is out of scope; a Supabase repo without a declared prod ref
+    // is an observe hit (would_block) that guard_health and the usage loop can count.
+    if (!usesSupabase(repo)) return { status: 'skipped', reason: 'repo bez Supabase — nie dotyczy', hits: [] };
+    return { status: 'undeclared', reason: 'repo uzywa Supabase, ale brak deklaracji SUPABASE_PROJECT_REF_PROD (.env.example/README), supabase link ani config.toml z refem — bramka nie wie, co jest prodem', hits: [] };
+  }
   const hits = [];
   for (const name of DEV_ENV_FILES) {
     const text = readIf(path.join(repo, name));
@@ -84,8 +99,11 @@ function main() {
   if (!fs.existsSync(repo)) { process.stderr.write(`env-ref-gate: brak katalogu ${repo}\n`); return 2; }
   const result = check(repo);
   if (result.status === 'skipped') log({ hook: 'env-ref-gate', event: 'skipped', reason: result.reason, target: repo });
+  else if (result.status === 'undeclared') log({ hook: 'env-ref-gate', event: 'would_block', gate: 'ENV_REF_UNDECLARED', reason: result.reason, target: repo });
+  else log({ hook: 'env-ref-gate', event: result.status === 'dev-on-prod' ? 'would_block' : 'ran', gate: 'ENV_REF', reason: result.status, target: repo });
   if (argv.includes('--json')) { process.stdout.write(JSON.stringify(result) + '\n'); return result.status === 'dev-on-prod' ? 1 : 0; }
   if (result.status === 'skipped') { process.stdout.write(`env-ref-gate: pominiete — ${result.reason}\n`); return 0; }
+  if (result.status === 'undeclared') { process.stdout.write(`env-ref-gate: OSTRZEZENIE (observe) — ${result.reason}. Dopisz SUPABASE_PROJECT_REF_PROD=<ref> do .env.example albo \`pg.single_env: true\` w CLAUDE.md.\n`); return 0; }
   if (result.status === 'ok') { process.stdout.write(`env-ref-gate: OK — zaden lokalny plik env nie wskazuje na prod ${result.prodRef} (${result.source})\n`); return 0; }
   process.stdout.write(`env-ref-gate: DEV-ON-PROD-DB — lokalny env wskazuje na PRODUKCYJNY ref ${result.prodRef} (zadeklarowany w ${result.source}):\n`);
   for (const h of result.hits) process.stdout.write(`  ${h.file}:${h.line}\n`);
@@ -93,5 +111,5 @@ function main() {
   return 1;
 }
 
-module.exports = { findProdRef, findHits, check, DEV_ENV_FILES };
+module.exports = { findProdRef, findHits, check, usesSupabase, DEV_ENV_FILES };
 if (require.main === module) process.exit(main());

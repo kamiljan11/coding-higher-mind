@@ -1,6 +1,6 @@
 ---
 name: humanizer
-description: ALWAYS active for outward-facing text. Every piece of writing that leaves the workshop (social posts, captions, emails, newsletters, video scripts, YouTube descriptions, articles and columns such as toRzeszów, portfolio and case studies, client documents, website copy, outreach messages) gets a humanizer pass so it reads like a person wrote it, not a model. Trigger on: writing or editing any post, caption, email, script, article, description, landing copy, DM, or client-facing doc; whenever content-repurpose, email-database-builder, youtube-video-brief, wycena-agency-site, or lovable-build produce text a human will read; and whenever uzytkownik says "brzmi jak AI", "zrób to bardziej ludzkie", "humanize this", "sounds robotic", "za sztywne", "żeby nie było śladów AI". NOT for: code, terminal output, technical reports, internal analysis, agent prompts; those go through caveman-code instead. Never both on the same text.
+description: ALWAYS active for outward-facing text — posts, captions, emails, scripts, YouTube descriptions, articles (toRzeszów), case studies, client docs, site copy, outreach — so it reads like a person wrote it. Also on "brzmi jak AI", "zrób to bardziej ludzkie", "humanize this", "za sztywne". NOT for code, terminal output, technical reports, agent prompts (those = caveman-code); never both on one text.
 ---
 
 # Humanizer

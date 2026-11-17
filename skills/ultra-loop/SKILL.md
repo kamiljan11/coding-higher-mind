@@ -1,6 +1,6 @@
 ---
 name: ultra-loop
-description: Autonomiczna metoda „poproś raz → zbiegnij do perfekcji". Użyj, gdy uzytkownik chce doprowadzić projekt/apkę do ukończenia lub poziomu komercyjnego przy minimum pytań — „skończ tę apkę", „dojedź do końca", „zrób to ultra / produkcyjnie", „loop aż do perfekcji", „jedź ultra", „doprowadź do perfekcji", „poproś mnie raz i skończ", albo każda prośba o autonomiczne ulepszanie kodu do zdefiniowanego progu. Skill ustawia rubrykę „definicja ukończenia", potem kręci cykle implementuj→weryfikuj→wdróż→oceń aż każdy wymiar osiągnie cel albo zostaną same blockery dla człowieka. Trigger też: „autonomiczna pętla", „samo-looping", „ile razy mam Cię poprosić żeby skończyć".
+description: "Autonomous 'ask once, converge to done': sets a definition-of-done rubric, then loops implement -> verify -> deploy -> score until every dimension hits target or only human blockers remain. Use for: skończ tę apkę, dojedź do końca, zrób to ultra / produkcyjnie, loop aż do perfekcji, poproś mnie raz i skończ. NOT with a ready spec for multi-agent build (gauntlet-build)."
 ---
 
 # ULTRA Loop — poproś raz, zbiegnij do perfekcji

@@ -26,6 +26,8 @@ const ANY_TEXT = /./;
 // Deklaracja repo w CLAUDE.md (np. `pg.code_lang: en`): regula `when` dziala tylko tam — stare repo bez deklaracji = cisza (ZAKRES).
 const repoDeclares = (repo, rx) => { try { return rx.test(fs.readFileSync(path.join(repo, 'CLAUDE.md'), 'utf8')); } catch (e) { return false; } };
 
+// Tabele, w ktorych duplikat wiersza to incydent (blizna DEDUP-MISSING: podwojni klienci i rezerwacje). Lista = dane reguly.
+const DEDUP_TABLES = 'customers|bookings|reservations';
 const RULES = [
   // Jezyk kodu (uzytkownik 2026-10-13, NOWE repo): identyfikatory i komentarze po angielsku. Kandydat = polski znak w linii kodu; recenzent
   // odroznia tekst UI bez i18n (inny finding) od nazwy/komentarza. Observe: tylko dowod dla recenzenta, zadnej blokady.
@@ -42,6 +44,10 @@ const RULES = [
   { id: 'SECRET-LITERAL', rx: 'sk_(live|test)_[A-Za-z0-9]{8,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sbp_[A-Za-z0-9]{20,}|Bearer [A-Za-z0-9._-]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY', files: ANY_TEXT, skip: null, roles: ['ops', 'security'], source: 'agents/ops-reviewer.md#6' },
   { id: 'DANGEROUS-SINK', rx: 'dangerouslySetInnerHTML|execSync\\(|\\beval\\(|new Function\\(|child_process', files: CODE_FILES, skip: TEST_FILES, roles: ['security', 'code'], source: 'agents/security-reviewer.md#6' },
   { id: 'REQ-JSON-NO-PARSE', rx: '(req|request)\\.json\\(\\)', near: { rx: 'safeParse|\\.parse\\(', before: 2, after: 6 }, files: CODE_FILES, skip: TEST_FILES, roles: ['security'], source: 'agents/security-reviewer.md#3' },
+  // 2026-11-15 (podpowiedzi dla recenzenta, nic nie blokuja): insert do tabeli z listy DEDUP_TABLES bez onConflict/upsert
+  // w 6 liniach (blizna DEDUP-MISSING) oraz test wylaczony przez skip/todo/xit (blizna TEST-EDITED-WITH-CODE).
+  { id: 'INSERT-NO-DEDUP', rx: '\\.from\\([\'"`](' + DEDUP_TABLES + ')[\'"`]\\)\\s*\\.insert\\(', near: { rx: 'onConflict|upsert|ignoreDuplicates', before: 0, after: 6 }, files: CODE_FILES, skip: TEST_FILES, roles: ['data'], source: 'agents/data-reviewer.md, pg/cases.md DEDUP-MISSING' },
+  { id: 'TEST-SKIPPED', rx: '\\b(it|test|describe)\\.(skip|todo)\\(|\\bx(it|describe)\\(|@pytest\\.mark\\.skip|@unittest\\.skip', files: TEST_FILES, skip: null, roles: ['code'], source: 'agents/code-reviewer.md, pg/cases.md TEST-EDITED-WITH-CODE' },
   { id: 'FETCH-NO-TIMEOUT', rx: '\\bfetch\\(', near: { rx: 'signal|timeout|AbortSignal', before: 2, after: 6 }, files: CODE_FILES, skip: TEST_FILES, roles: ['ops', 'security'], source: 'agents/ops-reviewer.md#3, agents/security-reviewer.md#8, review-checklists.md (niezawodnosc)' },
   { id: 'RETRY-NO-BACKOFF', rx: '\\bfor\\s*\\(\\s*(let|var)\\s+\\w*(attempt|retr)\\w*\\s*=|\\bwhile\\b.*\\b(retry|retries|attempts?)\\b', i: true, near: { rx: 'backoff|sleep|delay|setTimeout|\\*\\*|Math\\.pow|jitter|wait\\(', before: 0, after: 8 }, files: CODE_FILES, skip: TEST_FILES, roles: ['ops', 'code'], source: 'agents/ops-reviewer.md#3 (retry tylko z backoffem i dla idempotentnych; audyt failure-modes 2026-10-16)' },
   { id: 'LIMIT-WITHOUT-ORDER', rx: '\\.limit\\(', near: { rx: '\\.order\\(|order by', before: 12, after: 4, statement: true, start: '\\.from\\(|\\bselect\\b' }, files: CODE_FILES, skip: TEST_FILES, roles: ['data', 'code'], source: 'agents/data-reviewer.md#5, audyt #10 (keyset/stronicowanie)' },
@@ -50,6 +56,10 @@ const RULES = [
   { id: 'FLOAT-MONEY', rx: 'toFixed\\(|parseFloat\\(', files: CODE_FILES, skip: TEST_FILES, roles: ['data', 'ux'], source: 'agents/data-reviewer.md#8, agents/ux-reviewer.md#2' },
   { id: 'SILENT-FALLBACK', rx: '(\\?\\?|\\|\\|)\\s*[A-Z_]*(DEFAULT|COMPANIES\\[0\\]|COMPANY)|\\.find\\(.*\\)\\s*\\?\\?', files: CODE_FILES, skip: TEST_FILES, roles: ['code'], source: 'agents/code-reviewer.md#9 SILENT-FALLBACK' },
   { id: 'INLINE-STYLE-HEX', rx: '#[0-9a-fA-F]{3,8}\\b|style=\\{\\{', files: UI_FILES, skip: TEST_FILES, roles: ['ux'], source: 'agents/ux-reviewer.md#7' },
+  // React (ECC compare 2026-11-15, pomysl z everything-claude-code rules/react + agents/react-reviewer, MIT, (c) 2026 Affaan Mustafa; pg/adr/0012):
+  // indeks tablicy jako key = stan komponentu przykleja sie do zlego wiersza po sortowaniu/usunieciu; _blank bez rel = window.opener.
+  { id: 'REACT-KEY-INDEX', rx: 'key=\\{\\s*(i|idx|index)\\s*\\}', files: UI_FILES, skip: TEST_FILES, roles: ['ux', 'code'], source: 'agents/ux-reviewer.md (stany list), pg/adr/0012' },
+  { id: 'TARGET-BLANK-NO-REL', rx: 'target=(\\{\\s*)?[\'"]_blank[\'"]', near: { rx: 'noopener|noreferrer', before: 3, after: 3 }, files: UI_FILES, skip: TEST_FILES, roles: ['security', 'ux'], source: 'agents/security-reviewer.md#6, pg/adr/0012' },
   { id: 'SQL-DESTRUCTIVE', rx: 'drop\\s+(table|column|schema|policy)|rename\\s+(to|column)|set\\s+not\\s+null|add\\s+column.*not\\s+null', i: true, files: SQL_FILES, skip: null, roles: ['data', 'security'], source: 'agents/data-reviewer.md#2, review-checklists.md (dane)' },
   { id: 'DEFINER-NO-SEARCH-PATH', rx: 'security\\s+definer', i: true, near: { rx: 'search_path', before: 10, after: 10 }, files: SQL_FILES, skip: null, roles: ['security', 'data'], source: 'agents/security-reviewer.md#2' },
   { id: 'CI-SILENT-SKIP', rx: 'if-present|continue-on-error|\\|\\| true', files: CI_FILES, skip: null, roles: ['ops'], source: 'agents/ops-reviewer.md#8, review-checklists.md (CI)' },

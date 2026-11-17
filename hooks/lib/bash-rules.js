@@ -229,7 +229,17 @@ function commitFlags(args) {
   return out;
 }
 
-const targetsOf = (argv) => argv.slice(1).filter((a) => !/^-/.test(a) && !/^\/[a-zA-Z]$/.test(a));
+// Po `--` kazdy argument jest operandem, takze zaczynajacy sie od `-` (security-review r8: slugi ~/.claude/projects/-home-...
+// zaczynaja sie od `-`, wiec `mv -- -home-x /tmp/old` po `cd ~/.claude/projects` omijalo ochrone katalogu projektu).
+const targetsOf = (argv) => {
+  const out = [];
+  let operands = false;
+  for (const a of argv.slice(1)) {
+    if (!operands && a === '--') { operands = true; continue; }
+    if (operands || (!/^-/.test(a) && !/^\/[a-zA-Z]$/.test(a))) out.push(a);
+  }
+  return out;
+};
 // PowerShell/cmd: przelaczniki (-Recurse, -Force, /s /q) nie biora wartosci; -Path/-LiteralPath biora cel;
 // pozostale flagi z wartoscia (-ErrorAction Stop, -Include *.x) — wartosc NIE jest celem.
 const PS_SWITCHES = /^-(r(e(c(u(r(se?)?)?)?)?)?|force|f|confirm(:\$\w+)?|whatif|verbose|debug|nonewline)$/i;
@@ -304,15 +314,137 @@ function isSafeRmTarget(rawTarget, ctx) {
 // Bez grep/rg/awk/sed: ich pierwszy argument to WZORZEC (replay: grep '"cat ~/.ssh/id_rsa"' w korpusie testow = FP).
 const READ_PROGS = new Set(['cat', 'type', 'get-content', 'gc', 'less', 'more', 'head', 'tail', 'bat', 'cp', 'copy', 'copy-item', 'scp', 'base64', 'xxd', 'od', 'strings', 'curl', 'certutil']);
 const COPY_PROGS = new Set(['cp', 'copy', 'copy-item', 'cpi', 'install', 'ln']);
+/** Wartosc -t / --target-directory, takze w sklejonych flagach (`-rt DIR`, `-at DIR`, `-tDIR` — code-review r8). */
+function targetDirFlag(argv) {
+  for (let i = 1; i < argv.length; i++) {
+    const a = String(argv[i]);
+    let m;
+    if (a === '--') break; // operand `-tX` po `--` to plik, nie opcja (data-review r10)
+    // getopt przyjmuje jednoznaczne skroty (`--target=`, `--t DIR` — security-review r9); w cp/ln/install `--t` = tylko ta opcja.
+    if (isLongOpt(a, 'target-directory', 1)) return a.includes('=') ? a.slice(a.indexOf('=') + 1) : (argv[i + 1] || null);
+    if (!a.startsWith('--') && (m = /^-[a-zA-Z]*t(.*)$/.exec(a))) return m[1] || argv[i + 1] || null;
+  }
+  return null;
+}
+const FIND_READ_EXEC = new Set(['cat', 'head', 'tail', 'grep', 'egrep', 'fgrep', 'rg', 'wc', 'ls', 'stat', 'file', 'md5sum', 'sha1sum', 'sha256sum',
+  'echo', 'printf', 'test', '[', 'basename', 'dirname', 'jq', 'du', 'readlink', 'realpath', 'less', 'more', 'od', 'xxd', 'strings', 'diff', 'cmp']);
+/** find usuwa albo uruchamia program inny niz tylko czytajacy (-exec/-execdir/-ok/-okdir). */
+function findWrites(argv) {
+  return argv.some((a, i) => a === '-delete' || (/^-(exec|execdir|ok|okdir)$/.test(a) && !FIND_READ_EXEC.has(String(argv[i + 1] || '').split('/').pop())));
+}
+/** find -fprint/-fprint0/-fprintf/-fls TWORZY albo OBCINA plik-argument, nawet bez trafien (data-review r12). */
+function findPrintFiles(argv) {
+  return argv.map(String).flatMap((a, i) => (/^-(fprint0?|fprintf|fls)$/.test(a) && argv[i + 1] ? [String(argv[i + 1])] : []));
+}
+/** Katalogi startowe find: operandy przed pierwszym wyrazeniem (`-name`, `(`, `!`); brak = `.`.
+ * Opcje przed sciezkami (GNU): -H/-L/-P, -O<poziom>, -D <opcje> (data-review r12: `find -O1 DIR` dawal roots=['.']). */
+function findRoots(argv) {
+  const roots = [];
+  const a1 = argv.slice(1).map(String);
+  for (let i = 0; i < a1.length; i++) {
+    const a = a1[i];
+    if (/^-[HLP]$/.test(a) || /^-O\d*$/.test(a)) continue;
+    if (a === '-D') { i++; continue; }
+    if (a === '--') continue; // koniec opcji, dalej sciezki (data-review r13)
+    if (/^-D./.test(a)) continue;
+    if (/^[-(!]/.test(a)) break;
+    roots.push(a);
+  }
+  return roots.length ? roots : ['.'];
+}
+/** Cele zapisu find: katalogi startowe + sondy pod nimi (gdy -delete/-exec pisarz) oraz pliki -fprint, -fprintf, -fls. */
+function findTargets(cmd) {
+  if (cmd.prog !== 'find') return [];
+  const argv = cmd.argv;
+  const out = [];
+  if (findWrites(argv)) {
+    for (const r of findRoots(argv)) {
+      const b = String(r).replace(/[/\\]+$/, '') || '/';
+      out.push(r, b + '/hooks/bash-guard.js', b + '/projects/x/probe.jsonl', b + '/.claude/hooks/bash-guard.js', b + '/.claude/projects/x/probe.jsonl');
+    }
+  }
+  return out.concat(findPrintFiles(argv));
+}
+const AWK_INPLACE = /^inplace(\.awk)?$/;
+/** awk/gawk -i inplace (security-review r11); takze `-i inplace.awk` i `@include "inplace"` w programie (data-review r12). */
+function awkInplaceTargets(cmd) {
+  if (!/^(awk|gawk)$/.test(cmd.prog)) return [];
+  const on = cmd.argv.some((a, i) => ((a === '-i' || a === '--include') && AWK_INPLACE.test(String(cmd.argv[i + 1] || '')))
+    || /^(-i|--include=)inplace(\.awk)?$/.test(String(a)) || /@include\s+"inplace(\.awk)?"/.test(String(a)));
+  return on ? targetsOf(cmd.argv).filter((a) => !AWK_INPLACE.test(String(a))).slice(1) : [];
+}
+/** gzip/xz/zstd… tylko czyta operand: tryb -c/--stdout, -t/--test, -l/--list (takze w klastrze, np. `-dc`).
+ * BIALA LISTA (r12-r14: trzy rundy obejsc czarnej listy — `-Sxc`, `-S -c`, `--suffix -c`, `zstd -co`): KAZDA opcja musi
+ * byc bez wartosci i z listy ponizej; inna opcja (-S, --suffix, -F, -T0, -o…) = traktujemy jak zapis. Koszt: rzadka
+ * falszywa odmowa (`zstd -T0c`) — kierunek bezpieczny. */
+const COMPRESS_FLAG_LETTERS = /^-[cdtlkvqfn1-9]+$/;
+const COMPRESS_LONG_OK = /^--(stdout|to-stdout|test|list|decompress|uncompress|keep|verbose|quiet|force|fast|best)$/;
+function compressReadOnly(argv) {
+  const opts = [];
+  for (const a of argv.slice(1).map(String)) { if (a === '--') break; if (a.startsWith('-') && a !== '-') opts.push(a); }
+  if (!opts.every((a) => COMPRESS_FLAG_LETTERS.test(a) || COMPRESS_LONG_OK.test(a))) return false;
+  // -c/--stdout = wynik na stdout (pliku nie dotyka niezaleznie od trybu). Sam -t/-l tylko bez -d: w xz/bzip2/zstd
+  // OSTATNI tryb wygrywa, `xz -td` = dekompresja do pliku i skasowanie oryginalu (data-review r15).
+  const stdout = opts.some((a) => /^--(stdout|to-stdout)$/.test(a) || (COMPRESS_FLAG_LETTERS.test(a) && a.includes('c')));
+  const decompress = opts.some((a) => /^--(decompress|uncompress)$/.test(a) || (COMPRESS_FLAG_LETTERS.test(a) && a.includes('d')));
+  const testOrList = opts.some((a) => /^--(test|list)$/.test(a) || (COMPRESS_FLAG_LETTERS.test(a) && /[tl]/.test(a)));
+  return stdout || (testOrList && !decompress);
+}
+/** cp tworzy link zamiast kopii: -l/-s (takze w klastrze `-al`, `-rs`), --link/--symbolic-link i ich skroty. */
+function cpMakesLink(argv) {
+  for (const a of argv.slice(1).map(String)) {
+    if (a === '--') break;
+    if (isLongOpt(a, 'link', 1) || isLongOpt(a, 'symbolic-link', 2)) return true;
+    if (/^-[^-]/.test(a)) for (const ch of a.slice(1)) { if (ch === 'S' || ch === 't') break; if (ch === 'l' || ch === 's') return true; }
+  }
+  return false;
+}
+/** `DIR/<basename zrodla>` dla cp/mv/install/ln (cel = ostatni argument albo -t/--target-directory). */
+function intoDirTargets(argv) {
+  // Fail-closed (data-review r10): oba odczyty naraz — katalog z -t ORAZ ostatni operand jako katalog; blad parsowania
+  // opcji nie moze zgubic celu, a nadmiarowa sciezka co najwyzej blokuje.
+  const pairs = [];
+  const flagDir = targetDirFlag(argv);
+  if (flagDir) pairs.push([flagDir, targetsOf(argv).filter((x) => x !== flagDir)]);
+  const args = targetsOf(argv).filter((x) => x !== flagDir);
+  if (args.length >= 2) pairs.push([args[args.length - 1], args.slice(0, -1)]);
+  const out = [];
+  for (const [dir, srcs] of pairs) {
+    const base = String(dir).replace(/[/\\]+$/, '');
+    out.push(dir);
+    for (const s of srcs) {
+      const b = String(s).replace(/[/\\]+$/, '').split(/[/\\]/).pop();
+      if (b && b !== '.' && b !== '..') out.push(base + '/' + b);
+    }
+  }
+  return out;
+}
 function writeTargets(cmd, env) {
-  const out = cmd.redirects.filter((r) => /^>>?$/.test(r.op)).map((r) => r.target);
+  // `<>` = otwarcie do odczytu I zapisu (`sed ... T 1<> T` przepisuje plik w miejscu — security-review r10).
+  // `>&` PLIK = `&>` (data-review r13); `>&2`/`>&-` (deskryptor) nie jest plikiem.
+  const out = cmd.redirects.filter((r) => /^(>>?|<>)$/.test(r.op) || (r.op === '>&' && !/^(\d+|-)$/.test(String(r.target || '')))).map((r) => r.target);
+  // vi/vim/nvim: KAZDY operand = cel zapisu — bez tty wykonuja klawisze ze stdin (`vi X < keys`, `-E`, `-u NONE`;
+  // data-review r11), tryb ex (-e/-es/-c/+cmd) jak ed/ex (security-review r10). Agent nie ma interaktywnego vi.
+  if (/^(vi|vim|nvim|view|gvim|vimdiff|rvim)$/.test(cmd.prog)) out.push(...targetsOf(cmd.argv));
+  // find -delete / -exec <pisarz> {} : cel = katalogi startowe (`find ~/.claude/projects -exec sed -i … {} +` —
+  // security-review r11). -exec z programem tylko czytajacym (cat/grep/stat…) nie liczy sie jako zapis.
+  // Katalog startowy nie jest plikiem chronionym — dokladamy sondy „co pod nim lezy": root/{hooks,projects}/… oraz
+  // root/.claude/… (start w ~ albo ~/.claude). Start wyzej niz ~ (`/`, `/home`) — znana granica (pg/known-limits.md).
+  out.push(...findTargets(cmd), ...awkInplaceTargets(cmd));
+  // gzip/gunzip/bzip2/xz/zstd podmieniaja plik operandu (`gzip -f T; cp f.gz T.gz; gunzip T.gz` — security-review r10);
+  // tryby tylko do odczytu (-c/--stdout, -t/--test, -l/--list) nie dotykaja pliku (code+data r11: falszywe odmowy).
+  if (/^(gzip|gunzip|bzip2|bunzip2|xz|unxz|zstd|unzstd|lzma|unlzma)$/.test(cmd.prog) && !compressReadOnly(cmd.argv)) out.push(...targetsOf(cmd.argv));
   if (COPY_PROGS.has(cmd.prog)) {
     const di = cmd.argv.findIndex((a) => /^-destination$/i.test(a));
     const targets = di > 0 ? [cmd.argv[di + 1]] : targetsOf(cmd.argv).slice(-1);
     out.push(...targets.filter(Boolean));
   } else if (WRITE_PROGS.has(cmd.prog)) out.push(...(/^(remove-item|ri|set-content|sc|add-content|ac|out-file|new-item|ni|move-item|mi|rename-item|rni)$/.test(cmd.prog) ? winTargets(cmd.argv) : targetsOf(cmd.argv)));
+  // Cel-katalog (security-review r7 2026-11-14): `cp|mv|install|ln src... DIR/` albo `-t DIR` zapisuje DIR/<basename src> —
+  // sam DIR nie pasuje do wzorca chronionego pliku (`cp x.jsonl ~/.claude/projects/<slug>/` nadpisywal transkrypt,
+  // `mv x/gates.jsonl ~/.claude/logs/` log bramek). Dokladamy sciezke wynikowa kazdego zrodla.
+  if (/^(cp|mv|install|ln)$/.test(cmd.prog)) out.push(...intoDirTargets(cmd.argv));
   if ((cmd.prog === 'sed' && cmd.argv.some((a) => /^(-i|--in-place)/.test(a) || /^-[a-zA-Z]*i/.test(a))) ||
-      (cmd.prog === 'perl' && cmd.argv.some((a) => /^-[a-zA-Z]*i/.test(a)))) out.push(...targetsOf(cmd.argv).slice(1));
+      (cmd.prog === 'perl' && cmd.argv.some((a) => /^-[a-zA-Z0-9]*i/.test(a)))) out.push(...targetsOf(cmd.argv).slice(1)); // r8: -0pi, -l -0pi
   // Kolejne programy zapisujace (security-review 2026-09-26): robocopy/xcopy (cel = 2. argument), tar -C/--directory,
   // curl -o, wget -O, iwr -OutFile, mklink (sciezka linku), New-Item -Path przy -ItemType SymbolicLink/Junction.
   const valueOf = (rx) => { const i = cmd.argv.findIndex((a) => rx.test(a)); if (i < 0) return null; const eq = cmd.argv[i].indexOf('='); return eq > 0 ? cmd.argv[i].slice(eq + 1) : cmd.argv[i + 1]; };
@@ -342,7 +474,9 @@ function writeTargets(cmd, env) {
   // ed/ex: operand edytowany in place (security-review 2026-10-10: `cd ~/.claude/hooks && ed x.js < s` przechodzil).
   if (/^(ed|red|ex)$/.test(cmd.prog)) out.push(...targetsOf(cmd.argv));
   if (/^(expand-archive)$/.test(cmd.prog)) { const d = valueOf(/^-destinationpath$/i); if (d) out.push(d); }
-  if (cmd.prog === 'ln') out.push(...targetsOf(cmd.argv));
+  if (cmd.prog === 'ln' || cmd.prog === 'link') out.push(...targetsOf(cmd.argv));
+  // cp -l / -s (twardy / symboliczny link) = alias zrodla: zapis przez alias zmienia plik zrodlowy (security-review r9).
+  if (cmd.prog === 'cp' && cpMakesLink(cmd.argv)) out.push(...targetsOf(cmd.argv));
   return out.filter(Boolean).map((t) => expandVars(t, env));
 }
 
@@ -631,6 +765,23 @@ const RULES = [
   { id: 'encoded-ps', esc: 'ALLOW_ENCODED', mode: 'observe',
     why: 'powershell -EncodedCommand ukrywa tresc komendy przed przegladem. Napisz komende jawnie.',
     parsed: (cmd) => (cmd.prog === 'powershell' || cmd.prog === 'pwsh') && cmd.argv.some((a) => /^-e(c|nc|ncodedcommand)?$/i.test(a)) },
+  // Blizna DOCKER-RESET-DESTROYS-VOLUME (pg/cases.md): „naprawa" przez reset skasowala wolumen vaulta. Start w observe (2026-11-15).
+  { id: 'docker-volume-destroy', esc: 'ALLOW_DELETE', mode: 'observe',
+    why: 'Ta komenda kasuje wolumeny Dockera (dane kontenerow: bazy, vault) bez mozliwosci cofniecia. Najpierw `docker volume ls` i kopia danych.',
+    parsed: (cmd) => {
+      // Opcja globalna z wartoscia (`docker --context X volume rm`, `-H URL`) nie moze stac sie podkomenda: wartosc pomijamy.
+      const valued = /^(--context|-c|--host|-H|--config|--log-level|-l|--tlscacert|--tlscert|--tlskey)$/;
+      let start = 1; // opcje globalne stoja tylko przed podkomenda
+      while (cmd.prog === 'docker' && start < cmd.argv.length && cmd.argv[start].startsWith('-')) start += valued.test(cmd.argv[start]) ? 2 : 1;
+      const words = cmd.argv.slice(start).filter((a) => !a.startsWith('-'));
+      const flag = (re) => cmd.argv.some((a) => re.test(a));
+      if (cmd.prog === 'docker-compose' || (cmd.prog === 'docker' && words[0] === 'compose')) {
+        return words.includes('down') && flag(/^(--volumes|-[a-zA-Z]*v[a-zA-Z]*)$/);
+      }
+      if (cmd.prog !== 'docker') return false;
+      if (words[0] === 'volume') return words[1] === 'rm' || words[1] === 'remove' || words[1] === 'prune';
+      return words[0] === 'system' && words[1] === 'prune' && flag(/^(--all|--volumes|-[a-zA-Z]*a[a-zA-Z]*)$/);
+    } },
   { id: 'chmod-system', esc: 'ALLOW_CHMOD', mode: 'enforce',
     why: 'Rekurencyjna zmiana uprawnien/wlasciciela katalogu systemowego lub domowego = nieodwracalne rozszczelnienie.',
     parsed: (cmd, ctx) => {
@@ -1064,7 +1215,8 @@ function evaluate(raw, ctx) {
     }
     if (cmd.prog === 'source' || cmd.prog === '.') vcwdKnown = false;
     // Symlink tworzony w tym samym lancuchu nie istnieje w chwili oceny (realpath go nie zobaczy): `ln -s ~ X && cd X`.
-    if (cmd.prog === 'ln' && cmd.argv.some((x) => /^-[a-zA-Z]*s/.test(x) || x === '--symbolic')) { vcwdKnown = false; linkTaint = true; }
+    if ((cmd.prog === 'ln' && cmd.argv.some((x) => /^-[a-zA-Z]*s/.test(x) || x === '--symbolic'))
+      || cmd.prog === 'link' || (cmd.prog === 'cp' && cpMakesLink(cmd.argv))) { vcwdKnown = false; linkTaint = true; }
     // nie pierwszy w potoku = stdin z potoku; klucz z glebokoscia — `$(...)` w srodku potoku nie przesuwa licznika (code-review)
     const pkey = cmd.pipeline + '|' + (cmd.depth || 0);
     const piped = pipeSeen.has(pkey); pipeSeen.add(pkey);
@@ -1095,4 +1247,5 @@ function evaluate(raw, ctx) {
   return { blocks, observes, tokens: allowTokens(parsed, nqFull), overflow: parsed.overflow, notes: parsed.notes };
 }
 
-module.exports = { evaluate, RULES, allowTokens, isSafeRmTarget, SAFE_DIRS };
+// MINT_PHRASE_RX tez dla hooks/schedule-guard.js (ten sam wzorzec frazy w promptach budzikow, 2026-11-14).
+module.exports = { evaluate, RULES, allowTokens, isSafeRmTarget, SAFE_DIRS, MINT_PHRASE_RX };

@@ -1,0 +1,81 @@
+{
+  "id": "knowledge-ingest",
+  "title": "Wciagniecie nowego zrodla wiedzy do rejestru tez",
+  "status": "pilot (E4, 2026-11-15); pozostale playbooki P11 nie istnieja",
+  "when": "Wlasciciel wskazuje nowe zrodlo (kurs, notatki, repo). Zbieranie z wlasnej inicjatywy jest zakonczone: bez wskazania zrodla ten playbook sie nie zaczyna.",
+  "cost_note": "Kroki 1, 3, 4, 6 to skrypty (0 tokenow). Kroki 2 i 5 to agenci: ok. 1 agent na 15-25 stron zrodla i 1 weryfikator na 20-30 rekordow proby.",
+  "steps": [
+    {
+      "id": "KI-1",
+      "name": "Spis zrodla",
+      "trigger": "Wlasciciel podal sciezke albo nazwe zrodla.",
+      "why": "Bez spisu nie wiadomo, czy przeczytano calosc. Wniosek o calym zrodle z jego czesci to zmierzony blad (pg/ai-patterns.md: SAMPLE-GENERALIZED).",
+      "action": "Zapisz spis do pliku <katalog przebiegu>/inventory-<zrodlo>.txt: kazdy plik zrodla (sciezka wzgledem vaulta), spacja, liczba linii; jeden wiersz na plik. Dopisz zrodlo do pg/knowledge-sources.json: \"<zrodlo>\": {\"expect\": 0, \"indexed_files\": []}. expect uzupelnia krok KI-3; indexed_files = pliki przeczytane, z ktorych nie wyszla zadna teza (uzupelnia KI-2). Plik swiadomie pominiety wpisz do \"_ignored\": {\"<sciezka>\": \"<powod>\"}.",
+      "example": "spis: „Knowledge/Skool CCC/01 - Start.md 412”; rejestr: \"skool-ccc\": {\"expect\": 0, \"indexed_files\": []}; pominiety: \"Knowledge/Skool CCC/_archiwum/\": \"kopie robocze, bez tresci kursu\"",
+      "artifact": "plik spisu w katalogu przebiegu + wpis zrodla w pg/knowledge-sources.json",
+      "verify": "test -s <plik spisu> && python3 -c \"import json,sys; sys.exit(0 if sys.argv[1] in json.load(open('pg/knowledge-sources.json')) else 1)\" <zrodlo>",
+      "empty_fill_check": "spis bez liczby linii przy pliku, wpis w _ignored bez powodu albo z powodem „nieistotne” = krok niewykonany.",
+      "sources": ["pg/cases.md#SAMPLE-GENERALIZED", "bin/ledger-check.py"]
+    },
+    {
+      "id": "KI-2",
+      "name": "Ekstrakcja tez z cytatem",
+      "trigger": "KI-1 zielony.",
+      "why": "Teza bez doslownego cytatu i numeru linii nie da sie sprawdzic; agent pisze wtedy z pamieci.",
+      "action": "Jeden agent na porcje zrodla (do ok. 25 stron). Kazdy rekord ma pola: id (zaczyna sie od „<zrodlo>-”, unikalne), file (sciezka wzgledem vaulta), quote (8-40 slow, przepisane doslownie z pliku: jedna linia albo kolejne linie bez opuszczen; numeru linii nie podajesz, wylicza go import), thesis (jedno zdanie wlasnymi slowami), weight (W = wymog, Ś = srednia, N = niska) i weight_reason (dlaczego taka waga), status (MAMY = mechanizm w PG wymusza calosc tego, co mowi cytat / CZĘŚCIOWO = wymusza czesc albo tylko o to pyta / BRAK / NIE DOTYCZY) i evidence = sciezka:linia w PG albo komenda rg (uruchomiona z katalogu glownego drzewa PG) i jej wynik. Teza powtarzajaca inna teze z rejestru dostaje duplicate_of z id tamtej. Agent zapisuje JSONL (jeden obiekt na linie) i podaje, ile linii zrodla przeczytal. Plik, z ktorego nie wyszla zadna teza, dopisz do indexed_files zrodla.",
+      "example": "{\"id\": \"yt-V03-042\", \"file\": \"Knowledge/YT - notatki/03 - Skala.md\", \"quote\": \"klucz shardu to najtrudniejsza decyzja w calym projekcie, bo zmiana po starcie oznacza migracje wszystkich danych\", \"thesis\": \"Klucz shardu wybiera sie przed skala, zmiana jest kosztowna.\", \"weight\": \"Ś\", \"weight_reason\": \"dotyczy tylko systemow z shardami\", \"status\": \"CZĘŚCIOWO\", \"evidence\": \"pg/design.md:86 pyta o klucz; rg -n 'zmiana klucza' pg -> 0 trafien\"}",
+      "artifact": "plik JSONL z rekordami porcji (poza repo, w katalogu przebiegu)",
+      "verify": "python3 -c \"import json,sys; [json.loads(l) for l in open(sys.argv[1])]\" <plik.jsonl>",
+      "empty_fill_check": "quote krotszy niz 8 slow, evidence bez sciezki:linii ani komendy, ten sam tekst evidence w wielu rekordach = porcja do powtorki.",
+      "sources": ["pg/cases.md#FALSE-SUCCESS", "bin/ack-check.py"]
+    },
+    {
+      "id": "KI-3",
+      "name": "Import do rejestru",
+      "trigger": "Wszystkie porcje KI-2 zapisane.",
+      "why": "Jeden rejestr z licznikiem na zrodlo pozwala wykryc rekord zgubiony miedzy ekstrakcja a commitem.",
+      "action": "Zloz porcje w jeden plik i zaimportuj z katalogu glownego drzewa PG: python3 bin/ledger-import-generic.py --source <zrodlo> --input <plik.jsonl> --expect <liczba rekordow> --date <RRRR-MM-DD>. Import dopisuje rekordy do pg/knowledge-ledger.jsonl. Wszystkie narzedzia rejestru czytaja notatki z ~/Obsidian/MAIN; gdy vault lezy gdzie indziej, kazdemu podaj --vault <katalog>. Import sam odrzuca zly cytat, zduplikowana teze bez duplicate_of i zla wage; przy odmowie (exit 1) nic nie zapisuje: popraw wskazane rekordy w pliku wejsciowym i uruchom ponownie. Po udanym imporcie wpisz te sama liczbe w expect zrodla w pg/knowledge-sources.json.",
+      "example": "python3 bin/ledger-import-generic.py --source skool-ccc --input skool-ccc-all.jsonl --expect 956 --date 2026-11-15",
+      "artifact": "pg/knowledge-ledger.jsonl (rekordy zrodla)",
+      "verify": "python3 bin/ledger-check.py --json | python3 -c \"import json,sys; d=json.load(sys.stdin); sys.exit(1 if d.get('count_mismatch') else 0)\"",
+      "empty_fill_check": "expect rozny od liczby linii pliku wejsciowego = import do powtorki.",
+      "sources": ["bin/ledger-import-generic.py", "bin/ledger-check.py"]
+    },
+    {
+      "id": "KI-4",
+      "name": "Kontrola cytatow skryptem",
+      "trigger": "KI-3 zielony.",
+      "why": "Zmyslony albo przesuniety cytat wykrywa skrypt, nie model: kazdy quote musi stac doslownie w podanym pliku.",
+      "action": "Uruchom python3 bin/ack-check.py --ledger-source <zrodlo>. Kazdy zgloszony rekord popraw u zrodla (otworz linie, przepisz cytat) i zaimportuj ponownie; nie skracaj cytatu tylko po to, zeby przeszedl.",
+      "example": "ack-check: {\"source\": \"yt\", \"records\": 253, \"problems\": 1, \"first\": [\"yt-V03-035: cytat nie wystepuje doslownie w Knowledge/YT - ...\"]} -> otworz linie, popraw quote, import, ponownie ack-check",
+      "artifact": "wynik ack-check z problems = 0",
+      "verify": "python3 bin/ack-check.py --ledger-source <zrodlo>",
+      "empty_fill_check": "problems > 0 zostawione z opisem „drobne” = krok niewykonany.",
+      "sources": ["bin/ack-check.py", "bin/test_ack_check.py"]
+    },
+    {
+      "id": "KI-5",
+      "name": "Niezalezna proba scisla",
+      "trigger": "KI-4 zielony.",
+      "why": "Skrypt sprawdza cytat, nie sens. Poblazliwy weryfikator przepuszcza bledy statusu: w tym przebiegu ten sam material mial 10 % bledow u lagodnego i 36 % u scislego (pg/ai-patterns.md: LENIENT-VERIFIER).",
+      "action": "Wylosuj 10 % rekordow zrodla, nie mniej niz 20 (zrodlo ponizej 20 rekordow: wszystkie). Raport zapisz jako <katalog przebiegu>/verify-<zrodlo>.md. Weryfikator ze swiezym kontekstem (nie autor ekstrakcji) otwiera kazda cytowana linie zrodla i kazda sciezke:linie z evidence, sam powtarza rg dla statusu BRAK (z katalogu glownego drzewa PG, z -g '!*ledger*', zeby nie trafiac w komendy zapisane w rejestrze). Miara statusu: MAMY = mechanizm w PG wymusza calosc tego, co mowi cytat; wymusza czesc albo tylko o to pyta = CZĘŚCIOWO. Werdykt na rekord: OK / blad drobny (cytat, numer linii) / blad istotny (zly status, teza nie wynika z cytatu). Tabela raportu: | id | werdykt | dowod |. Ostatnia linia raportu: „WYNIK: istotne=<liczba> proba=<liczba>”. Prog: bledy istotne <= 10 % proby. Powyzej progu: popraw cala porcje, z ktorej pochodza bledy, i wylosuj NOWA probe.",
+      "example": "Proba 30 rekordow: 27 OK, 2 drobne, 1 istotny (3 %) -> przechodzi. Proba 100: 8 istotnych, 32 drobne -> przechodzi jako zrodlo referencyjne z adnotacja w knowledge-sources.json.",
+      "artifact": "raport proby: metoda, tabela id / werdykt / dowod, wynik liczbowy",
+      "verify": "python3 -c \"import re,sys; m=re.search(r'WYNIK: istotne=(\\d+) proba=(\\d+)', open(sys.argv[1], encoding='utf-8').read()); sys.exit(0 if m and int(m.group(2)) > 0 and int(m.group(1)) * 10 <= int(m.group(2)) else 1)\" <raport proby>",
+      "empty_fill_check": "werdykt bez dowodu w wierszu, wszystkie wiersze OK z tym samym tekstem dowodu, proba mniejsza niz 20 przy zrodle majacym 20 lub wiecej rekordow = proba niewazna. Exit 1 komendy verify = prog przekroczony: popraw i wylosuj nowa probe.",
+      "sources": ["pg/cases.md#SAMPLE-GENERALIZED", "pg/cases.md#FALSE-SUCCESS"]
+    },
+    {
+      "id": "KI-6",
+      "name": "Zamkniecie i pomiar",
+      "trigger": "KI-5 ponizej progu.",
+      "why": "Zrodlo jest wciagniete dopiero wtedy, gdy licznik sie zgadza i pomiar jest zapisany; inaczej nastepny przebieg nie ma z czym porownac.",
+      "action": "Uruchom ledger-check (count_mismatch 0, ignored_with_theses 0, zaden plik ze spisu KI-1 w unindexed_files) i python3 bin/ledger-trend.py. ledger-trend dopisuje wiersz pomiaru do ~/.claude/logs/knowledge-trend.jsonl (poza repo, nie wchodzi do commita; inne miejsce: --history <plik>). Potem commit: pg/knowledge-ledger.jsonl i pg/knowledge-sources.json, a w opisie commita sciezka raportu proby z KI-5 i jej wynik. Komende verify uruchom po commicie. Tezy W bez wyzwalacza zostaja w rejestrze; mechanizm dla nich proponuje sie osobno, po decyzji wlasciciela.",
+      "example": "ledger-check: count_mismatch 0, ignored_with_theses 0; ledger-trend: +956 rekordow, w_without_trigger bez zmian",
+      "artifact": "commit z rejestrem i wierszem pomiaru",
+      "verify": "python3 bin/ledger-check.py --json | python3 -c \"import json,sys; d=json.load(sys.stdin); sys.exit(1 if d.get('count_mismatch') or d.get('ignored_with_theses') or any(f.startswith(sys.argv[1]) for f in d.get('unindexed_files', [])) else 0)\" \"<katalog zrodla w vaulcie>\" && git status --porcelain pg/knowledge-ledger.jsonl pg/knowledge-sources.json | wc -l | grep -qx 0",
+      "empty_fill_check": "opis commita bez sciezki raportu proby i jej wyniku albo brak nowego wiersza w historii pomiaru = zrodlo niezamkniete.",
+      "sources": ["bin/ledger-check.py", "bin/ledger-trend.py"]
+    }
+  ]
+}

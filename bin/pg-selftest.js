@@ -9,7 +9,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const ROOT = path.join(os.homedir(), '.claude');
-const TESTS = ['test_dup_literals.js', 'test_module_boundaries.js', 'test_prompt_guard.js', 'test_slop_gates.js', 'test_deploy_probe.js', 'test_arch_check.js', 'test_changed_lines.js'];
+const TESTS = ['test_dup_literals.js', 'test_module_boundaries.js', 'test_prompt_guard.js', 'test_slop_gates.js', 'test_deploy_probe.js', 'test_arch_check.js', 'test_changed_lines.js', 'test_service_role_gate.js', 'test_sql_lint_bulk_grant.js'];
 const REQUIRED_HOOKS = ['prompt-guard.js', 'post-edit-check.js', 'stop-gate.js', 'bash-guard.js'];
 
 function run(file) {

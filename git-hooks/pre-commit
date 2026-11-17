@@ -157,7 +157,9 @@ $wf:$n: continue-on-error na poziomie joba z narzedziem security"; done
   fi
 fi
 
-files=$(git diff --cached --name-only --diff-filter=ACM | authored_only)
+# Content changes only: a mode-only change (numstat 0/0, e.g. `git update-index --chmod=+x`) adds no code, and linting it
+# blocked tracking +x on 128 scripts over old ruff debt in untouched lines (2026-11-15, loop 2).
+files=$(git diff --cached --numstat --diff-filter=ACM | awk -F '\t' '!($1 == "0" && $2 == "0") { print $3 }' | authored_only)
 [ -z "$files" ] && exit 0
 
 # Secrets scan (zero-dep, offline): sekret w DODANYCH liniach = commit nie istnieje.
@@ -230,6 +232,16 @@ if [ "${ALLOW_UNKNOWN_DEP:-0}" != "1" ] && command -v node >/dev/null 2>&1 && ne
   fi
 fi
 
+# Klucz service_role w kodzie klienta (blizna SERVICE-ROLE-IN-CLIENT). Observe od 2026-11-15: ostrzezenie + `would_block`
+# w gates.jsonl, commit przechodzi. Przejscie na blokade = dopisanie `--enforce` (wtedy exit 1 obsluzy galaz ponizej).
+if command -v node >/dev/null 2>&1 && need_tool "$HOME/.claude/bin/service-role-gate.js"; then
+  # Tylko exit 1 (trafienie przy --enforce) blokuje. Inny kod = awaria samego skryptu: ostrzezenie i commit idzie dalej,
+  # bo bramka w observe nie moze zatrzymac hotfixu komunikatem o kluczu, ktorego nie ma (recenzja r3).
+  node "$HOME/.claude/bin/service-role-gate.js" --staged; srg_rc=$?
+  if [ "$srg_rc" -eq 1 ]; then echo "[pre-commit] service-role-gate (BLOCKED: service_role key in client code): klucz service_role tylko po stronie serwera" >&2; pg_gate=SERVICE_ROLE_CLIENT; exit 1; fi
+  if [ "$srg_rc" -ne 0 ]; then echo "[pre-commit] service-role-gate: skrypt zakonczyl sie kodem $srg_rc (awaria narzedzia, nie trafienie) — pomijam, sprawdz bin/service-role-gate.js" >&2; fi
+fi
+
 # Workflowy GitHub: walidacja TYM SAMYM parserem, ktorego uzywa GitHub (@actions/workflow-parser, ~/.claude/tools/workflow-lint).
 # YAML moze byc poprawny, a plik dla GitHuba niewazny (`secrets` w job-level if, zle klucze) -> run nazwany sciezka,
 # 0 jobow, dla pull_request NIC (shop-app 2026-09-05: agent 1,5 h w petli). Brak narzedzia = skip (fail-open, log).
@@ -286,7 +298,11 @@ fi
 
 if [ -n "$js" ] && [ -f package.json ] && [ -d node_modules ]; then
   if [ -f node_modules/.bin/eslint ] || [ -f node_modules/.bin/eslint.cmd ]; then
-    echo "$js" | grep -v "^-" | xargs npx --no-install eslint --max-warnings=0 || {
+    # Plik z `ignores` w eslint.config (np. generowany database.gen.ts) daje ostrzezenie "File ignored", ktore lamie
+    # --max-warnings=0; --no-warn-ignored (ESLint >= 8.56, flat config) je wycisza. Starszy ESLint nie zna flagi -> bez niej.
+    eslint_ignored=""
+    npx --no-install eslint --help 2>/dev/null | grep -q -- '--no-warn-ignored' && eslint_ignored="--no-warn-ignored"
+    echo "$js" | grep -v "^-" | xargs npx --no-install eslint --max-warnings=0 $eslint_ignored || {
       echo "[pre-commit] ESLint: popraw bledy przed commitem. | BLOCKED: fix lint errors first (never eslint-disable as a fix)." >&2; pg_gate=ESLINT; exit 1; }
   elif [ -f node_modules/.bin/oxlint ] || [ -f node_modules/.bin/oxlint.cmd ]; then
     # repo bez eslinta (workshop-app) — bez tego fallbacku commit nie mial ZADNEGO lintu (audyt 2026-09-05)

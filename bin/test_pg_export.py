@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """test_pg_export: testy eksportu publicznego (frontmatter, sanityzacja sciezek Linuksa, NUL/UTF-16, ochrona --out, skills.json).
 Uzycie: python3 ~/.claude/bin/test_pg_export.py  (exit 0 = wszystkie OK). 0 tokenow, bez sieci."""
-import fnmatch
 import importlib.util
 import json
 import os
@@ -200,8 +199,15 @@ with tempfile.TemporaryDirectory() as d:
     wiki = clone("wiki", "https://github.com/<github-owner>/coding-higher-mind.wiki.git")
     check("is_public_clone: tylko korzen klonu z dokladnym URL", exp.is_public_clone(ok) and not exp.is_public_clone(os.path.join(ok, "docs"))
           and not exp.is_public_clone(priv) and not exp.is_public_clone(wiki))
-check("DIR_EXCLUDES: rutyny klienckie tender-app-* poza eksportem",
-      any(fnmatch.fnmatch("scheduled-tasks/tender-app-x/SKILL.md", g) for g in exp.DIR_EXCLUDES))
+# Rutyny = allowlista ROUTINES (2026-11-17); wczesniejsze wyjatki DIR_EXCLUDES (tender-app-*, fleet-auto-improve, ...) przeniesione tutaj.
+_rutyny_eksportu = {rel.split("/")[1] for rel in exp.allowlist(allow_dirty=True) if rel.startswith("scheduled-tasks/")}
+_prywatne = ["tender-app-propozycje-modulow", "fleet-auto-improve", "pg-model-watch", "pg-review-ci-observation",
+             "bsm-bot-weekly-improve", "bsm-new-signals-x-congress", "live-whiteboard-build", "pg-knowledge-closure-2026-11-14",
+             "pg-knowledge-closure-verify-2026-11-15", "video-long-lite-start", "vp-linkedin-first-comments", "warsztat-pr296-finish"]
+check("ROUTINES: sledzone prywatne rutyny (klient, projekty autora, jednorazowe) poza eksportem",
+      not (_rutyny_eksportu & set(_prywatne)), repr(sorted(_rutyny_eksportu & set(_prywatne))))
+check("ROUTINES: eksport = dokladnie allowlista (guard-health i reszta publicznych zostaja)",
+      _rutyny_eksportu == set(exp.ROUTINES), repr(sorted(_rutyny_eksportu ^ set(exp.ROUTINES))))
 
 # pg-publish-public.sh: naglowek (set -e, trap ERR, MSG) musi sie wykonac — `bash -n` nie zlapal sklejonej linii trap (2026-10-04)
 PUB = os.path.join(HERE, "pg-publish-public.sh")
@@ -235,13 +241,14 @@ def _git(root: str, *a: str) -> None:
 
 SK = exp.SKILLS[0]
 with tempfile.TemporaryDirectory() as td:
-    pub = ["scheduled-tasks/publiczna/SKILL.md", f"skills/{SK}/SKILL.md", "bin/pub.py", "bin/lib/pub.js", "pg/public/README.md"]
+    pub = [f"scheduled-tasks/{exp.ROUTINES[0]}/SKILL.md", f"skills/{SK}/SKILL.md", "bin/pub.py", "bin/lib/pub.js", "pg/public/README.md"]
     priv = ["scheduled-tasks/prywatna-sesji/SKILL.md", f"skills/{SK}/private.md", "bin/private_fleet.py", "bin/lib/private.js",
             "scheduled-tasks/staged-bez-commita/SKILL.md", "pg/public/notatki-sesji.md"]
-    for rel in pub + priv:
+    sledzona_prywatna = "scheduled-tasks/sledzona-spoza-allowlisty/SKILL.md"  # w HEAD, ale nie w ROUTINES -> poza eksportem
+    for rel in [*pub, *priv, sledzona_prywatna]:
         _w(td, rel)
     subprocess.run(["git", "init", "-q", td], check=True)
-    _git(td, "add", *pub)
+    _git(td, "add", *pub, sledzona_prywatna)
     _git(td, "commit", "-q", "-m", "chore: fixture")
     _git(td, "add", "scheduled-tasks/staged-bez-commita/SKILL.md")
     old_root = exp.ROOT
@@ -254,6 +261,7 @@ with tempfile.TemporaryDirectory() as td:
         check("pg/public: tylko pliki z HEAD (security A13)", ps == ["pg/public/README.md"], repr(ps))
         check("allowlista: tylko pliki z HEAD (DIRS, skille, bin, bin/lib; staged bez commita odpada)",
               all(p in al for p in pub if not p.startswith("pg/public/")) and not any(p in al for p in priv), repr(sorted(al)))
+        check("allowlista: rutyna w HEAD, ale spoza ROUTINES, odpada", sledzona_prywatna not in al, repr(sorted(al)))
         _w(td, "bin/pub.py", "prywatna zmiana\n")
         try:
             exp.allowlist()
@@ -310,6 +318,13 @@ with tempfile.TemporaryDirectory() as td:
             check("allowlista: zmieniony CLAUDE.md (plik pochodny) = RuntimeError", False, "brak wyjatku")
         except RuntimeError as e:
             check("allowlista: zmieniony CLAUDE.md (plik pochodny) = RuntimeError", "CLAUDE.md" in str(e), str(e))
+        os.symlink(os.path.join(td, "plugin-przeniesiony", exp.SKILLS[1]), os.path.join(td, "skills", exp.SKILLS[1]))
+        try:
+            exp.allowlist(allow_dirty=True)
+            check("allowlista: martwe dowiazanie skilla z SKILLS = RuntimeError (2026-11-17)", False, "brak wyjatku")
+        except RuntimeError as e:
+            check("allowlista: martwe dowiazanie skilla z SKILLS = RuntimeError (2026-11-17)",
+                  exp.SKILLS[1] in str(e) and "pg-skill-links" in str(e), str(e))
         vars(exp)["ROOT"] = os.path.join(td, "brak")
         try:
             exp.tracked_files()

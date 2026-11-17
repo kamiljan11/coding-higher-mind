@@ -65,6 +65,7 @@ HOOK_WIRING = [
     ("PreToolUse", "memory-guard.js"),
     ("PreToolUse", "edit-guard.js"),
     ("PreToolUse", "outbound-observe.js"),  # observe wysylki przez MCP po czytaniu tresci zewnetrznej (2026-11-03)
+    ("PreToolUse", "schedule-guard.js"),  # fraza wyjatku w prompcie budzika/zadania = blokada (2026-11-14)
     ("PostToolUse", "loop-monitor.js"),
     ("PreCompact", "precompact-snapshot.js"),
     ("PostCompact", "postcompact-summary.js"),  # kompakcja L3 (2026-11-02): streszczenie kompakcji na dysk
@@ -132,6 +133,15 @@ try:
         _ob.append(f"node: {e}")
     # kopia w settings.json musi byc DOKLADNIE wzorcem z hooka — inaczej nowe narzedzie z listy hooka nigdy do niego nie dotrze
     check("outbound-observe: matcher w settings.json = MATCHER z hooks/outbound-observe.js", bool(_want) and _want in _ob, f"settings={_ob} hook={_want}")
+    # schedule-guard (2026-11-14): ta sama zasada — narzedzie dopisane w hooku, a nie w settings.json, nigdy do niego nie dotrze
+    _sg = [g.get("matcher", "") for g in _pre if any("schedule-guard" in h.get("command", "") for h in g.get("hooks", []))]
+    try:
+        _sg_want = subprocess.run(["node", "-e", "process.stdout.write(require(process.argv[1]).MATCHER)", str(CLAUDE / "hooks" / "schedule-guard.js")],
+                                  capture_output=True, text=True, timeout=20, check=False).stdout
+    except (OSError, subprocess.SubprocessError) as e:
+        _sg_want = ""
+        _sg.append(f"node: {e}")
+    check("schedule-guard: matcher w settings.json = MATCHER z hooks/schedule-guard.js", bool(_sg_want) and _sg_want in _sg, f"settings={_sg} hook={_sg_want}")
     stop_ok = any(h.get("timeout", 60) >= 150 for g in hooks.get("Stop", []) for h in g.get("hooks", []) if "stop-gate" in h.get("command", ""))
     check("Stop stop-gate timeout >= 150 s", stop_ok, "lint+tsc+testy nie mieszcza sie w 60 s")
 except Exception as e:  # noqa: BLE001
@@ -226,8 +236,9 @@ if GATES_LOG.exists():
     empty_reason = 0
     malformed = 0
     # Po rotacji (5 MB) czesc okna 7 dni jest w gates.1.jsonl — bez niego obejscia z poczatku tygodnia znikaly z raportu.
-    _rotated = GATES_LOG.with_name("gates.1.jsonl")
-    for line in (read(_rotated) + "\n" + read(GATES_LOG)).splitlines():
+    # gate-log.js keeps gates.1..gates.3 (KEEP_GENERATIONS); oldest first so the window reads in time order.
+    _rotated = "\n".join(read(GATES_LOG.with_name(f"gates.{n}.jsonl")) for n in (3, 2, 1))
+    for line in (_rotated + "\n" + read(GATES_LOG)).splitlines():
         if not line.strip():
             continue
         try:
@@ -340,7 +351,16 @@ check("claims-check: liczby w streszczeniach PG zgodne ze zrodlem", _rc_out(_c)[
 # + Fala 0 pomiaru (2026-11-01, pg-review p345f): G3/G4, rejestr wynikow recenzji, wskaznik ucieczek.
 for _t in ("test_claims_check.py", "test_pg_self_check.py", "test_pg_map.py", "test_pg_export.py",  # narzedzia pracy nad PG (2026-10-19) + export = straznik prywatnosci (r12 ops)
            "test_gate_effectiveness.py", "test_pg_escapes.py", "test_pg_outcome.js", "test_adr_review_due.js",
-           "test_outbound_observe.js", "test_outbound_health.py"):  # outbound: observe wysylki MCP (2026-11-03), log w tmpdir
+           "test_outbound_observe.js", "test_outbound_health.py",  # outbound: observe wysylki MCP (2026-11-03), log w tmpdir
+           "test_coverage_ledger.py",  # kontrakt exit 0/1/2 rejestru pokrycia (pg-review 20261107 ops-1)
+           "test_usage_loop.py",  # sekcja „Petla uzycia" (ADR-0013), fikstury w tmpdir
+           # 2026-11-15 loop 1: tests that no runner executed (code-review loop1); all use tmpdir logs/fixtures only
+           "test_gate_log_rotation.js", "test_env_ref_undeclared.js", "test_trusted_roots_list.js",
+           "test_process_map_lint.py", "test_service_role_gate.js",
+           "test_precommit_mode_only.js", "test_gate_log_sid.js",
+           # loop 5: also lints the real pg/cases.md; a data-only edit there runs no test in pg-self-check (code files only)
+           "test_pg_cases.js",
+           "test_dep_exists_pyproject.js"):  # loop 10: pure parser test, 0 network
     # test_gate_log_fala0.js poza lista: gate-log kopiuje bypass do prod gates.jsonl (p345h code-1)
     _r = sh(["node" if _t.endswith(".js") else sys.executable, str(CLAUDE / "bin" / _t)], timeout=300)
     check(f"{_t}: przypadki przechodza", _rc_out(_r)[0] == 0, (_rc_out(_r)[1].strip().splitlines() or ["brak wyniku"])[-1])
@@ -349,6 +369,23 @@ for _t in ("test_claims_check.py", "test_pg_self_check.py", "test_pg_map.py", "t
 # dostanie stare wpiecia (brak --export); na laptopie = czesc bramek nie dziala (brak --apply). Widoczne tez w zadaniu bez sesji.
 _w = sh(["node", str(CLAUDE / "bin" / "pg-wire.js"), "--check"], timeout=60)
 check("pg-wire: wpiecia hookow w settings.json = pg/settings-hooks.json", _rc_out(_w)[0] == 0, (_rc_out(_w)[1].strip().splitlines() or ["brak wyniku"])[-1])
+# 2h0. Executable bit tracked by git (2026-11-15, loop 2): with core.fileMode=false the index held 100644 for 119 shebang
+# scripts, so every fast-forward, worktree and pg-claude copy wrote them non-executable — git-hooks/pre-commit was off for
+# ~5 min after a merge (twice in one day). A shebang file in bin/, hooks/ or git-hooks/ must be 100755 in the index.
+_ls = sh(["git", "-C", str(CLAUDE), "ls-files", "-s", "--", "bin", "hooks", "git-hooks"], timeout=60)
+_not_exec = []
+for _row in _rc_out(_ls)[1].splitlines():
+    _mode, _, _rest = _row.partition(" ")
+    _path = _rest.split("\t", 1)[-1]
+    try:
+        with open(CLAUDE / _path, "rb") as _fh:
+            _shebang = _fh.read(2) == b"#!"
+    except OSError:
+        continue
+    if _shebang and _mode != "100755":
+        _not_exec.append(_path)
+check("git: skrypty z shebangiem maja w indeksie tryb 100755 (bit +x przezywa merge/worktree)", not _not_exec,
+      f"{len(_not_exec)} bez 100755, np. {', '.join(_not_exec[:3])} -> git update-index --chmod=+x <plik>")
 # 2h. Hooki gita (#!/bin/sh) musza parsowac pod POSIX sh, nie tylko pod Git Bash: na Ubuntu sh = dash, w WSL/busybox tez.
 # Blizna PREPUSH-BASHISM-DASH (2026-09-12): here-string `<<<` i tablice `x=()` wywalaly hook z rc 2 = KAZDY push/commit zablokowany
 # na Linuksie; wykryte dopiero przez CI publicznego eksportu. Bez WSL = info (CI ubuntu eksportu jest druga linia).
@@ -403,6 +440,15 @@ check("test_pg_gaps: bramki gap-analizy blokuja swoje przypadki", _rc_out(_r)[0]
 for _name in ("pg-council.js", "test_pg_council.js"):
     check(f"bin/{_name} istnieje", (CLAUDE / "bin" / _name).exists(), "narada dzialow (pg/council.md) zniknela")
 check("agent catfish + skill pg-council", (CLAUDE / "agents" / "catfish.md").exists() and (CLAUDE / "skills" / "pg-council" / "SKILL.md").exists() and (CLAUDE / "pg" / "council.md").exists())
+# Skill nie pobiera zdalnej tresci do wykonania (wetowanie skilli w CLAUDE.md; observe 2026-11-15: [warn], bez RED).
+# Pomiar przy dodaniu: 110 skilli, 0 trafien. Sam link do dokumentacji nie jest trafieniem.
+_skill_dl = re.compile(r"(curl|wget|iwr|Invoke-WebRequest)\s[^\n]*https?://|https?://[^\s)\"'`]+\.(sh|ps1)\b", re.IGNORECASE)
+_skill_files = list((CLAUDE / "skills").glob("*/SKILL.md"))
+_skill_hits = sorted(p.parent.name for p in _skill_files if _skill_dl.search(read(p)))
+if not _skill_files:
+    print("[warn] kontrola skilli: 0 plikow SKILL.md przeczytanych — nie umiem zmierzyc (to nie znaczy „czysto”)")
+if _skill_hits:
+    print(f"[warn] skille pobierajace zdalna tresc ({len(_skill_hits)}): {', '.join(_skill_hits[:10])} — przeczytaj i zdecyduj (CLAUDE.md, wetowanie skilli)")
 _r = sh(["node", str(CLAUDE / "bin" / "test_pg_council.js")], timeout=120)
 check("test_pg_council: agregacja narady (tally, sentinel, blocked, DACI)", _rc_out(_r)[0] == 0, (_rc_out(_r)[1].strip().splitlines() or ["brak wyniku"])[-1])
 # Obejscia ALLOW_* z pre-commit (okno GATES_WINDOW_DAYS) — maja byc widoczne, nie ciche (hook `pre-commit:<bramka>`, event skipped).
@@ -599,6 +645,16 @@ try:
 except Exception as e:  # noqa: BLE001
     print(f"[warn] nie zapisano logu: {e}")
 
+
+def _log_note(lines):
+    """Dopisuje linie pod wpisem tego przebiegu (wciecie = nalezy do wpisu wyzej). Blad zapisu = [warn], nie RED."""
+    try:
+        with LOG.open("a", encoding="utf-8") as f:
+            f.write("".join(f"  {text}\n" for text in lines if str(text).strip()))
+    except OSError as e:
+        print(f"[warn] nie dopisano sekcji do logu: {e}")
+
+
 print(f"GUARD-HEALTH {status} ({len(ok)} ok / {len(red)} red)")
 for r in red:
     print("RED:", r)
@@ -623,6 +679,22 @@ try:
     except (OSError, ValueError, TypeError) as e:
         print(f"[warn] nie zapisano migawki gate-effectiveness.jsonl: {e}")
     print("\n".join(ge.review_outcome_lines(ge.read_jsonl(read(GATES_LOG.parent / "review-outcomes.jsonl")))))
+    # Petla uzycia (ADR-0013): kandydaci do zmiany regul z tych samych danych; tylko informacja. Logika: hooks/usage_loop.py.
+    import usage_loop
+
+    _outcomes = usage_loop.read_jsonl(read(GATES_LOG.parent / "review-outcomes.jsonl"))
+    _ul_now = datetime.now(timezone.utc)
+    _ul_thr, _ul_problems = usage_loop.load_thresholds(read(CLAUDE / "pg" / "usage-loop.json"))
+    _ul_path = GATES_LOG.parent / "usage-loop.jsonl"
+    _ul_lines = usage_loop.report(usage_loop.read_jsonl(read(_ul_path)), _outcomes, _ge_stats, _ul_now, _ul_thr, _ul_problems)
+    print("\n".join(_ul_lines))
+    _log_note(_ul_lines)  # pod timerem stdout idzie do journala; kandydaci maja byc w pliku logu (recenzja integracji r1)
+    try:
+        usage_loop.append_snapshot(_ul_path, usage_loop.snapshot(window_events, _outcomes, _ul_now, GATES_WINDOW_DAYS))
+    except (OSError, ValueError, TypeError) as e:
+        print(f"[warn] nie zapisano migawki usage-loop.jsonl: {e}")
 except Exception as e:  # noqa: BLE001 — sekcje informacyjne: dowolna awaria pomiaru = [warn], nie zmienia RED/GREEN
-    print(f"[warn] sekcje skutecznosci bramek / wynikow recenzji: {type(e).__name__}: {e}")
+    _warn = f"[warn] sekcje skutecznosci bramek / wynikow recenzji / petli uzycia: {type(e).__name__}: {e}"
+    print(_warn)
+    _log_note([_warn])  # awaria sekcji nie zmienia RED/GREEN, ale musi byc widoczna w pliku logu, nie tylko w journalu
 sys.exit(1 if red else 0)

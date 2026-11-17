@@ -6,7 +6,7 @@ const { execFileSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { addedLinesByFile, lostLines, mergesExit } = require('./merge-integrity.js');
+const { addedLinesByFile, lostLines, mergesExit, migrationCollisions } = require('./merge-integrity.js');
 
 const CLI = path.join(__dirname, 'merge-integrity.js');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'merge-integrity-'));
@@ -168,6 +168,33 @@ it('git-hooks/pre-push: rozbity CSS w scaleniu blokuje push, ALLOW_MERGE_INTEGRI
   assert.equal(bogus.status, 0, bogus.stdout + bogus.stderr);
   assert.match(bogus.stderr, /nie udalo sie sprawdzic scalen/);
   assert.match(fs.readFileSync(path.join(TMP, 'gates.jsonl'), 'utf8'), /merge-integrity: blad narzedzia/);
+});
+
+it('migrationCollisions: ta sama wersja w dwoch plikach, z ktorych jeden przyszedl w scaleniu', () => {
+  const head = ['supabase/migrations/20260905110000_fx_sync_cron.sql', 'supabase/migrations/20260905110000_shop_core.sql',
+    'supabase/migrations/20260101000000_old_a.sql', 'supabase/migrations/20260101000000_old_b.sql', 'supabase/migrations/20260905120000_ok.sql', 'src/20260905110000.sql'];
+  const merged = new Set(['supabase/migrations/20260905110000_shop_core.sql', 'supabase/migrations/20260905120000_ok.sql']);
+  assert.deepEqual(migrationCollisions(head, merged), [{ version: '20260905110000', files: head.slice(0, 2) }]); // stara kolizja spoza scalenia i plik poza migrations/ pominiete
+  assert.deepEqual(migrationCollisions(head, new Set()), []);
+});
+
+it('CLI: dwie galezie z ta sama wersja migracji -> kolizja po scaleniu (exit 1); rozne wersje -> czysto', () => {
+  commit('stan po tescie pre-push (log bramek w drzewie)');
+  git('checkout', '-q', '-b', 'mig-a', 'base');
+  write('supabase/migrations/20260905110000_fx_sync_cron.sql', 'select 1;\n'); commit('mig a');
+  git('checkout', '-q', '-b', 'mig-b', 'base');
+  write('supabase/migrations/20260905110000_shop_core.sql', 'select 2;\n'); commit('mig b');
+  git('checkout', '-q', '-b', 'mig-c', 'base');
+  write('supabase/migrations/20260905130000_other.sql', 'select 3;\n'); commit('mig c');
+  git('checkout', '-q', '-b', 'mig-merged', 'mig-a');
+  git('merge', '-q', '--no-verify', '-m', 'merge b', 'mig-b');
+  const bad = cli('--base', 'base', '--branches', 'mig-a,mig-b', '--head', 'mig-merged');
+  assert.equal(bad.status, 1, bad.stdout + bad.stderr);
+  assert.match(bad.stdout, /Kolizja wersji migracji \(1\)[\s\S]*20260905110000: supabase\/migrations\/20260905110000_fx_sync_cron\.sql \+ supabase\/migrations\/20260905110000_shop_core\.sql/);
+  git('checkout', '-q', '-b', 'mig-clean', 'mig-a');
+  git('merge', '-q', '--no-verify', '-m', 'merge c', 'mig-c');
+  const fine = cli('--base', 'base', '--branches', 'mig-a,mig-c', '--head', 'mig-clean');
+  assert.equal(fine.status, 0, fine.stdout + fine.stderr);
 });
 
 fs.rmSync(TMP, { recursive: true, force: true });

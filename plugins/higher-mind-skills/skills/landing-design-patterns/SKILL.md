@@ -1,15 +1,6 @@
 ---
 name: landing-design-patterns
-description: >-
-  Katalog sprawdzonych „bajerów” projektowych do landingów B2B (Next.js + Tailwind 4) z gotowym
-  kodem: przycisk z wędrującym światłem po obrysie, skośne panele menu, lista 01-06 z panelem
-  (ARIA tabs), talia kart sticky, karty procesu na tle z kropek z rosnącym paskiem, hero jako
-  karuzela ekranów aplikacji z krokami procesu, pełnoszerokie pasy, ukryty e-mail z licznikiem.
-  Użyj PROAKTYWNIE gdy: budujesz albo dopieszczasz landing/stronę firmową, użytkownik mówi
-  „dodaj bajer”, „coś kreatywnego”, „jak na a B2B agency landing / kamiljan.com”, „żeby to żyło”,
-  „efekt przy przewijaniu”, „animacja przycisku”, „menu z charakterem”, „przełączanie treści”,
-  „nakładanie kart”, „tło z kropkami”. Wersja mobilna tych wzorców: skill mobile-optimization
-  (references/landing-mobile-patterns.md). NIE gdy: aplikacja/panel (nie landing).
+description: "Proven B2B landing patterns with ready code (Next.js + Tailwind 4): light-tracing button, skewed menu panels, 01-06 list with panel (ARIA tabs), sticky card deck, dotted process cards, app-screen hero carousel. Use when building or polishing a landing: dodaj bajer, żeby to żyło, jak na a B2B agency landing. Mobile: mobile-optimization. NOT for apps or panels."
 ---
 
 # Landing design patterns

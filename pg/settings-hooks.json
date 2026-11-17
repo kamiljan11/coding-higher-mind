@@ -1,6 +1,6 @@
 {
   "$comment": "Wpiecia PG z settings.json second-machinea (bin/pg-wire.js --export). Na innym komputerze: pg-wire.js --apply.",
-  "exported_at": "2026-11-03T14:06:32.401Z",
+  "exported_at": "2026-11-14T12:38:22.340Z",
   "hooks": {
     "SessionStart": [
       {
@@ -51,6 +51,16 @@
           {
             "type": "command",
             "command": "node \"~/.claude/hooks/outbound-observe.js\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "ScheduleWakeup|CronCreate|RemoteTrigger|mcp__scheduled-tasks__create_scheduled_task|mcp__scheduled-tasks__update_scheduled_task|mcp__ccd_session__start_session|mcp__ccd_session__hand_off_to_session|SendMessage|mcp__ccd_session_mgmt__send_message|mcp__ccd_session__spawn_task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"~/.claude/hooks/schedule-guard.js\"",
             "timeout": 15
           }
         ]
@@ -153,10 +163,6 @@
     "Edit(~/.bash_profile)",
     "Edit(~/.profile)",
     "Edit(~/.gitconfig)",
-    "Write(~/.bashrc)",
-    "Write(~/.bash_profile)",
-    "Write(~/.profile)",
-    "Write(~/.gitconfig)",
     "Read(~/infisical/.claude-machine-auth)"
   ]
 }

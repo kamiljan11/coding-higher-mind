@@ -74,9 +74,68 @@ function repoKey(dir) {
 // Caly prompt = fraza. Diakrytyki opcjonalne (pozwol/pozwól), wiele nazw po spacji/przecinku.
 const PHRASE_RX = /^\s*(?:pozw[oó]l|zezwalam|allow)\s+((?:ALLOW_[A-Z][A-Z_]*)(?:[\s,]+ALLOW_[A-Z][A-Z_]*)*)\s*[.!]?\s*$/i;
 
-/** Nazwy wyjatkow z promptu czlowieka albo []. */
-function namesFromPrompt(prompt) {
-  const m = PHRASE_RX.exec(String(prompt || ''));
+// Aplikacja desktop dokleja PRZED prompt czlowieka bloki <system-reminder> ("Linked sessions now", "You are operating in
+// a git worktree") — bez ich zdjecia fraza nie dziala w sesjach polaczonych (incydent 2026-11-14, client-app PR #5).
+// Zdejmujemy TYLKO pelne bloki z POCZATKU; reszta nadal musi byc w CALOSCI fraza (PHRASE_RX ^...$). Wewnatrz bloku bywa
+// tekst agenta (raport sesji pobocznej, nazwa sesji): wybicie `</system-reminder>` zostawia po frazie dalszy tekst szablonu
+// i prawdziwy znacznik zamykajacy, wiec dopasowanie pada. Inne koperty (<task-notification>) dalej blokuja.
+// ALLOWLISTA naglowkow (security-review 2026-11-14): zdejmujemy tylko notki statusu aplikacji. Blok spoza listy (np.
+// "## You are a session started from another session" = 1. wiadomosc sesji potomnej, tresc pisze agent-rodzic, albo
+// raport sesji pobocznej "The session \"…\" finished a turn") zostaje i blokuje dopasowanie — domyslnie odmowa.
+// Nowy format notki aplikacji = fraza nie dziala (bezpieczny kierunek); wtedy dopisz naglowek tutaj + przypadek w testach.
+// PIERWSZA wiadomosc sesji nigdy nie wydaje wyjatku po zdjeciu notek (security-review r2 2026-11-14): sesje potomne
+// (start_session) dostaja jako 1. prompt notke worktree/Linked + tresc pisana przez agenta-rodzica. Dlatego notki
+// wystepujace tylko na starcie sesji (worktree, scratch) nie sa na liscie, a wolajacy podaje `hasPriorTurn`.
+const LEADING_REMINDER_RX = /^\s*<system-reminder>([\s\S]*?)<\/system-reminder>/;
+const APP_NOTICE_HEADERS = [
+  'Linked sessions now',
+  "The session's working directory has changed",
+  'When this session moved',
+  'Before this session moved',
+];
+
+function stripLeadingReminders(prompt) {
+  let s = String(prompt || '');
+  for (let m = LEADING_REMINDER_RX.exec(s); m; m = LEADING_REMINDER_RX.exec(s)) {
+    const body = m[1].trimStart();
+    if (!APP_NOTICE_HEADERS.some((h) => body.startsWith(h))) break;
+    s = s.slice(m[0].length);
+  }
+  return s;
+}
+
+// Tura asystenta stoi na poczatku transkryptu — czytamy tylko glowe pliku (ops-review r3: pelny odczyt 430 MB = ~1 s
+// na prompt, > ~512 MB readFileSync rzuca i fraza cicho przestaje dzialac).
+const TRANSCRIPT_HEAD_BYTES = 1024 * 1024;
+
+/** Czy transkrypt sesji ma juz ture asystenta (= biezacy prompt nie jest 1. wiadomoscia sesji). Blad/brak = false. */
+function transcriptHasAssistantTurn(transcriptPath) {
+  let fd;
+  try {
+    fd = fs.openSync(String(transcriptPath || ''), 'r');
+    const buf = Buffer.alloc(TRANSCRIPT_HEAD_BYTES);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    return /"type"\s*:\s*"assistant"/.test(buf.toString('utf8', 0, n));
+  } catch (e) { return false; /* brak/nieczytelny transkrypt = traktuj jak 1. wiadomosc (odmowa) */ } finally {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch (e) { /* zamkniecie nie zmienia wyniku */ }
+  }
+}
+
+/**
+ * Nazwy wyjatkow z promptu czlowieka albo [].
+ * `hasPriorTurn` (funkcja): wolana TYLKO gdy po zdjeciu notek reszta jest fraza; false/brak = notki zostaja (odmowa).
+ */
+// Fraza z notkami aplikacji to ~2 KB. Dluzszy prompt = nie fraza: dopelnienie spacjami > ogona transkryptu wylaczalo
+// sprawdzenie pochodzenia (turn-origin.js czyta ogon 512 KB; pg-review security 2026-11-14 F2, PoC 600 000 spacji).
+const MAX_PHRASE_PROMPT = 16 * 1024;
+
+function namesFromPrompt(prompt, { hasPriorTurn } = {}) {
+  const raw = String(prompt || '');
+  if (raw.length > MAX_PHRASE_PROMPT) return [];
+  const stripped = stripLeadingReminders(raw);
+  let text = raw;
+  if (stripped !== raw && PHRASE_RX.test(stripped) && typeof hasPriorTurn === 'function' && hasPriorTurn()) text = stripped;
+  const m = PHRASE_RX.exec(text);
   if (!m) return [];
   return [...new Set(m[1].toUpperCase().split(/[\s,]+/).filter(Boolean))];
 }
@@ -141,11 +200,18 @@ function sweep(now) {
   }
 }
 
-function mint(sid, names, now = Date.now()) {
+/**
+ * Wyjatek z frazy. `originCheck` = { prompt_id, transcript_path } promptu, ktory go wydal: pochodzenie sprawdza
+ * pierwsze consume() (wpis promptu powstaje po hooku UserPromptSubmit, przed 1. narzedziem — lib/turn-origin.js).
+ */
+function mint(sid, names, now = Date.now(), originCheck = null) {
   // Bez session_id nie ma komu wydac wyjatku (wspolny `nosession.json` dzielilby go miedzy sesjami).
   if (!String(sid || '').trim()) throw new Error('overrides: brak session_id');
   sweep(now);
-  return withLock(sid, () => mintLocked(sid, names, now));
+  const meta = originCheck && originCheck.prompt_id && originCheck.transcript_path
+    ? { origin_check: { prompt_id: String(originCheck.prompt_id), transcript_path: String(originCheck.transcript_path) } }
+    : undefined;
+  return withLock(sid, () => mintLocked(sid, names, now, undefined, meta));
 }
 
 const RUNS_SID = 'self-approval-runs';
@@ -201,7 +267,14 @@ function mintLocked(sid, names, now, policy, meta) {
     const cur = data.grants[name];
     if (meta && meta.self_approved && valid(cur, now) && !cur.self_approved) continue;
     const p = policy || policyFor(name);
-    data.grants[name] = { expires: now + p.ttlMin * 60000, uses_left: p.uses, minted_at: new Date(now).toISOString(), ...(meta || {}) };
+    const next = { expires: now + p.ttlMin * 60000, uses_left: p.uses, minted_at: new Date(now).toISOString(), ...(meta || {}) };
+    // Grant czekajacy na sprawdzenie pochodzenia nie niszczy zywego, juz pewnego grantu (data-review r8): poprzedni
+    // (origin_verified / bez origin_check / B) wraca, gdy consume() anuluje nowy. Jeden poziom wstecz, bez lancucha:
+    // nadpisywany grant sam czekajacy na sprawdzenie przekazuje dalej SWOJ pewny prev (data-review r9, dwa minty przed 1. uzyciem).
+    if (meta && meta.origin_check && valid(cur, now)) {
+      if (!needsOriginCheck(cur)) { const { prev, ...keep } = cur; next.prev = keep; } else if (valid(cur.prev, now)) next.prev = cur.prev;
+    }
+    data.grants[name] = next;
   }
   write(sid, data);
   return names.map((n) => ({ name: n, ...data.grants[n] }));
@@ -218,14 +291,100 @@ function has(sid, name, now = Date.now()) {
   return valid(grant, now) && !grant.self_approved;
 }
 
-/** Zuzywa jedno uzycie. true = wyjatek byl wazny. */
+// Grant z frazy czekajacy na sprawdzenie pochodzenia promptu (luka 2026-11-14: 1. prompt sesji potomnej i inne prompty
+// pisane przez agenta). Granty bez origin_check (B, starsze, prompt bez prompt_id) — jak dotad.
+const needsOriginCheck = (g) => !!(g && g.origin_check && !g.origin_verified && !g.self_approved);
+
+/**
+ * Pochodzenie promptu, ktory wydal grant: 'human' albo powod odmowy. Brak wpisu = odmowa TEGO uzycia bez anulowania
+ * (`pending`): wpis moze jeszcze nie lezec na dysku, gdy consume() wola rownolegly proces (subagent w tle) miedzy mintem
+ * a zapisem wpisu (data-review r7) — „jeszcze nie wiem" != „nie od uzytkownika". Nastepne uzycie sprawdza ponownie.
+ */
+function originVerdict(grant, name) {
+  const turnOrigin = require('./turn-origin');
+  const check = grant.origin_check;
+  // Werdykt z wpisu SAMEJ frazy (tez wpisanej w trakcie tury — kolejka CC), nie z dowolnego wpisu tury (2026-11-14 14:40).
+  const isPhrase = (text) => namesFromPrompt(text, { hasPriorTurn: () => true }).includes(name);
+  const o = turnOrigin.originAt(check.transcript_path, check.prompt_id, undefined, undefined, { isPhrase, mintedAt: grant.minted_at });
+  if (!o) return { ok: false, pending: true, why: 'brak wpisu promptu frazy w transkrypcie' };
+  if (turnOrigin.isNonHuman(o)) return { ok: false, why: `turnOrigin=${o.turnOrigin}${o.isMeta ? ', isMeta' : ''} (prompt nie od uzytkownika)` };
+  return { ok: true };
+}
+
+function noteOrigin(sid, name, verdict) {
+  try {
+    require('./gate-log').log({ hook: 'overrides', event: verdict.ok ? 'bypass' : 'blocked',
+      reason: verdict.ok ? `${name}: pochodzenie frazy potwierdzone (human)`
+        : `${name} ${verdict.pending ? 'odmowa uzycia (bez anulowania)' : 'anulowany przy uzyciu'}: ${verdict.why}`, target: cleanSid(sid) });
+  } catch (e) { /* log nie zmienia decyzji */ }
+  if (verdict.pending) {
+    process.stderr.write(`[PG] Wyjatek ${name}: ${verdict.why} — tego uzycia nie przepuszczam, sprobuj ponownie za chwile. ` +
+      `Trwa to dluzej = transkrypt przyciety/zmieniony format CC: niech uzytkownik wpisze fraze ponownie.\n`);
+  } else if (!verdict.ok) {
+    process.stderr.write(`[PG] Wyjatek ${name} ANULOWANY: ${verdict.why}. Wyjatek wydaje tylko wiadomosc wpisana przez uzytkownika — ` +
+      `jesli to byl uzytkownik, niech wpisze fraze ponownie.\n`);
+  }
+}
+
+/** Werdykt pochodzenia na grancie (pod blokada, `data` = swiezy odczyt). true = grant potwierdzony (human). */
+function applyVerdict(sid, data, name, verdict, now) {
+  const grant = data.grants[name];
+  noteOrigin(sid, name, verdict);
+  if (verdict.pending) return false; // bez zapisu: grant czeka na wpis promptu
+  if (!verdict.ok) {
+    // Poprzedni pewny grant wraca (data-review r8); TO uzycie i tak odmowione — przyszlo z nadpisania nie od uzytkownika.
+    if (grant.prev && valid(grant.prev, now)) data.grants[name] = { ...grant.prev, restored_after: verdict.why };
+    else { grant.uses_left = 0; grant.revoked = verdict.why; }
+    write(sid, data);
+    return false;
+  }
+  grant.origin_verified = true;
+  write(sid, data);
+  return true;
+}
+
+/**
+ * Rozstrzyga pochodzenie WSZYSTKICH grantow czekajacych na sprawdzenie, bez zuzycia (security-review r8-r10).
+ * bash-guard/edit-guard wolaja to PRZED ocena kazdego narzedzia zapisujacego: wpis promptu lezy w transkrypcie juz
+ * przed 1. narzedziem tury, wiec werdykt zapada, zanim agent mogl go przepisac — ochrona sciezek transkryptu
+ * (lista komend w bash-rules) zostaje tylko druga warstwa. Ten sam werdykt co consume(); blad = nic nie zmienia.
+ */
+function settlePending(sid, now = Date.now()) {
+  if (!String(sid || '').trim()) return;
+  try {
+    const grants = read(sid).grants || {};
+    const todo = Object.keys(grants).filter((n) => needsOriginCheck(grants[n]) && valid(grants[n], now))
+      .map((n) => ({ name: n, pid: grants[n].origin_check.prompt_id, verdict: originVerdict(grants[n], n) }))
+      // „Jeszcze nie wiem" nie loguje sie przy kazdym narzedziu (code-review r11) — zglasza je dopiero consume().
+      .filter((t) => !t.verdict.pending);
+    if (!todo.length) return;
+    withLock(sid, () => {
+      const data = read(sid);
+      for (const t of todo) {
+        const g = data.grants[t.name];
+        if (needsOriginCheck(g) && valid(g, now) && g.origin_check.prompt_id === t.pid) applyVerdict(sid, data, t.name, t.verdict, now);
+      }
+    });
+  } catch (e) { /* fail-closed: grant dalej czeka, consume() sprawdzi sam */ }
+}
+
+/** Zuzywa jedno uzycie. true = wyjatek byl wazny (i, dla grantu z frazy, prompt frazy napisal czlowiek). */
 function consume(sid, name, now = Date.now()) {
   if (!String(sid || '').trim()) return false;
   try {
+    // Skan transkryptu (do 16 MB) POZA blokada — rownolegle hooki nie czekaja na odczyt pliku.
+    const pending = read(sid).grants[name];
+    const verdict = needsOriginCheck(pending) && valid(pending, now) ? originVerdict(pending, name) : null;
     return withLock(sid, () => {
       const data = read(sid);
       const grant = data.grants[name];
       if (!valid(grant, now)) return false;
+      if (needsOriginCheck(grant)) {
+        // Werdykt dotyczy TEGO promptu; grant nadpisany w miedzyczasie nowa fraza = sprawdzimy przy nastepnym uzyciu.
+        const same = verdict && pending.origin_check.prompt_id === grant.origin_check.prompt_id;
+        if (!same) return false;
+        if (!applyVerdict(sid, data, name, verdict, now)) return false;
+      }
       grant.uses_left = Number(grant.uses_left) - 1;
       write(sid, data);
       return true;
@@ -233,5 +392,5 @@ function consume(sid, name, now = Date.now()) {
   } catch (e) { return false; }
 }
 
-module.exports = { namesFromPrompt, mint, mintSelf, has, consume, read, overridesDir, POLICY, PHRASE_RX, cleanSid, CONTROL_PLANE,
-  SELF_SERVICE, SELF_APPROVABLE, tierOf, sourceOf, repoKey, repoRoot, KILL_SWITCH };
+module.exports = { namesFromPrompt, stripLeadingReminders, transcriptHasAssistantTurn, mint, mintSelf, has, consume, settlePending, read, overridesDir, POLICY, PHRASE_RX, cleanSid, CONTROL_PLANE,
+  SELF_SERVICE, SELF_APPROVABLE, tierOf, sourceOf, repoKey, repoRoot, KILL_SWITCH, MAX_PHRASE_PROMPT };

@@ -367,7 +367,15 @@ function checkDeno(files, root, ctx) {
   // deno check laduje importy (`import "/dev/zero"` = ~3 GB/s do timeoutu; prlimit --as nie dziala na V8) — obcy klon = skip
   // (pg-review security r6). W exec-trust importy wlasnego repo; bez --cached-only (pobranie typow, nie wykonanie).
   if (!trustedForExec(root)) return { skip: 'deno: repo poza pg/trusted-roots.txt (importy bez limitu pamieci)' };
-  const r = exec('deno', ['check', '--no-lock', '--quiet', '--', ...files], root, ctx, { DENO_NO_UPDATE_CHECK: '1', NO_COLOR: '1' });
+  // --node-modules-dir=none jak CI Supabase (workshop-app quality.yml): repo z package.json i node_modules (front npm)
+  // przelacza Deno 2 w tryb `manual` — kazdy import npm: z inna wersja niz w node_modules = falszywa blokada KAZDEGO pliku
+  // edge fn (2026-11-14, realtime-js 2.110 vs 2.118). Repo, ktore samo ustawia nodeModulesDir w deno.json, decyduje samo.
+  const ownMode = ['deno.json', 'deno.jsonc'].some((n) => {
+    // Klucz na poczatku linii: zakomentowany wpis w deno.jsonc (`// "nodeModulesDir": ...`) nie liczy sie.
+    try { return /^\s*"nodeModulesDir"\s*:/m.test(fs.readFileSync(path.join(root, n), 'utf8')); } catch { return false; } // brak pliku = domyslnie flaga
+  });
+  const args = ['check', '--no-lock', '--quiet', ...(ownMode ? [] : ['--node-modules-dir=none']), '--', ...files];
+  const r = exec('deno', args, root, ctx, { DENO_NO_UPDATE_CHECK: '1', NO_COLOR: '1' });
   if (r.missing) return { skip: r.why };
   if (r.status === 0) return null;
   if (/error sending request|failed to fetch|dns error|Import '[^']+' failed|Module not found "(https?|npm|jsr):|Could not find npm package|not found in cache|--cached-only/i.test(r.out)) {

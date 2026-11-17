@@ -41,6 +41,9 @@ Bez liczby nie da się sprawdzić, czy decyzja zadziałała. Wtedy atrybut trafi
 | **Użyteczność / a11y** | Czy persona z PRD-lite zrobi zadanie w swoim kontekście? | czas zadania, błędy, WCAG | ux-reviewer, ścieżki krytyczne, mobile-first | bezpieczeństwo → 5 kroków logowania na warsztacie |
 | **Zgodność** (RODO, KSeF, e-ID) | Jakie prawo obowiązuje i co grozi? | lista wymogów odhaczona dowodem | region danych UE, KSeF, PRIVACY.md | „dodamy później” (to drzwi jednokierunkowe) |
 | **Przenośność / lock-in** | Ile kosztuje zmiana dostawcy? | dni pracy na migrację | standardy (Postgres, S3 API), adaptery na granicy | perfekcja → abstrakcja nad każdym SDK „na wszelki wypadek” |
+| **Prostota** (simplicity) | Czy obcy senior przejmie repo w 1 dzień? | liczba deployable'i, języków, magazynów i usług zewnętrznych; czas onboardingu | jeden kwant, nudny stack, mniej ruchomych części (`style-architektury.md`) | zmienialność → abstrakcje i warstwy „dla elastyczności” |
+| **Ewolucyjność** (evolvability) | Ile kosztuje zmiana *kształtu* systemu (nowy styl, wydzielenie usługi, nowy klient z innym zachowaniem), a nie pojedynczej funkcji? | dni na wydzielenie modułu; czy granice modułów przechodzą `module-boundaries.js` | granice domenowe od dnia 0, właściciele tabel, ADR z sygnałem powrotu | zmienialność (koszt typowej zmiany) → mikroserwisy „żeby łatwo ewoluować” |
+| **Interoperacyjność** | Czy obcy system (ERP klienta, KSeF, bank, partner) wymieni z nami dane bez naszej przeróbki? | liczba integracji bez kodu per partner; zgodność ze standardem (OpenAPI, webhooki, CSV) | kontrakt API + webhooki wychodzące (`04 › Kontrakt API i granice`), adapter na granicy | prostota → własna szyna (ESB) lub n8n jako „środek wszystkiego” |
 
 ## Typowe konflikty (tu ranking z B.0 rozstrzyga)
 - **Wydajność ↔ spójność:** cache przyspiesza, ale pokazuje stare dane. Decyzja per przepływ: płatności i uprawnienia → C, katalog → A.

@@ -117,6 +117,22 @@ it('deno: blad typu w edge function = blokada', ['deno'], () => {
   assert.equal(fs.existsSync(path.join(TMP, 'deno', 'supabase', 'functions', 'x', 'deno.lock')), false, 'hook nie moze pisac deno.lock');
 });
 
+it('deno: repo z package.json + node_modules (front npm) nie blokuje edge fn falszywym brakiem paczki (2026-11-14)', ['deno'], () => {
+  write('deno-nm/package.json', '{"name":"x","dependencies":{"@supabase/realtime-js":"2.110.0"}}\n');
+  write('deno-nm/node_modules/@supabase/realtime-js/package.json', '{"name":"@supabase/realtime-js","version":"2.110.0"}\n');
+  const r = check(write('deno-nm/supabase/functions/x/index.ts', 'import type { RealtimeClient } from "npm:@supabase/realtime-js@2.118.0";\nexport type R = RealtimeClient;\n'));
+  // Bez sieci deno moze nie pobrac paczki = skip; nigdy blokada "in the node_modules directory".
+  assert.equal(r.result, null);
+});
+
+it('deno: repo z wlasnym nodeModulesDir w deno.json decyduje samo (flaga hooka nie nadpisuje)', ['deno'], () => {
+  write('deno-own/package.json', '{"name":"x","dependencies":{"@supabase/realtime-js":"2.110.0"}}\n');
+  write('deno-own/node_modules/@supabase/realtime-js/package.json', '{"name":"@supabase/realtime-js","version":"2.110.0"}\n');
+  write('deno-own/deno.json', '{\n  "nodeModulesDir": "manual"\n}\n');
+  const r = check(write('deno-own/supabase/functions/x/index.ts', 'import type { RealtimeClient } from "npm:@supabase/realtime-js@2.118.0";\nexport type R = RealtimeClient;\n'));
+  assert.match(r.result ? r.result.out : '', /node_modules directory/);
+});
+
 it('php: blad skladni = blokada (brak php = skip w kodzie, nie blokada)', [], () => {
   const r = check(write('php/a.php', '<?php\necho "x"\n'));
   if (has('php')) assert.match(r.result.out, /Parse error|syntax error/i);

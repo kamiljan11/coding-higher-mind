@@ -41,3 +41,5 @@ do blokady wg `pg/GLOSSARY.md` › Jak dodać bramkę; (b) `would_block` SEKRET 
 (szum); (c) RED błędów narzędzia → naprawa narzędzia, nie wyłączenie. Przegląd razem z ADR-0007: 2026-11-12.
 
 **Aktualizacja 2026-10-24 (1 ADR = 1 decyzja):** ten ADR to PAKIET 3 decyzji z jednej retro, spisany przed regula z szablonu (`templates/repo/docs/adr/0000-template.md`). Nie rozbijamy go wstecz (historia i odsylacze zostaja). Zmiana albo wycofanie ktoregokolwiek mechanizmu = NOWY ADR z linia `Zastepuje: ADR-0008 › <mechanizm>`, a tu dopisek `zastapione czesciowo przez ADR-XXXX`.
+
+**Wyjatek 2026-11-14 (observe-first nie zastosowane, bez zmiany tego ADR):** `hooks/schedule-guard.js` startuje od razu jako blokada. Powod: luka w samej bramce wyjatkow C (agent wydaje sobie `pozwol ALLOW_X` przez prompt budzika), potwierdzona w transkrypcie — sygnal (a) „incydent" spelniony w rdzeniu PG, a falszywy alarm kosztuje tylko przeformulowanie promptu. Koszt cykliczny: nowe narzedzie budzika = dopisac do `TOOLS` w hooku (guard_health pilnuje zgodnosci z settings.json). Uzasadnienie: `pg/cases.md` › SELF-MINT-VIA-SCHEDULED-PROMPT.

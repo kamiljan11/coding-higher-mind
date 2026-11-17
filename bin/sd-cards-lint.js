@@ -72,7 +72,8 @@ function lint(dir) {
     cardsByNum[f.slice(0, 2)] = cards.map((c) => c.title);
     for (const c of cards) for (const e of checkCardSections(c)) errors.push(`${f}:${c.line} [${c.title}] ${e}`);
   }
-  const refFiles = files.concat(['README.md', 'review-checklists.md', 'capacity.md'].filter((f) => fs.existsSync(path.join(dir, f))));
+  // Odsylacze sprawdzamy w KAZDYM pliku .md katalogu (karty + slowniki: README, capacity, atrybuty-jakosci, style-architektury...).
+  const refFiles = fs.readdirSync(dir).filter((f) => f.endsWith('.md')).sort();
   for (const f of refFiles) {
     for (const r of extractRefs(fs.readFileSync(path.join(dir, f), 'utf8'))) {
       if (!resolveRef(r, cardsByNum)) errors.push(`${f}:${r.line} odsylacz "${r.num} › ${r.name}" nie wskazuje istniejacej karty`);

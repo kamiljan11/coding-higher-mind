@@ -70,6 +70,13 @@ const CONTROL_FILES_RX = [
   // + wylacznik samozatwierdzen (ops-review 2026-10-02: agent kasujacy plik sam przywracalby sobie poziomy A/B).
   new RegExp('^' + escapeRx(C) + '/pg/(trusted-roots\\.txt|private-repos\\.txt|deny-baseline\\.json|settings-hooks\\.json|self-approval\\.off)$'),
   new RegExp('^' + escapeRx(C) + '/logs/gates(\\.\\d+)?\\.jsonl$'),
+  // Transkrypty sesji = kotwica pochodzenia frazy przy uzyciu wyjatku (overrides.consume -> turn-origin.originAt).
+  // security-review r6 (2026-11-14): agent przepisujacy wlasny transkrypt (sed -i / Write) usuwalby wpis host_synthetic
+  // i zostawial podrobiony `turnOrigin:"human"`. Pisze je tylko Claude Code (poza hookami); odczyt wolny.
+  // r10: takze rodzenstwo `<sid>.jsonl.gz` / `.jsonl.bak` — podmiana przez archiwum i rozpakowanie na miejsce.
+  new RegExp('^' + escapeRx(C) + '/projects/.+\\.jsonl(\\.[^/]+)?$'),
+  // r7: podmiana calego katalogu projektu (mv/rm/ln katalogu z transkryptami) — sam katalog projects i projects/<slug>.
+  new RegExp('^' + escapeRx(C) + '/projects(/[^/]+)?$'),
   new RegExp('^' + escapeRx(H) + '/\\.(gitconfig|bashrc|bash_profile|profile|zshrc|zprofile)$'),
   /\/documents\/(windows)?powershell\/[^/]*profile\.ps1$/,
   /\/\.git\/(config|hooks\/.*)$/,          // lokalny core.hooksPath / podmienione hooki repo
