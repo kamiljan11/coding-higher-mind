@@ -102,6 +102,7 @@ check("dwa bypassy w odstepie 10 s to dwa zdarzenia", s["obejscie_bez_blokady"] 
 
 # 5. filtry wejscia
 check("origin=test i origin=tmp wykluczone", ge([blocked(0, "SECRET", origin="test"), blocked(1, "SECRET", origin="tmp"), bypass(2, "ALLOW_SECRET=1", origin="test")]) == {})
+check("origin=manual (guard_health probe) excluded", ge([blocked(0, "SECRET", origin="manual")]) == {})
 s = st([blocked(0, "SECRET", origin="agent"), blocked(1, "PII", origin="human"), blocked(2, "MSG")], "SECRET")
 check("origin agent/human i brak pola origin liczone", s["incydenty"] == 1 and st([blocked(2, "MSG")], "MSG")["incydenty"] == 1 and st([blocked(1, "PII", origin="human")], "PII")["incydenty"] == 1)
 other = [{"ts": ts(0), "hook": "bash-guard", "event": "blocked", "reason": "x", "target": "/repo/a", "gate": "SECRET"},

@@ -216,6 +216,18 @@ function gitParts(cmd) {
   return { sub, args, cwdOpt, configs, extraDirs };
 }
 
+// Audit shape of a git command for gates.jsonl: `git <sub> <flags>` without values, paths, remotes or refs
+// (`--push-option=x` -> `--push-option`, `+main` -> `+<ref>`). Short clusters capped at 3 letters so an attached
+// value (`-mMessage`) is dropped, not logged. Non-git command = null (the log keeps no command text, it may carry secrets).
+function gitShape(cmd) {
+  const g = cmd ? gitParts(cmd) : null;
+  if (!g) return null;
+  const flags = [...new Set(g.args.map((a) => (/^\+/.test(a) ? '+<ref>' : String(a).split('=')[0]))
+    .filter((a) => a === '+<ref>' || /^-[A-Za-z]{1,3}$/.test(a) || /^--[a-z][a-z-]{1,30}$/.test(a)))].slice(0, 8);
+  const sub = /^[a-z][a-z-]{0,20}$/.test(g.sub) ? g.sub : '?';
+  return ['git', sub, ...flags].join(' ').slice(0, 80);
+}
+
 // Argumenty git commit, ktore biora wartosc (wartosc nie jest flaga): -m "msg -n" nie moze udawac --no-verify.
 const COMMIT_VALUE_OPTS = /^(-m|-F|-C|-c|-t|--message|--file|--author|--date|--template|--reuse-message|--reedit-message|--fixup|--squash|--trailer|--cleanup)$/;
 function commitFlags(args) {
@@ -1230,13 +1242,21 @@ function evaluate(raw, ctx) {
     if (rule.exemptSearch && !parsed.overflow && onlySearch(parsed)) continue; // grep PG_GATE_LOG = szukanie, nie ustawienie
     const legacyHit = !!(rule.legacy && rule.legacy(rule.fullText ? text : code, nq, { cwd: vcwd }));
     let parsedHit = false;
+    let hitCmd = null;
     if (!parsed.overflow) {
-      if (rule.parsed) parsedHit = withCwd.some(({ cmd, cwd, known, piped, env: vars }) => rule.parsed(cmd, Object.assign({}, c, { cwd, cwdKnown: known, piped, env: vars, rmOnlyChain })));
+      if (rule.parsed) {
+        const w = withCwd.find(({ cmd, cwd, known, piped, env: vars }) => rule.parsed(cmd, Object.assign({}, c, { cwd, cwdKnown: known, piped, env: vars, rmOnlyChain })));
+        parsedHit = !!w;
+        hitCmd = w ? w.cmd : null;
+      }
       if (!parsedHit && rule.pipeline) parsedHit = [...byPipeline.values()].some((cmds) => cmds.length > 1 && rule.pipeline(cmds, Object.assign({}, c, { cwd: vcwd, env })));
     }
-    if (legacyHit) blocks.push({ id: rule.id, esc: rule.esc, why: rule.why, layer: 'legacy' });
+    // Legacy layer has no command object: best guess = first git command of the chain (shape only, see gitShape).
+    const shape = gitShape(hitCmd || (legacyHit ? (withCwd.find(({ cmd }) => cmd.prog === 'git') || {}).cmd : null));
+    const extra = shape ? { detail: shape } : {};
+    if (legacyHit) blocks.push(Object.assign({ id: rule.id, esc: rule.esc, why: rule.why, layer: 'legacy' }, extra));
     else if (parsedHit && rule.mode === 'observe') observes.push({ id: rule.id, why: rule.why });
-    else if (parsedHit) blocks.push({ id: rule.id, esc: rule.esc, why: rule.why, layer: 'parser' });
+    else if (parsedHit) blocks.push(Object.assign({ id: rule.id, esc: rule.esc, why: rule.why, layer: 'parser' }, extra));
   }
   if (parsed.overflow && !c.disabled.has('unparseable')) {
     blocks.push({ id: 'unparseable', esc: 'ALLOW_UNPARSEABLE', layer: 'parser', why: `Komendy nie da sie bezpiecznie przeczytac (${parsed.notes.join(', ')}). Rozbij ja na mniejsze albo zapisz skrypt do pliku (Write) i uruchom plik.` });

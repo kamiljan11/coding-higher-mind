@@ -62,6 +62,8 @@ events = [ev(1, "bash-guard", "blocked", "rule:rm-rf"), ev(2, "bash-guard", "wou
 snap = ul.snapshot(events, [], NOW)
 check("migawka: odpalenia w oknie 7 dni bez origin test, zle wpisy pominiete",
       snap["rules"] == {"bash-guard|rule:rm-rf": 2} and snap["events"] == 3 and snap["active_days"] == 2, json.dumps(snap))
+snap_m = ul.snapshot([ev(1, "bash-guard", "blocked", "rule:force-push", origin="manual")], [], NOW)
+check("migawka: origin manual (guard_health probe) skipped", snap_m["rules"] == {}, json.dumps(snap_m))
 
 tmp = tempfile.mkdtemp(prefix="pg-usage-loop-")
 _TMPS.append(tmp)

@@ -53,7 +53,7 @@ def gate_effectiveness(events):
     Algorytm: design §11.3 (incydent = (hook, gate, target) z oknem 30 min; bypass ALLOW_X=v konsumuje najstarszy otwarty incydent)."""
     evs = []
     for e in events:
-        if not isinstance(e, dict) or e.get("hook") not in GE_HOOKS or e.get("origin") in ("test", "tmp"):
+        if not isinstance(e, dict) or e.get("hook") not in GE_HOOKS or e.get("origin") in ("test", "tmp", "manual"):
             continue
         t = _ge_ts(e)
         if t is not None:
