@@ -23,7 +23,7 @@ from itertools import pairwise
 from pathlib import Path
 
 FIRE_EVENTS = ("blocked", "would_block")
-SKIP_ORIGINS = ("test", "tmp")
+SKIP_ORIGINS = ("test", "tmp", "manual")  # manual = hook run by hand (guard_health probe), gate-log.js
 BAD_OUTCOMES = ("dropped:false_positive", "verifier_dropped")
 DEFAULTS = {
     "dead_weeks": 6,

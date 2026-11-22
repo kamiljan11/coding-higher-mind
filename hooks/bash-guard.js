@@ -24,7 +24,10 @@ try {
 } catch (e) {
   lib = { error: String(e && e.message || e).slice(0, 160) };
 }
-const log = (entry) => { try { (lib.gateLog || require('./lib/gate-log')).log(entry); } catch (e) { /* bez telemetrii */ } };
+// Claude Code always sends hook_event_name (logs/hook-input-keys.json); stdin without it = run by hand (guard_health probe,
+// tests piped from a session) -> gate-log labels it origin=manual instead of counting it as a real block.
+let MANUAL = false;
+const log = (entry) => { try { (lib.gateLog || require('./lib/gate-log')).log(MANUAL ? Object.assign({}, entry, { manual: true }) : entry); } catch (e) { /* bez telemetrii */ } };
 
 const HOOK = 'bash-guard';
 // desktop-commander uruchamia powloke z pominieciem matchera Bash (design review 2026-09-26) — mapujemy jego pola.
@@ -43,6 +46,7 @@ const OBSERVE_FIELDS = { 'mcp__terminal__run_in_terminal': 'command' };
 function main() {
   let input = {};
   try { input = JSON.parse(fs.readFileSync(0, 'utf8').replace(/^﻿/, '') || '{}'); } catch (e) { return 0; }
+  MANUAL = !input.hook_event_name;
   const tool = String(input.tool_name || 'Bash');
   const observeOnly = Object.prototype.hasOwnProperty.call(OBSERVE_FIELDS, tool);
   const field = TOOL_FIELDS[tool] || OBSERVE_FIELDS[tool];
@@ -87,7 +91,10 @@ function main() {
   const blocks = result.blocks.filter((b) => !(b.esc && granted.includes(b.esc)));
   if (blocks.length) {
     const b = blocks[0];
-    log({ hook: HOOK, event: 'blocked', reason: `rule:${blocks.map((x) => x.id).join(',')}`, target: input.cwd || '' });
+    // detail = shape of the blocked git command (subcommand + flags, no values/paths), so a block can be audited later
+    // without logging the command itself (it may carry secrets/PII). Non-git rules: no detail.
+    const detail = blocks.map((x) => x.detail).find(Boolean);
+    log(Object.assign({ hook: HOOK, event: 'blocked', reason: `rule:${blocks.map((x) => x.id).join(',')}`, target: input.cwd || '' }, detail ? { detail } : {}));
     const escape = b.esc ? ` ${howToGet(b.esc)}` : ' Brak wyjatku dla tej reguly.';
     const more = blocks.length > 1 ? ` (tez: ${blocks.slice(1).map((x) => x.id).join(', ')})` : '';
     const en = ((lib && lib.whyEn) || {})[b.id];

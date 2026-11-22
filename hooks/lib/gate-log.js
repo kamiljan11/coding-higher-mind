@@ -49,11 +49,17 @@ function originOf(target) {
 // entry: { hook, event, reason, target, gate? }. event: ran | skipped | blocked | bypass (swiadomy wyjatek, #5)
 // | would_block (regula w trybie observe, #20). `origin`/`ep` dopisywane PO polach wpisu: testy dopasowuja regexem
 // sasiedztwo `"hook":..,"event":..,"reason":..` (test_module_boundaries.js:206,305), wiec nic nie wchodzi miedzy nie.
+// `manual: true` from the caller = the hook was run by hand (stdin without hook_event_name: guard_health liveness probe,
+// `echo '{...}' | node hooks/bash-guard.js` in a session). Those runs were counted as agent/human blocks (2026-11-21:
+// 23 force-push `blocked` in 7 days, 1 of them a real agent command). A `bypass` keeps its real origin: an exception
+// consumed by hand is still an exception.
 function log(entry) {
   try {
     fs.mkdirSync(LOG_DIR, { recursive: true });
     rotateIfLarge();
-    const extra = { origin: originOf(entry && entry.target) };
+    const manual = !!(entry && entry.manual);
+    if (entry && 'manual' in entry) { entry = Object.assign({}, entry); delete entry.manual; }
+    const extra = { origin: manual && entry.event !== 'bypass' ? 'manual' : originOf(entry && entry.target) };
     if (process.env.CLAUDE_CODE_ENTRYPOINT) extra.ep = process.env.CLAUDE_CODE_ENTRYPOINT;
     // Session attribution for cost-per-session measurement (loop pass 4: 99.4 % of events had no sid).
     // An explicit entry.sid (prompt-guard) wins; the env value is only a fallback.

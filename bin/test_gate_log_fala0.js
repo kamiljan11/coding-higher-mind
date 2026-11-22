@@ -136,6 +136,32 @@ for (const [rc, want] of [[0, 0], [3, 1]]) {
     r.status === want && (want ? b.length === 1 && b[0].gate === 'HUSKY' : b.length === 0), 'exit=' + r.status + ' ' + JSON.stringify(b) + ' ' + (r.stderr || '').slice(0, 200));
 }
 
+// ---------- bash-guard: manual runs (no hook_event_name) = origin manual; blocked git command shape in `detail` ----------
+// 2026-11-21: the guard_health probe (`git push --force` piped into bash-guard) was logged as human/agent blocks.
+const BASH_GUARD = path.join(ROOT, 'hooks', 'bash-guard.js');
+const guard = (command, real) => {
+  resetLog();
+  const input = Object.assign({ tool_name: 'Bash', tool_input: { command }, cwd: '/srv/repo' }, real ? { hook_event_name: 'PreToolUse', session_id: 'fala0-test' } : {});
+  const res = spawnSync(process.execPath, [BASH_GUARD], { input: JSON.stringify(input), env: baseEnv(), encoding: 'utf8' });
+  return { status: res.status, entry: blockedOf('bash-guard')[0] || {} };
+};
+let g = guard('git push --force origin main', false);
+check('bash-guard: manual run still blocks (exit 2)', g.status === 2, 'exit=' + g.status);
+check('bash-guard: manual run => origin=manual, no `manual` key left', g.entry.origin === 'manual' && !('manual' in g.entry), JSON.stringify(g.entry));
+check('bash-guard: detail = git push --force (no remote/branch)', g.entry.detail === 'git push --force', JSON.stringify(g.entry));
+g = guard('git push --force origin main', true);
+check('bash-guard: real hook input => origin not manual', g.status === 2 && g.entry.origin === 'test', JSON.stringify(g.entry));
+g = guard('git push --push-option=tok-s3cr3t origin +feat/x', true);
+check('bash-guard: detail drops option values and refs', g.entry.detail === 'git push --push-option +<ref>' && !/s3cr3t|feat|origin/.test(JSON.stringify(g.entry.detail)), JSON.stringify(g.entry));
+g = guard('git commit -mFix --no-verify', true);
+check('bash-guard: attached short value (-mFix) not logged', g.entry.detail === 'git commit --no-verify', JSON.stringify(g.entry));
+g = guard('rm -rf src', true);
+check('bash-guard: non-git block => no detail', g.status === 2 && !('detail' in g.entry), JSON.stringify(g.entry));
+resetLog();
+r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(GATE_LOG_JS)}).log({hook:'bash-guard',event:'bypass',reason:'ALLOW_FORCE',target:'/srv/repo',manual:true})`], { env: baseEnv(), encoding: 'utf8' });
+e = readLog()[0] || {};
+check('gate-log: bypass keeps real origin even when manual', e.origin === 'test' && !('manual' in e), JSON.stringify(e));
+
 // Statycznie, cala klasa bledu: kazde `exit 1` w trzech hookach ma wlasna nazwe bramki tuz przed soba,
 // a nazwa nie wisi na golym `||`/`&&` (wtedy `; exit 1` wykonuje sie bezwarunkowo).
 for (const name of ['pre-commit', 'pre-push', 'commit-msg']) {

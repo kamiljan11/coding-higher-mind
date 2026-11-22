@@ -154,6 +154,7 @@ check("prompt-guard.js emituje [PROMPT-GUARD]", "[PROMPT-GUARD]" in out, "brak n
 check("prompt-guard.js emituje 7O/7C", "7O." in out and "7C." in out, "brak regul senior/caveman")
 
 # 2b. bash-guard blokuje force-push (exit 2) i przepuszcza zwykly commit (exit 0)
+# Stdin celowo BEZ hook_event_name: gate-log zapisuje te sondy jako origin=manual, wiec nie licza sie jako prawdziwe blokady (2026-11-21).
 rc, out = sh(["node", str(CLAUDE / "hooks" / "bash-guard.js")], stdin='{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}')
 check("bash-guard.js blokuje force-push", rc == 2, f"rc={rc} {out[:80]}")
 rc, out = sh(["node", str(CLAUDE / "hooks" / "bash-guard.js")], stdin='{"tool_name":"Bash","tool_input":{"command":"git commit -m \\"ok\\""}}')
